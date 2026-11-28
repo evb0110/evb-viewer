@@ -70,10 +70,13 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
     open,
     stat,
     getAvailableScratchBytes: readAvailableScratchBytes,
-    resolveRasterAdmissionPolicy: (options) => ({
-        ...resolveScanCleanupPreviewRasterAdmissionPolicy(mainJobBroker.getSnapshot().capacity, options),
-        totalRamBytes: getHostResourceProfileSnapshot().totalRamBytes,
-    }),
+    resolveRasterAdmissionPolicy: (options) => {
+        const profile = getHostResourceProfileSnapshot();
+        return {
+            ...resolveScanCleanupPreviewRasterAdmissionPolicy(mainJobBroker.getSnapshot().capacity, options, profile.logicalCpus),
+            totalRamBytes: profile.totalRamBytes,
+        };
+    },
     getPageCount: getPdfPageCount,
     getPageSizeStore: createPdfPageSizeStore,
     publishRaster: atomicReplace,
@@ -169,12 +172,12 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
                 kind: 'scan-cleanup-detect-all',
                 priority: 'user',
                 resources: {
-                    cpuTokens: rasterPolicy.rasterConcurrency,
+                    cpuTokens: rasterPolicy.cpuTokens ?? rasterPolicy.rasterConcurrency,
                     estimatedResidentBytes:
                         rasterPolicy.rasterConcurrency *
                         resolveScanCleanupPreviewRasterSlotResidentBytes(options, rasterPolicy.rasterMaxPixels),
-                    nativeProcesses: rasterPolicy.rasterConcurrency,
-                    ioWeight: 2,
+                    nativeProcesses: rasterPolicy.nativeProcesses ?? rasterPolicy.rasterConcurrency,
+                    ioWeight: Math.min(2, rasterPolicy.ioWeight ?? 2),
                 },
                 perOwnerLimit: 1,
                 signal,

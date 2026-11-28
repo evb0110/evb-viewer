@@ -27,6 +27,7 @@ import {getWorkerTaskFailureReceipt} from '@electron/utils/workerTask';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {resolveDesktopQpdfPath} from '@electron/native-tools/qpdfWasmWorkerClient';
 import {runScanCleanupWorkerTask} from '@electron/features/scan-cleanup/runScanCleanupWorkerTask';
+import {runWithScanCleanupConversionPhaseBroker} from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
 import {
     acknowledgeScanCleanupCompletedOutputs,
     createScanCleanupGeneratedOutputPath,
@@ -457,8 +458,16 @@ export interface IScanCleanupService {
 function resolveScanCleanupRuntimePolicy(
     profile: IHostResourceProfileSnapshot,
     options: IScanCleanupStartRequest['options'],
-): IScanCleanupRuntimePolicy {
-    const rasterPolicy = resolvePreviewRasterAdmissionPolicy(mainJobBroker.getSnapshot().capacity, options);
+): IScanCleanupRuntimePolicy & {
+    sidecarThreads?: number;
+    cpuTokens?: number;
+    nativeProcesses?: number;
+    ioWeight?: number;
+    serializeStages?: boolean;
+} {
+    const rasterPolicy = resolvePreviewRasterAdmissionPolicy(mainJobBroker.getSnapshot().capacity, options, profile.logicalCpus, {
+        overlapSidecarProcess: true,
+    });
     return {
         ...rasterPolicy,
         logicalCpus: profile.logicalCpus,
@@ -706,26 +715,25 @@ export function createScanCleanupService(jobs: TScanCleanupJobRegistry = createS
                         runStarted = true;
                         let retainRunArtifacts = false;
                         try {
-                            return await mainJobBroker.run(
+                            return await runWithScanCleanupConversionPhaseBroker(
                                 {
+                                    broker: mainJobBroker,
                                     ownerId: brokerOwnerId,
-                                    kind: 'scan-cleanup',
-                                    priority: 'user',
-                                    resources: {
-                                        cpuTokens: runtimePolicy.rasterConcurrency,
+                                    conversionResources: {
+                                        cpuTokens: runtimePolicy.cpuTokens ?? runtimePolicy.rasterConcurrency,
                                         estimatedResidentBytes:
                                             runtimePolicy.rasterConcurrency *
                                             resolveScanCleanupPreviewRasterSlotResidentBytes(
                                                 request.options,
                                                 runtimePolicy.rasterMaxPixels,
                                             ),
-                                        nativeProcesses: runtimePolicy.rasterConcurrency,
-                                        ioWeight: 4,
+                                        nativeProcesses: runtimePolicy.nativeProcesses ?? runtimePolicy.rasterConcurrency,
+                                        ioWeight: runtimePolicy.ioWeight ?? 3,
                                     },
-                                    perOwnerLimit: 1,
+                                    logicalCpus: runtimePolicy.logicalCpus,
                                     signal: job.signal,
                                 },
-                                async (brokerRun) => {
+                                async (phaseBroker) => {
                                     const pdfPaths = getPdfNativeToolPaths();
                                     const scanCleanupBinary = resolvePreviewPath();
                                     const pdfImageCombineBinary = resolveNativePdfImageCombinePath();
@@ -783,9 +791,10 @@ export function createScanCleanupService(jobs: TScanCleanupJobRegistry = createS
                                             onCheckpointReady: (entryDir) => {
                                                 completedCheckpointEntryDir = entryDir;
                                             },
-                                            // The worker's native children run under this
-                                            // lease, so an unproven stop keeps it charged.
-                                            brokerRun,
+                                            // The worker's native children run under the
+                                            // active phase lease (conversion or combine),
+                                            // so an unproven stop keeps that lease charged.
+                                            phaseBroker,
                                         },
                                     );
                                     // Resolve the cancel-vs-publish race in the same main

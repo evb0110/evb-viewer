@@ -182,11 +182,27 @@ export async function scanCleanupPreviewRenderer(
                 logger.debug(`Scan cleanup preview kept the 150-DPI geometry fallback: ${getErrorMessage(error)}`);
             }
         }
-        let sourceDpiCandidate: number | null | undefined;
-        if (!request.options.matchPageSize || request.detail !== undefined) {
-            sourceDpiCandidate = await retention.sourceDpi(document, request.pageNumber, signal);
+        let boundedRasterSource: IScanCleanupPageRasterSource | null = null;
+        let boundedRasterPage: IDetectedPageRaster | undefined;
+        let boundedRasterizedByMatching = false;
+        if (pageSizeStore !== null) {
+            boundedRasterSource = await retention.rasterPageSource(document, signal);
+            if (!request.options.matchPageSize) {
+                boundedRasterPage = await boundedRasterSource.getPageRaster(request.pageNumber);
+            }
         }
+        const resolveSourceDpiCandidate = async () => {
+            if (boundedRasterPage !== undefined) {
+                return boundedRasterPage.dpi;
+            }
+            if (boundedRasterSource?.detected === true) {
+                return null;
+            }
+            return retention.sourceDpi(document, request.pageNumber, signal);
+        };
+        let sourceDpiCandidate: number | null | undefined;
         if (!request.options.matchPageSize) {
+            sourceDpiCandidate = await resolveSourceDpiCandidate();
             if (
                 sourceDpiCandidate !== null &&
                 sourceDpiCandidate !== undefined &&
@@ -213,12 +229,6 @@ export async function scanCleanupPreviewRenderer(
                       rasterMaxPixels,
                   )
             : null;
-        let boundedRasterSource: IScanCleanupPageRasterSource | null = null;
-        let boundedRasterPage: IDetectedPageRaster | undefined;
-        let boundedRasterizedByMatching = false;
-        if (pageSizeStore !== null) {
-            boundedRasterSource = await retention.rasterPageSource(document, signal);
-        }
         const matchingCanvas =
             request.options.preserveOriginalQuality === true && request.options.matchPageSize && boundedGeometry !== null
                 ? (documentCanvas ??
@@ -245,8 +255,11 @@ export async function scanCleanupPreviewRenderer(
                 rasterSource: boundedRasterSource,
             });
         }
-        if (boundedRasterSource !== null) {
+        if (boundedRasterSource !== null && request.options.matchPageSize) {
             boundedRasterPage = await boundedRasterSource.getPageRaster(request.pageNumber);
+        }
+        if (request.options.matchPageSize && request.detail !== undefined) {
+            sourceDpiCandidate = await resolveSourceDpiCandidate();
         }
         const pagePreviewRenderDpi = previewRasterPlan.renderDpiByPageNumber.get(request.pageNumber) ?? previewRasterPlan.dpi;
         const basePreviewDpi =

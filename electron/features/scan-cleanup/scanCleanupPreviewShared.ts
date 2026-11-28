@@ -177,7 +177,7 @@ export interface IScanCleanupRasterRetention {
         signal: AbortSignal,
         brokerRun?: IJobBrokerRunContext,
     ): Promise<IScanCleanupPageRasterSource>;
-    rasterScratchPath(document: IRetainedDocument, pageNumber: number, dpi: number): Promise<string>;
+    rasterScratchPath(document: IRetainedDocument, pageNumber: number, dpi: number, format?: 'png' | 'ppm'): Promise<string>;
     stagedRasterPath(document: IRetainedDocument, pageNumber: number, dpi: number): Promise<string>;
     releaseRaster(document: IRetainedDocument, pageNumber: number, dpi: number, claimId?: string, view?: 'mediabox'): Promise<void>;
     evictRaster(document: IRetainedDocument, pageNumber: number, dpi: number, claimId?: string): Promise<void>;
@@ -461,7 +461,8 @@ export type IScanCleanupRasterDependencies = Pick<
     | 'isRasterDetectionAvailable'
     | 'getSourceStatIdentity'
     | 'fileSystem'
->;
+> &
+    Partial<Pick<IScanCleanupPreviewDependencies, 'renderPagePpm'>>;
 
 export type IScanCleanupDetectionOwnerDependencies = Pick<
     IScanCleanupPreviewDependencies,

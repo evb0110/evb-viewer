@@ -307,6 +307,11 @@ export async function runLosslessScanCleanup(
         emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers, {
             rasterizedUnits: rasterizedCount,
         });
+        const losslessSidecarMaxThreads = (() => {
+            const sidecarThreads = (policy as IScanCleanupRuntimePolicy & {sidecarThreads?: number}).sidecarThreads;
+            const rasterConcurrency = Math.max(1, Math.floor(policy.rasterConcurrency));
+            return sidecarThreads === undefined ? rasterConcurrency : Math.max(1, rasterConcurrency + Math.floor(sidecarThreads));
+        })();
         await dependencies.runSidecar(
             paths.scanCleanupBinary,
             manifestPath,
@@ -378,6 +383,7 @@ export async function runLosslessScanCleanup(
             },
             {
                 allowedPathRoot: scratch,
+                maxThreads: losslessSidecarMaxThreads,
                 ...(context.onRecoveryPending === undefined ? {} : {onRecoveryPending: context.onRecoveryPending}),
             },
         );

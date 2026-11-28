@@ -6,6 +6,13 @@ export interface IResolvedStreamingRasterHandoffBudget {
     maxChunkPages: number;
     maxInFlightPages: number;
     maxInFlightBytes: number;
+    /**
+     * When true (e.g. a 1-CPU-token or 1-native-process bulk lease), finish
+     * staging a chunk before running the sidecar consumer and block new
+     * producer renders until the consumer chunk finishes so producer and
+     * sidecar processes never overlap.
+     */
+    serializeStages?: boolean;
 }
 
 export interface IProducedStagedItem<TStaged> {
@@ -65,7 +72,11 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
     let nextConsumerIndex = 0;
     let inFlightPages = 0;
     let inFlightBytes = 0;
+    let activeProducers = 0;
+    let consumerActive = false;
     let producerDone = false;
+    const serializeStages = budget.serializeStages === true;
+    const maxAdmittedInFlightPages = serializeStages ? Math.min(budget.maxInFlightPages, budget.maxChunkPages) : budget.maxInFlightPages;
     let failure: unknown;
     let hasFailure = false;
     const distinctFailures: unknown[] = [];
@@ -134,7 +145,9 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
     // Single-item liveness: when nothing is currently in flight, always admit
     // the next item even if its byte size exceeds maxInFlightBytes.
     const canAdmitNext = (estimatedBytes: number) =>
-        inFlightPages < budget.maxInFlightPages && (inFlightPages === 0 || inFlightBytes + estimatedBytes <= budget.maxInFlightBytes);
+        (!serializeStages || !consumerActive) &&
+        inFlightPages < maxAdmittedInFlightPages &&
+        (inFlightPages === 0 || inFlightBytes + estimatedBytes <= budget.maxInFlightBytes);
 
     const claimNextProducerSlot = async (): Promise<{
         index: number;
@@ -153,6 +166,7 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
                 nextProducerIndex += 1;
                 inFlightPages += 1;
                 inFlightBytes += estimatedBytes;
+                activeProducers += 1;
                 notifyAll();
                 return {
                     index,
@@ -213,13 +227,15 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
                     trackedBytes: actualBytes,
                 });
                 handedOff = true;
-                notifyAll();
             } catch (error) {
                 if (!handedOff) {
                     releaseBudget(1, reservedBytes);
                 }
                 recordFailure(error);
                 return;
+            } finally {
+                activeProducers = Math.max(0, activeProducers - 1);
+                notifyAll();
             }
         }
     };
@@ -249,6 +265,9 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
 
     const canDispatchChunk = (readyCount: number) => {
         if (readyCount === 0) {
+            return false;
+        }
+        if (serializeStages && activeProducers > 0) {
             return false;
         }
         if (readyCount >= budget.maxChunkPages) {
@@ -291,6 +310,7 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
             const chunkBytes = chunkEntries.reduce((sum, entry) => sum + entry.trackedBytes, 0);
             let chunkError: unknown;
             let chunkFailed = false;
+            consumerActive = true;
             try {
                 await consumeChunk(stagedChunk, chunkIndex, operationSignal);
                 chunkIndex += 1;
@@ -325,6 +345,7 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
                         }
                     }
                 }
+                consumerActive = false;
                 releaseBudget(chunkEntries.length, Math.max(0, chunkBytes - unreclaimedBytes));
             }
         }

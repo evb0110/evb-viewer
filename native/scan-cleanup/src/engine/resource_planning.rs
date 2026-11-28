@@ -94,8 +94,40 @@ where
     )
 }
 
+fn env_max_threads() -> Option<usize> {
+    std::env::var("RAYON_NUM_THREADS")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|&threads| threads >= 1)
+}
+
+#[cfg(test)]
 pub(crate) fn processing_worker_threads() -> usize {
-    evb_native_support::host_worker_threads()
+    processing_worker_threads_for_host(
+        evb_native_support::host_worker_threads(),
+        None,
+        env_max_threads(),
+    )
+}
+
+pub(crate) fn processing_worker_threads_with_limit(max_threads: Option<usize>) -> usize {
+    processing_worker_threads_for_host(
+        evb_native_support::host_worker_threads(),
+        max_threads,
+        env_max_threads(),
+    )
+}
+
+pub(crate) fn processing_worker_threads_for_host(
+    host_limit: usize,
+    explicit_limit: Option<usize>,
+    env_limit: Option<usize>,
+) -> usize {
+    let host_limit = host_limit.max(1);
+    match explicit_limit.or(env_limit) {
+        Some(limit) => host_limit.min(limit.max(1)).max(1),
+        None => host_limit,
+    }
 }
 
 /// Split the processing threads between the page workers, earlier workers
@@ -233,9 +265,18 @@ where
         .map_err(Into::into)
 }
 
+#[cfg(test)]
 pub(crate) fn page_worker_threads<M: PlanningManifest>(manifest: &M) -> Result<usize, NativeError> {
     // Every page in flight needs at least one processing thread of its own.
-    page_worker_threads_on(manifest, processing_worker_threads())
+    page_worker_threads_with_limit(manifest, processing_worker_threads())
+}
+
+pub(crate) fn page_worker_threads_with_limit<M: PlanningManifest>(
+    manifest: &M,
+    processing_threads: usize,
+) -> Result<usize, NativeError> {
+    // Every page in flight needs at least one processing thread of its own.
+    page_worker_threads_on(manifest, processing_threads.max(1))
 }
 
 /// Tests that assert a pool width sized for this many logical CPUs rather
@@ -1251,6 +1292,92 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn processing_worker_threads_respects_explicit_and_env_caps() {
+        // Explicit --max-threads caps below host width and wins over RAYON_NUM_THREADS.
+        assert_eq!(processing_worker_threads_for_host(15, Some(5), Some(12)), 5);
+        assert_eq!(processing_worker_threads_for_host(15, Some(1), Some(8)), 1);
+        // Explicit limit above host limit never oversubscribes the host.
+        assert_eq!(processing_worker_threads_for_host(7, Some(16), None), 7);
+        // Absent explicit limit falls back to RAYON_NUM_THREADS capped by host.
+        assert_eq!(processing_worker_threads_for_host(15, None, Some(4)), 4);
+        assert_eq!(processing_worker_threads_for_host(7, None, Some(12)), 7);
+        // Neither explicit nor env limit keeps host_worker_threads().
+        assert_eq!(processing_worker_threads_for_host(15, None, None), 15);
+        assert_eq!(processing_worker_threads_for_host(1, Some(0), None), 1);
+    }
+
+    #[test]
+    fn explicit_processing_thread_cap_bounds_rayon_pool_width_and_parallelism() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-capped-pool-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("page.png");
+        fs::write(
+            &input,
+            crate::io::png::encode_gray(&GrayImage::new(32, 32, 240)).unwrap(),
+        )
+        .unwrap();
+        let manifest = TypedTestManifest {
+            operation: PlanningOperation::Render,
+            host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+            staged_input_window: None,
+            staged_input_peak_pixels: None,
+            pages: (0..6)
+                .map(|index| PageDescriptor {
+                    input_path: input.clone(),
+                    source_page_index: index,
+                    options: CleanupOptionsView {
+                        max_pixels: 45_000_000,
+                        max_dimension: 40_000,
+                        output_mode: OutputMode::Bw,
+                        source_has_bilevel_layer: false,
+                        thickness: 0,
+                    },
+                    trusted_foreground_mask_path: None,
+                    trusted_mrc_background_path: None,
+                })
+                .collect(),
+        };
+
+        let processing_cap = 2;
+        let worker_threads = page_worker_threads_with_limit(&manifest, processing_cap).unwrap();
+        assert_eq!(worker_threads, processing_cap);
+        assert_eq!(page_pool_sizes(worker_threads, processing_cap), vec![1, 1]);
+
+        let active = AtomicUsize::new(0);
+        let peak = AtomicUsize::new(0);
+        let max_pool_threads = AtomicUsize::new(0);
+        let canceled = AtomicBool::new(false);
+        let completed = run_regular_page_jobs(
+            &manifest,
+            &canceled,
+            |(index, _)| {
+                let current = active.fetch_add(1, Ordering::AcqRel) + 1;
+                peak.fetch_max(current, Ordering::AcqRel);
+                max_pool_threads.fetch_max(rayon::current_num_threads(), Ordering::AcqRel);
+                thread::sleep(std::time::Duration::from_millis(10));
+                active.fetch_sub(1, Ordering::AcqRel);
+                Ok(index)
+            },
+            worker_threads,
+            processing_cap,
+        )
+        .unwrap();
+
+        assert_eq!(completed, vec![0, 1, 2, 3, 4, 5]);
+        assert!(peak.load(Ordering::Acquire) <= processing_cap);
+        assert_eq!(max_pool_threads.load(Ordering::Acquire), 1);
+
+        let _ = fs::remove_dir_all(dir);
     }
 }
 #[cfg(test)]

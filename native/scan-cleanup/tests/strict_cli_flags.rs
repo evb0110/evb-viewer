@@ -75,6 +75,29 @@ fn malformed_manifest_and_direct_flags_exit_as_invalid_requests() {
             "--manifest cannot be combined with direct-mode arguments",
         ),
         (
+            vec!["--manifest", "a.json", "--max-threads"],
+            "--max-threads requires a value",
+        ),
+        (
+            vec!["--manifest", "a.json", "--max-threads", "0"],
+            "--max-threads must be a positive integer",
+        ),
+        (
+            vec!["--manifest", "a.json", "--max-threads", "nope"],
+            "--max-threads must be a positive integer",
+        ),
+        (
+            vec![
+                "--manifest",
+                "a.json",
+                "--max-threads",
+                "2",
+                "--max-threads",
+                "4",
+            ],
+            "Duplicate argument --max-threads",
+        ),
+        (
             vec![
                 "--input",
                 "in.ppm",

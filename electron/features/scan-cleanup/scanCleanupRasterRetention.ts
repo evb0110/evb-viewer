@@ -1,5 +1,6 @@
 import {randomUUID} from 'crypto';
 import {join} from 'path';
+import {getUnprovenNativeTerminationDetail} from '@contracts/nativeErrors';
 import type {IScanCleanupPreviewRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {resolveRasterHandoff} from '@evb/scan-cleanup/core/resolveRasterHandoff';
@@ -509,6 +510,7 @@ export function scanCleanupRasterRetention(dependencies: IScanCleanupRasterDepen
                                               if (
                                                   document.lifetime.signal.aborted ||
                                                   batchLifecycle.probeSignal.aborted ||
+                                                  getUnprovenNativeTerminationDetail(error) !== undefined ||
                                                   rasters.every((raster) => raster === undefined)
                                               ) {
                                                   throw error;
@@ -533,12 +535,25 @@ export function scanCleanupRasterRetention(dependencies: IScanCleanupRasterDepen
                                     waiter.reject(probeError);
                                     continue;
                                 }
+                                const preserveDominantBilevelGrid =
+                                    measured !== undefined &&
+                                    structure !== undefined &&
+                                    structure.hasDominantBilevelLayer === true &&
+                                    Number.isFinite(structure.dpi) &&
+                                    structure.dpi > measured.dpi;
                                 waiter.resolve(
                                     observeRaster(
                                         measured === undefined || structure === undefined
                                             ? (measured ?? structure)
                                             : {
                                                   ...measured,
+                                                  ...(preserveDominantBilevelGrid
+                                                      ? {
+                                                            dpi: structure.dpi,
+                                                            width: structure.width,
+                                                            height: structure.height,
+                                                        }
+                                                      : {}),
                                                   ...(structure.hasBilevelLayer === undefined
                                                       ? {}
                                                       : {hasBilevelLayer: structure.hasBilevelLayer}),
@@ -824,8 +839,8 @@ export function scanCleanupRasterRetention(dependencies: IScanCleanupRasterDepen
         pageSizeStore: resolvePageSizeStore,
         sourceDpi: resolveSourceDpi,
         rasterPageSource: resolveRasterPageSource,
-        async rasterScratchPath(document: IRetainedDocument, pageNumber: number, dpi: number) {
-            return join(await document.dir, `page-${pageNumber}-${dpi}.${randomUUID()}.part.png`);
+        async rasterScratchPath(document: IRetainedDocument, pageNumber: number, dpi: number, format: 'png' | 'ppm' = 'png') {
+            return join(await document.dir, `page-${pageNumber}-${dpi}.${randomUUID()}.part.${format}`);
         },
         async stagedRasterPath(document: IRetainedDocument, pageNumber: number, dpi: number) {
             return stableScanCleanupRasterPath(await document.dir, pageNumber, dpi);
@@ -979,7 +994,17 @@ export function scanCleanupRasterRetention(dependencies: IScanCleanupRasterDepen
             if (claimedForRead) {
                 await this.releaseRaster(document, pageNumber, dpi, claimId, view);
             }
-            const {scratchPath} = await renderUnretainedRawRaster(document, pageNumber, signal, this, deps, knownTotalPages, dpi, pageSize);
+            const {scratchPath} = await renderUnretainedRawRaster(
+                document,
+                pageNumber,
+                signal,
+                this,
+                deps,
+                knownTotalPages,
+                dpi,
+                pageSize,
+                'ppm',
+            );
             const metadata = await readPreviewMetadata(scratchPath, deps);
             if (signal.aborted) {
                 this.remove(scratchPath);

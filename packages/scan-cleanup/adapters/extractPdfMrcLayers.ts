@@ -3,6 +3,7 @@ import {basename, dirname, join} from 'path';
 import type {IPdfMrcLayers, TScanCleanupLog, TScanCleanupRunCommand, IScanCleanupRunCommandOptions} from '@evb/scan-cleanup/core/types';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import {isAbortError} from '@contracts/isAbortError';
+import {getUnprovenNativeTerminationDetail} from '@contracts/nativeErrors';
 import {mapScanCleanupRasterPages} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {decode as decodePng, encode as encodePng} from 'fast-png';
 
@@ -187,9 +188,13 @@ function createMrcMaskDecodeLookup(input: {
 }) {
     const decodeByForeground = new Map<string, TPdfMrcMaskDecode | null>();
     let unavailable = false;
+    let fatalError: unknown = null;
     let pending: Promise<unknown> = Promise.resolve();
 
     const inspect = async (foregrounds: readonly IPdfImagesRow[]) => {
+        if (fatalError !== null) {
+            throw fatalError;
+        }
         const references = [...new Set(foregrounds.map(pdfImagesRowReference).filter((reference) => !decodeByForeground.has(reference)))];
         if (unavailable || references.length === 0) {
             return;
@@ -218,6 +223,13 @@ function createMrcMaskDecodeLookup(input: {
                 );
             }
         } catch (error) {
+            // Always preserve an unproven native termination marker ahead of
+            // plain abort handling so callers retain scratch and broker leases
+            // even when cancellation and unproven termination occur together.
+            if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+                fatalError = error;
+                throw error;
+            }
             input.commandOptions.signal?.throwIfAborted();
             if (isAbortError(error)) {
                 throw error;
@@ -563,6 +575,9 @@ export async function extractPdfMrcLayersBatch(input: {
             // are still running. Every chunk first completes its own
             // cleanup. Successful siblings remain reusable; only this
             // chunk falls back to raster reconstruction.
+            if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+                throw error;
+            }
             input.signal?.throwIfAborted();
             if (isAbortError(error)) {
                 throw error;

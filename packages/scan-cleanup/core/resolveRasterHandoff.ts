@@ -373,6 +373,38 @@ function normalizePositiveInteger(value: number | undefined, fallback: number) {
     return Math.max(1, Math.floor(value));
 }
 
+export interface IScanCleanupConcurrentCpuPartition {
+    producerConcurrency: number;
+    sidecarMaxThreads: number;
+    totalCpuTokens: number;
+}
+
+/**
+ * Partition a broker-admitted CPU budget between concurrent `pdftoppm`
+ * producers (bounded by `maxProducers` from process/memory admission) and the
+ * native `evb-scan-cleanup` Rayon pool so `producerConcurrency + sidecarMaxThreads`
+ * stays within the granted CPU budget on multi-core hosts while keeping both
+ * stages runnable at 1 on 1-CPU budgets.
+ */
+export function partitionScanCleanupCpuBudget(cpuBudget: number, maxProducers = cpuBudget): IScanCleanupConcurrentCpuPartition {
+    const budget = normalizePositiveInteger(cpuBudget, 1);
+    const producerCap = normalizePositiveInteger(maxProducers, budget);
+    if (budget <= 1) {
+        return {
+            producerConcurrency: 1,
+            sidecarMaxThreads: 1,
+            totalCpuTokens: 1,
+        };
+    }
+    const producerConcurrency = Math.max(1, Math.min(producerCap, budget - 1));
+    const sidecarMaxThreads = Math.max(1, budget - producerConcurrency);
+    return {
+        producerConcurrency,
+        sidecarMaxThreads,
+        totalCpuTokens: producerConcurrency + sidecarMaxThreads,
+    };
+}
+
 /**
  * Derive page-count and disk-byte bounds for the conversion producer-consumer
  * handoff from runtime concurrency and scratch volume availability.
@@ -381,6 +413,7 @@ export function resolveStreamingRasterHandoffBudget(input: {
     availableScratchBytes: number | null;
     rasterConcurrency: number;
     totalPages: number;
+    serializeStages?: boolean;
     overrides?: IScanCleanupStreamingHandoffLimits;
 }): IResolvedStreamingRasterHandoffBudget {
     const totalPages = Math.max(1, Math.floor(input.totalPages));
@@ -401,5 +434,6 @@ export function resolveStreamingRasterHandoffBudget(input: {
         maxChunkPages,
         maxInFlightPages,
         maxInFlightBytes,
+        ...(input.serializeStages === true ? {serializeStages: true} : {}),
     };
 }

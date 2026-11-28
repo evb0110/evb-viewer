@@ -1159,7 +1159,10 @@ export async function runScanCleanupConversion(
 
     return coordinateScanCleanupConversion<
         TScanCleanupSummary,
-        IScanCleanupSourceTextSink,
+        {
+            sourceText: IScanCleanupSourceTextSink;
+            stagedPdfValidated: boolean;
+        },
         IPdfPageSizeStore,
         TScanCleanupDpiDetails,
         {pdfPath: string}
@@ -1449,9 +1452,16 @@ export async function runScanCleanupConversion(
                         onRecoveryPending: retainScratchUntilRecovery,
                     });
                 }
-                return sourceText;
+                return {
+                    sourceText,
+                    // Single-batch execution validates `stagedPdfPath` before
+                    // returning; streaming merges batch PDFs without running a
+                    // check on the merged file yet, so `validateAndPublish`
+                    // must still validate it.
+                    stagedPdfValidated: !largeStreamingRun,
+                };
             },
-            async validateAndPublish(context, sourceText) {
+            async validateAndPublish(context, {sourceText, stagedPdfValidated}) {
                 const {inputRequest, pageNumbers, pageCount, summary, emitProgress, prepared, signal: opSignal} = context;
                 // One overlay over the merged output: a link may name another batch's page.
                 const overlaid = await overlayScanCleanupTextLayerAndMeasure(
@@ -1477,7 +1487,9 @@ export async function runScanCleanupConversion(
                     log,
                 });
                 summary.accessibilityTagsRemoved ||= overlaid.accessibilityTagsRemoved;
-                await validateStagedPdf(paths.qpdfBinary, stagedPdfPath, opSignal, log, dependencies.runCommand);
+                if (!stagedPdfValidated || overlaid.stagedPdfModified) {
+                    await validateStagedPdf(paths.qpdfBinary, stagedPdfPath, opSignal, log, dependencies.runCommand);
+                }
                 emitProgress('handoff', 0, pageCount, []);
                 await copyFile(stagedPdfPath, publishTempPath);
                 if (opSignal.aborted) {
@@ -2047,6 +2059,9 @@ async function executeScanCleanupBatch({
                     acceptSourceMrcLayer(pageNumber, layer);
                 }
             } catch (error) {
+                if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+                    throw error;
+                }
                 signal.throwIfAborted();
                 if (isAbortError(error)) {
                     throw error;
@@ -2077,6 +2092,9 @@ async function executeScanCleanupBatch({
                         acceptSourceMrcLayer(plan.pageNumber, layers);
                     }
                 } catch (error) {
+                    if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+                        throw error;
+                    }
                     signal.throwIfAborted();
                     if (isAbortError(error)) {
                         throw error;
@@ -2229,6 +2247,7 @@ async function executeScanCleanupBatch({
             availableScratchBytes,
             rasterConcurrency: policy.rasterConcurrency,
             totalPages: pendingItems.length,
+            serializeStages: (policy as IScanCleanupRuntimePolicy & {serializeStages?: boolean}).serializeStages === true,
             ...(dependencies.streamingHandoff === undefined ? {} : {overrides: dependencies.streamingHandoff}),
         });
         const eligibleInkCalibrationPages = collectEligibleInkCalibrationPages(allManifestPages);
@@ -2540,9 +2559,13 @@ async function executeScanCleanupBatch({
                 emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers, {
                     rasterizedUnits: rasterizedPageNumbers.size,
                 });
+                const sidecarMaxThreads =
+                    (policy as IScanCleanupRuntimePolicy & {sidecarThreads?: number}).sidecarThreads ??
+                    Math.max(1, Math.floor(policy.rasterConcurrency));
                 try {
                     await dependencies.runSidecar(paths.scanCleanupBinary, manifestPath, operationSignal, log, reportNativeProgress, {
                         allowedPathRoot: scratch,
+                        maxThreads: sidecarMaxThreads,
                         onRecoveryPending,
                         onResult: (result) => {
                             if (result.documentInkPrior !== undefined) {
@@ -2639,25 +2662,31 @@ async function executeScanCleanupBatch({
     const combineManifestPath = paths.provenanceStampSupport === false ? combineManifestLegacyPath : combineManifestEnvelopePath;
     emitProgress('assembling', 0, outputPages.length, []);
     const rasterizedPdfPath = hasCompactSourcePages ? join(scratch, 'rasterized-cleaned.pdf') : stagedPdfPath;
-    await dependencies.runCommand(
-        paths.pdfImageCombineBinary,
-        ['--output', rasterizedPdfPath, '--compact-manifest', combineManifestPath, '--json-progress'],
-        {
-            signal,
-            commandLabel: 'evb-pdf-image-combine(scan-cleanup)',
-            timeoutMs: SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS,
-            env: {
-                ...process.env,
-                ...resolveScanCleanupCombineEnv(outputPages.length),
+    const runCombineCommand = (runCommand: IRunScanCleanupPipelineDependencies['runCommand']) =>
+        runCommand(
+            paths.pdfImageCombineBinary,
+            ['--output', rasterizedPdfPath, '--compact-manifest', combineManifestPath, '--json-progress'],
+            {
+                signal,
+                commandLabel: 'evb-pdf-image-combine(scan-cleanup)',
+                timeoutMs: SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS,
+                env: {
+                    ...process.env,
+                    ...resolveScanCleanupCombineEnv(outputPages.length),
+                },
+                onStdout: createPdfCombineProgressHandler(
+                    outputPages.length,
+                    (processed, total) => emitProgress('assembling', processed, total),
+                    (line) => log('debug', `Ignoring malformed scan cleanup combine progress: ${line}`),
+                ),
+                log,
             },
-            onStdout: createPdfCombineProgressHandler(
-                outputPages.length,
-                (processed, total) => emitProgress('assembling', processed, total),
-                (line) => log('debug', `Ignoring malformed scan cleanup combine progress: ${line}`),
-            ),
-            log,
-        },
-    );
+        );
+    if (outputPages.length > 1 && dependencies.runWithCombineLease !== undefined) {
+        await dependencies.runWithCombineLease(outputPages.length, signal, runCombineCommand);
+    } else {
+        await runCombineCommand(dependencies.runCommand);
+    }
     const textLayerPlan = buildScanCleanupTextLayerPlanFromPageSizeMap(outputPages, pageGeometryByNumber);
     await assembleWithCompactSourcePages(
         outputPages,
