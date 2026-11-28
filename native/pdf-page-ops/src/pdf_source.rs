@@ -144,6 +144,7 @@ enum OpenMode {
 #[cfg(test)]
 thread_local! {
     static SOURCE_PDF_OPEN_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static SOURCE_PDF_LOADED_OBJECT_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]
@@ -154,6 +155,16 @@ pub(crate) fn reset_source_pdf_open_count() {
 #[cfg(test)]
 pub(crate) fn source_pdf_open_count() -> usize {
     SOURCE_PDF_OPEN_COUNT.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub(crate) fn reset_source_pdf_loaded_object_count() {
+    SOURCE_PDF_LOADED_OBJECT_COUNT.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn source_pdf_loaded_object_count() -> usize {
+    SOURCE_PDF_LOADED_OBJECT_COUNT.with(std::cell::Cell::get)
 }
 
 /// Cumulative cross-reference budget carried across in-memory incremental
@@ -294,6 +305,30 @@ impl SourcePdf<File> {
             .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
         Ok((source, base))
     }
+
+    /// The PDF in the file at `path` as a validated page-geometry append base
+    /// (for crop and remove-crop), reading only the catalog, page tree, and
+    /// inherited page geometry attributes.
+    pub(crate) fn open_page_geometry_append_base_path(
+        path: &Path,
+    ) -> Result<(IncrementalDocument, PageTreeResolver)> {
+        let (file, len) = open_source_file(path)?;
+        let (_, base, resolver) = Self::open_page_geometry_append_base(file, len)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+        Ok((base, resolver))
+    }
+
+    /// The PDF in the file at `path` as a targeted append base for replacing
+    /// images on `page_numbers`, loading only the page tree and the targeted
+    /// pages' content and resource graphs.
+    pub(crate) fn open_page_content_append_base_path(
+        path: &Path,
+        page_numbers: &[u32],
+    ) -> Result<(Self, IncrementalDocument)> {
+        let (file, len) = open_source_file(path)?;
+        Self::open_page_content_append_base(file, len, page_numbers)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))
+    }
 }
 
 /// The file at `path` as a source, with its length.
@@ -347,8 +382,103 @@ impl<S: ByteSource> SourcePdf<S> {
     /// reference, where the index lists them. An append can name an object
     /// the trailer no longer reaches, such as the image of a deleted stamp
     /// that an undo restores.
+    #[cfg(test)]
     pub(crate) fn open_append_base_naming(bytes: S, len: u64, named: &[ObjectId]) -> Result<Self> {
         Self::open_indexed(bytes, len, OpenMode::AppendBase, named)
+    }
+
+    /// A validated page-geometry append base for crop and crop-removal edits:
+    /// reads only the catalog, page tree, and inherited geometry attributes
+    /// without parsing content streams, resources, annotations, or outlines.
+    /// Untouched page content and resource objects are intentionally not read
+    /// during targeted appends; full-document structural verification remains
+    /// the responsibility of `open_strict_verify` and whole-document rewrites.
+    pub(crate) fn open_page_geometry_append_base(
+        bytes: S,
+        len: u64,
+    ) -> Result<(Self, IncrementalDocument, PageTreeResolver)> {
+        let (source, resolver) = {
+            let (reader, index) = open_append_base_index(&bytes, len)?;
+            let mut target = TargetedLoader::new(&reader, &index);
+            target.load_page_tree_all(true)?;
+            let resolver = target.validate_full_page_tree()?;
+            (target.into_parts(), resolver)
+        };
+        let mut pdf = Self::from_targeted_parts(source, bytes, len);
+        let base = pdf.take_append_base()?;
+        Ok((pdf, base, resolver))
+    }
+
+    /// A targeted append base for page-content edits (`replace-page-images`):
+    /// reads the page tree, inherited geometry attributes, and only the
+    /// `/Contents` and `/Resources` subgraphs (including inherited `/Resources`)
+    /// of the requested 1-based `page_numbers`.
+    pub(crate) fn open_page_content_append_base(
+        bytes: S,
+        len: u64,
+        page_numbers: &[u32],
+    ) -> Result<(Self, IncrementalDocument)> {
+        let parts = {
+            let (reader, index) = open_append_base_index(&bytes, len)?;
+            let mut target = TargetedLoader::new(&reader, &index);
+            target.load_page_tree_all(true)?;
+            let (resolver, _) = target.validate_page_tree_ends()?;
+            let mut seen_pages = HashSet::new();
+            for &page_number in page_numbers {
+                let Ok(page_id) = resolver.page_id(&target.document, page_number) else {
+                    continue;
+                };
+                if seen_pages.insert(page_id) {
+                    target.load_page_contents_and_resources(page_id)?;
+                }
+            }
+            target.into_parts()
+        };
+        let mut pdf = Self::from_targeted_parts(parts, bytes, len);
+        let base = pdf.take_append_base()?;
+        Ok((pdf, base))
+    }
+
+    /// A targeted append base for `save-mutations`: reads the catalog, page
+    /// tree, and inherited geometry attributes without parsing page `/Contents`,
+    /// `/Resources`, `/StructTreeRoot`, or untouched appearance graphs.
+    /// Catalog-only saves, geometry-only saves on unannotated pages, and
+    /// clean-page additive annotation saves also skip `/Annots` on untouched
+    /// pages (recording `located_pages`); saves touching existing annotations
+    /// load the shallow annotation ownership graph plus full subgraphs of
+    /// touched/addressed annotations and named recovery images, escalating to
+    /// the full graph only when an existing placed-image stamp requires global
+    /// exclusivity verification. Untouched page `/Contents` and `/Resources`
+    /// objects are intentionally not read on page-local appends; full-document
+    /// object-graph verification remains the role of `open_strict_verify` and
+    /// whole-document operations.
+    pub(crate) fn open_mutation_append_base(
+        bytes: S,
+        len: u64,
+        mutations: &NativeMutationsFile,
+    ) -> Result<(Self, IncrementalDocument)> {
+        let (parts, located_pages) = {
+            let (reader, index) = open_append_base_index(&bytes, len)?;
+            let mut target = TargetedLoader::new(&reader, &index);
+            let located_pages = target.load_for_mutations(mutations)?;
+            (target.into_parts(), located_pages)
+        };
+        let mut pdf = Self::from_targeted_parts(parts, bytes, len);
+        let mut base = pdf.take_append_base()?;
+        base.located_pages = located_pages;
+        Ok((pdf, base))
+    }
+
+    fn from_targeted_parts(parts: TargetedParts, bytes: S, len: u64) -> Self {
+        Self {
+            document: parts.document,
+            streams: parts.streams,
+            reals: parts.reals,
+            bytes,
+            len,
+            xref_start: parts.xref_start,
+            xref_budget: parts.xref_budget,
+        }
     }
 
     fn open_indexed(bytes: S, len: u64, mode: OpenMode, named: &[ObjectId]) -> Result<Self> {
@@ -839,6 +969,7 @@ fn same_ends<O: ByteSource, S: ByteSource + ?Sized>(
 /// the index: the catalog, each node and leaf, and the kids and counts they
 /// reference, never content or other objects, so the cost follows the page
 /// tree and not the file.
+#[cfg(test)]
 pub(crate) fn validate_page_tree_source<S: ByteSource>(bytes: S, len: u64) -> Result<()> {
     let reader = Reader::new(&bytes, len)?;
     let index = reader.index()?;
@@ -880,6 +1011,1050 @@ pub(crate) fn validate_page_tree_source<S: ByteSource>(bytes: S, len: u64) -> Re
     PageTreeResolver::validated(&document).map(|_| ())
 }
 
+const PAGE_GEOMETRY_KEYS: &[&[u8]] = &[
+    b"Pages",
+    b"Kids",
+    b"Count",
+    b"Parent",
+    b"MediaBox",
+    b"CropBox",
+    b"Rotate",
+    b"UserUnit",
+];
+
+const SHALLOW_ANNOTATION_KEYS: &[&[u8]] = &[b"Subtype", b"NM", b"EVBShapeKey", b"Rect", b"F"];
+
+fn index_has_object(index: &XrefIndex, id: ObjectId) -> bool {
+    matches!(
+        index.entry(id.0),
+        Some(XrefEntry::Offset { generation, .. }) if generation == id.1
+    ) || matches!(
+        index.entry(id.0),
+        Some(XrefEntry::InStream { .. }) if id.1 == 0
+    )
+}
+
+/// Whether the catalog's `/Pages` entry is indexed in `index` (or a direct
+/// non-reference value inside a readable catalog), distinguishing page-tree
+/// damage (`invalid-request`) from missing/unindexed roots (`corrupt-xref`).
+fn has_indexed_pages_entry(document: &Document, index: &XrefIndex) -> bool {
+    document
+        .catalog()
+        .ok()
+        .and_then(|catalog| catalog.get(b"Pages").ok())
+        .is_some_and(|pages| match pages {
+            Object::Reference(id) => index_has_object(index, *id),
+            // A non-reference /Pages value inside a readable catalog is page-tree damage.
+            _ => true,
+        })
+}
+
+fn classify_page_tree_error(has_indexed_pages: bool, error: Box<dyn Error>) -> Box<dyn Error> {
+    if error.downcast_ref::<NativeError>().is_some() {
+        return error;
+    }
+    if has_indexed_pages {
+        page_tree_damaged(error)
+    } else {
+        corrupt(format!("PDF has no pages: {error}"))
+    }
+}
+
+fn open_append_base_index<'a, S: ByteSource>(
+    bytes: &'a S,
+    len: u64,
+) -> Result<(Reader<'a, S>, XrefIndex)> {
+    let reader = Reader::new(bytes, len)?;
+    if reader.base != 0 {
+        return Err(corrupt("PDF has bytes before its header"));
+    }
+    let index = reader.index_at(reader.qpdf_start()?)?;
+    if index.trailer.has(b"Encrypt") {
+        return Err(domain_error(
+            NativeErrorCode::Encrypted,
+            "Unlock the encrypted PDF before editing it",
+        ));
+    }
+    Ok((reader, index))
+}
+
+struct TargetedParts {
+    document: Document,
+    streams: HashMap<ObjectId, (u64, u64)>,
+    reals: HashMap<ObjectId, RealSpellings>,
+    xref_start: u64,
+    xref_budget: IndexedXrefBudget,
+}
+
+struct TargetedLoader<'r, 'a, S: ?Sized> {
+    loader: Loader<'r, 'a, S>,
+    index: &'r XrefIndex,
+    document: Document,
+    deep_loaded: HashSet<ObjectId>,
+}
+
+impl<'r, 'a, S: ByteSource + ?Sized> TargetedLoader<'r, 'a, S> {
+    fn new(reader: &'r Reader<'a, S>, index: &'r XrefIndex) -> Self {
+        let mut document = Document::with_version(reader.version.clone());
+        document.max_id = index.max_number;
+        document.reference_table = Xref::new(document.max_id.saturating_add(1), index.xref_type);
+        document.trailer = index.trailer.clone();
+        Self {
+            loader: Loader::new(reader, index),
+            index,
+            document,
+            deep_loaded: HashSet::new(),
+        }
+    }
+
+    fn into_parts(self) -> TargetedParts {
+        let mut xref_budget = self.index.budget;
+        xref_budget.values = self.loader.values;
+        TargetedParts {
+            document: self.document,
+            streams: self.loader.streams,
+            reals: self.loader.reals,
+            xref_start: self.index.start,
+            xref_budget,
+        }
+    }
+
+    fn ensure_object(&mut self, id: ObjectId) -> Result<()> {
+        if self.document.objects.contains_key(&id) {
+            return Ok(());
+        }
+        if self.document.objects.len() >= MAX_PDF_OBJECTS {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                format!("PDF exceeds the {MAX_PDF_OBJECTS}-object admission ceiling"),
+            ));
+        }
+        let object = self.loader.load(id)?;
+        self.document.objects.insert(id, object);
+        Ok(())
+    }
+
+    /// Follows indirect references on `value` (loading each hopped object into
+    /// `self.document`) up to the reference limit and returns the resolved clone.
+    fn ensure_resolved_object(&mut self, mut value: Object) -> Result<Object> {
+        for _ in 0..128 {
+            let Ok(id) = value.as_reference() else {
+                return Ok(value);
+            };
+            self.ensure_object(id)?;
+            value = self
+                .document
+                .objects
+                .get(&id)
+                .cloned()
+                .ok_or_else(|| format!("Object {}R{} was not found", id.0, id.1))?;
+        }
+        Err("PDF reference chain exceeded the dereference limit".into())
+    }
+
+    /// Follows indirect reference chains starting at `id`, loading each hopped
+    /// object into `self.document`, and returns the final object ID.
+    fn resolve_object_id(&mut self, mut id: ObjectId) -> Result<ObjectId> {
+        let mut hops = HashSet::new();
+        for _ in 0..128 {
+            if !hops.insert(id) {
+                return Ok(id);
+            }
+            self.ensure_object(id)?;
+            match self.document.objects.get(&id) {
+                Some(Object::Reference(next_id)) => id = *next_id,
+                _ => return Ok(id),
+            }
+        }
+        Ok(id)
+    }
+
+    fn resolve_dict_at(&mut self, id: ObjectId) -> Result<Dictionary> {
+        let resolved = self.ensure_resolved_object(Object::Reference(id))?;
+        resolved.as_dict().cloned().map_err(|error| {
+            format!("PDF object {}R{} is not a dictionary: {error}", id.0, id.1).into()
+        })
+    }
+
+    /// Loads indirect targets of `keys` on `dict_id`, recursively loading
+    /// indirect `Array` / `Reference` containers (for indirect `/Kids`,
+    /// `/MediaBox`, `/CropBox`, `/Rotate`, `/UserUnit`, `/NM`, etc.) without
+    /// descending into unrelated dictionaries.
+    fn load_direct_keys(&mut self, dict_id: ObjectId, keys: &[&[u8]]) -> Result<()> {
+        self.ensure_object(dict_id)?;
+        let mut pending = Vec::new();
+        if let Some(Object::Dictionary(dict)) = self.document.objects.get(&dict_id) {
+            for &key in keys {
+                if let Ok(value) = dict.get(key) {
+                    collect_object_references(value, &mut pending);
+                }
+            }
+        }
+        let mut seen = HashSet::new();
+        while let Some(id) = pending.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            self.ensure_object(id)?;
+            if let Some(object) = self.document.objects.get(&id) {
+                if matches!(object, Object::Array(_) | Object::Reference(_)) {
+                    collect_object_references(object, &mut pending);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Loads catalog + every `/Pages` and `/Page` node in the page tree, and
+    /// optionally their inherited geometry keys. Never follows `/Contents`,
+    /// `/Resources`, `/Annots`, `/StructTreeRoot`, or `/Outlines`.
+    fn load_page_tree_all(&mut self, with_geometry: bool) -> Result<()> {
+        let keys: &[&[u8]] = if with_geometry {
+            PAGE_GEOMETRY_KEYS
+        } else {
+            &[b"Pages", b"Kids", b"Count"]
+        };
+        let mut pending = Vec::new();
+        if let Ok(root) = self.document.trailer.get(b"Root") {
+            collect_object_references(root, &mut pending);
+        }
+        let mut visited = HashSet::new();
+        while let Some(id) = pending.pop() {
+            if !visited.insert(id) {
+                continue;
+            }
+            self.ensure_object(id)?;
+            if let Some(object) = self.document.objects.get(&id) {
+                match object {
+                    Object::Dictionary(node) => {
+                        for &key in keys {
+                            if let Ok(value) = node.get(key) {
+                                collect_object_references(value, &mut pending);
+                            }
+                        }
+                    }
+                    Object::Array(_) | Object::Reference(_) => {
+                        collect_object_references(object, &mut pending);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_full_page_tree(&self) -> Result<PageTreeResolver> {
+        let has_indexed_pages = has_indexed_pages_entry(&self.document, self.index);
+        if !has_indexed_pages {
+            return Err(corrupt("PDF has no pages"));
+        }
+        let resolver = PageTreeResolver::validated(&self.document)
+            .map_err(|error| classify_page_tree_error(true, error))?;
+        if resolver.page_count() == 0 {
+            return Err(page_tree_damaged("it lists no pages".into()));
+        }
+        if resolver.page_count() as usize > MAX_PATH_INPUT_PDF_PAGES {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                format!("PDF page count exceeds the {MAX_PATH_INPUT_PDF_PAGES}-page ceiling"),
+            ));
+        }
+        Ok(resolver)
+    }
+
+    fn validate_page_tree_ends(&self) -> Result<(PageTreeResolver, BTreeMap<u32, ObjectId>)> {
+        let has_indexed_pages = has_indexed_pages_entry(&self.document, self.index);
+        let resolver = PageTreeResolver::with_both_ends(&self.document)
+            .map_err(|error| classify_page_tree_error(has_indexed_pages, error))?;
+        if resolver.page_count() == 0 {
+            return Err(if has_indexed_pages {
+                page_tree_damaged("it lists no pages".into())
+            } else {
+                corrupt("PDF has no pages")
+            });
+        }
+        if resolver.page_count() as usize > MAX_PATH_INPUT_PDF_PAGES {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                format!("PDF page count exceeds the {MAX_PATH_INPUT_PDF_PAGES}-page ceiling"),
+            ));
+        }
+        let actual_pages =
+            collect_document_pages_bounded(&self.document, Some(MAX_PATH_INPUT_PDF_PAGES))?;
+        if actual_pages.is_empty() {
+            return Err(if has_indexed_pages {
+                page_tree_damaged("it lists no pages".into())
+            } else {
+                corrupt("PDF has no pages")
+            });
+        }
+        Ok((resolver, actual_pages))
+    }
+
+    /// Recursively loads every object reachable from `seeds`, stopping at
+    /// `/Page`, `/Pages`, and `/Catalog` dictionaries so page-local subgraphs
+    /// never pull in unrelated pages or document-wide structures.
+    fn load_subgraph_stopping_at_pages(
+        &mut self,
+        seeds: impl IntoIterator<Item = ObjectId>,
+    ) -> Result<()> {
+        let mut pending: Vec<ObjectId> = seeds.into_iter().collect();
+        while let Some(id) = pending.pop() {
+            if !self.deep_loaded.insert(id) {
+                continue;
+            }
+            self.ensure_object(id)?;
+            if let Some(object) = self.document.objects.get(&id) {
+                if let Object::Dictionary(dict) = object {
+                    if matches!(
+                        dict.get(b"Type").and_then(Object::as_name),
+                        Ok(b"Page" | b"Pages" | b"Catalog")
+                    ) {
+                        continue;
+                    }
+                }
+                collect_object_references(object, &mut pending);
+            }
+        }
+        Ok(())
+    }
+
+    /// Loads `/Contents`, `/Resources` (including inherited `/Resources` on
+    /// ancestor `/Pages` nodes, following indirect `/Parent` aliases), and the
+    /// `/Annots` array container (without loading the annotation dictionaries
+    /// themselves) for `page_id`.
+    fn load_page_contents_and_resources(&mut self, page_id: ObjectId) -> Result<()> {
+        let resolved_page_id = self.resolve_object_id(page_id)?;
+        let mut seeds = Vec::new();
+        let mut annots_obj = None;
+        if let Some(Object::Dictionary(page)) = self.document.objects.get(&resolved_page_id) {
+            if let Ok(contents) = page.get(b"Contents") {
+                collect_object_references(contents, &mut seeds);
+            }
+            if let Ok(annots) = page.get(b"Annots") {
+                annots_obj = Some(annots.clone());
+            }
+        }
+        if let Some(annots_obj) = annots_obj {
+            // `prepare_overlay_page` dereferences `/Annots` to copy the array container;
+            // resolve only the array indirection without loading annotation dictionaries.
+            let _ = self.ensure_resolved_object(annots_obj)?;
+        }
+        let mut current = Some(resolved_page_id);
+        let mut seen = HashSet::new();
+        while let Some(id) = current {
+            if !seen.insert(id) {
+                break;
+            }
+            let resolved_id = self.resolve_object_id(id)?;
+            if resolved_id != id && !seen.insert(resolved_id) {
+                break;
+            }
+            if let Some(Object::Dictionary(dict)) = self.document.objects.get(&resolved_id) {
+                if let Ok(resources) = dict.get(b"Resources") {
+                    collect_object_references(resources, &mut seeds);
+                }
+                current = dict
+                    .get(b"Parent")
+                    .ok()
+                    .and_then(|value| value.as_reference().ok());
+            } else {
+                break;
+            }
+        }
+        self.load_subgraph_stopping_at_pages(seeds)
+    }
+
+    /// Returns `true` when `page_id` carries an `/Annots` entry whose resolved
+    /// value is non-empty (or malformed/non-array).
+    fn page_has_non_empty_annots(&mut self, page_id: ObjectId) -> Result<bool> {
+        let resolved_page_id = self.resolve_object_id(page_id)?;
+        let annots_obj = self
+            .document
+            .objects
+            .get(&resolved_page_id)
+            .and_then(|object| object.as_dict().ok())
+            .and_then(|dict| dict.get(b"Annots").ok())
+            .cloned();
+        let Some(annots_obj) = annots_obj else {
+            return Ok(false);
+        };
+        let resolved = self.ensure_resolved_object(annots_obj)?;
+        Ok(!matches!(resolved, Object::Array(items) if items.is_empty()))
+    }
+
+    /// Loads a page's `/Annots` array and shallow dictionaries for every
+    /// annotation listed there (plus `/IRT`, `/Popup`, `/Parent` thread links
+    /// and indirect identity keys), without following `/AP` appearance streams
+    /// or resources on untouched pages.
+    fn load_shallow_page_annotations(
+        &mut self,
+        page_id: ObjectId,
+        shallow_seen: &mut HashSet<ObjectId>,
+    ) -> Result<Vec<ObjectId>> {
+        let resolved_page_id = self.resolve_object_id(page_id)?;
+        let annots_obj = self
+            .document
+            .objects
+            .get(&resolved_page_id)
+            .and_then(|object| object.as_dict().ok())
+            .and_then(|dict| dict.get(b"Annots").ok())
+            .cloned();
+        let Some(annots_obj) = annots_obj else {
+            return Ok(Vec::new());
+        };
+        let resolved = self.ensure_resolved_object(annots_obj)?;
+        let Object::Array(items) = resolved else {
+            return Ok(Vec::new());
+        };
+        let listed: Vec<ObjectId> = items
+            .iter()
+            .filter_map(|item| item.as_reference().ok())
+            .collect();
+        let mut pending = listed.clone();
+        while let Some(id) = pending.pop() {
+            if !shallow_seen.insert(id) {
+                continue;
+            }
+            let resolved_id = self.resolve_object_id(id)?;
+            if resolved_id != id && !shallow_seen.insert(resolved_id) {
+                continue;
+            }
+            if let Some(Object::Dictionary(dict)) = self.document.objects.get(&resolved_id) {
+                if matches!(
+                    dict.get(b"Type").and_then(Object::as_name),
+                    Ok(b"Page" | b"Pages" | b"Catalog")
+                ) {
+                    continue;
+                }
+                for key in [b"IRT".as_slice(), b"Popup", b"Parent"] {
+                    if let Some(related) = annotation_related_ref(dict, key) {
+                        pending.push(related);
+                    }
+                }
+            }
+            self.load_direct_keys(resolved_id, SHALLOW_ANNOTATION_KEYS)?;
+        }
+        Ok(listed)
+    }
+
+    fn load_page_labels_continuation(&mut self) -> Result<()> {
+        let labels_ref = self
+            .document
+            .catalog()
+            .ok()
+            .and_then(|catalog| catalog.get(b"PageLabels").ok())
+            .and_then(|value| value.as_reference().ok());
+        if let Some(id) = labels_ref {
+            self.load_subgraph_stopping_at_pages([id])?;
+        }
+        Ok(())
+    }
+
+    fn load_outlines_continuation_path(&mut self, bookmark_path: &[u32]) -> Result<()> {
+        let Some(outlines_id) = self
+            .document
+            .catalog()
+            .ok()
+            .and_then(|catalog| catalog.get(b"Outlines").ok())
+            .and_then(|value| value.as_reference().ok())
+        else {
+            return Ok(());
+        };
+        let Ok(mut parent_dict) = self.resolve_dict_at(outlines_id) else {
+            return Ok(());
+        };
+        let mut seen = HashSet::from([outlines_id]);
+        for &index in bookmark_path {
+            let Ok(first_id) = parent_dict.get(b"First").and_then(Object::as_reference) else {
+                return Ok(());
+            };
+            let mut current_id = first_id;
+            for _ in 0..index {
+                if !seen.insert(current_id) || seen.len() >= CATALOG_WALK_NODE_LIMIT {
+                    return Ok(());
+                }
+                let dict = match self.resolve_dict_at(current_id) {
+                    Ok(dict) => dict,
+                    Err(error) if error.downcast_ref::<NativeError>().is_some() => {
+                        return Err(error)
+                    }
+                    Err(_) => return Ok(()),
+                };
+                let Ok(next_id) = dict.get(b"Next").and_then(Object::as_reference) else {
+                    return Ok(());
+                };
+                current_id = next_id;
+            }
+            parent_dict = match self.resolve_dict_at(current_id) {
+                Ok(dict) => dict,
+                Err(error) if error.downcast_ref::<NativeError>().is_some() => return Err(error),
+                Err(_) => return Ok(()),
+            };
+        }
+        if let Ok(last_id) = parent_dict.get(b"Last").and_then(Object::as_reference) {
+            self.ensure_object(last_id)?;
+        }
+        Ok(())
+    }
+
+    /// Finishes loading all remaining reachable objects from the trailer and
+    /// `named` (used for Tier 3 escalation when an existing placed-image stamp
+    /// requires global exclusivity proof).
+    fn load_remaining_reachable(&mut self, named: &[ObjectId]) -> Result<()> {
+        let mut pending = Vec::new();
+        collect_references(&self.document.trailer, &mut pending);
+        for &id in named {
+            if index_has_object(self.index, id) {
+                pending.push(id);
+            }
+        }
+        let mut visited = HashSet::new();
+        while let Some(id) = pending.pop() {
+            if !visited.insert(id) {
+                continue;
+            }
+            self.ensure_object(id)?;
+            if let Some(object) = self.document.objects.get(&id) {
+                collect_object_references(object, &mut pending);
+            }
+        }
+        Ok(())
+    }
+
+    fn load_for_mutations(
+        &mut self,
+        mutations: &NativeMutationsFile,
+    ) -> Result<Option<LocatedPages>> {
+        // 1. Load catalog, full page tree, and inherited geometry keys without
+        //    touching page /Contents, /Resources, /Annots, /StructTreeRoot, or
+        //    /Outlines. Loading every page-tree node also ensures corrupt leaf
+        //    page objects are refused before writing and gives exact leaf counts.
+        self.load_page_tree_all(true)?;
+
+        let plan = MutationLoadPlan::from_mutations(mutations);
+        let (resolver, actual_pages) = if plan.validate_page_tree {
+            (self.validate_full_page_tree()?, None)
+        } else {
+            let (resolver, pages) = self.validate_page_tree_ends()?;
+            (resolver, Some(pages))
+        };
+
+        if plan.needs_page_labels_continuation {
+            self.load_page_labels_continuation()?;
+        }
+        if let Some(path) = plan.bookmarks_continuation_path {
+            self.load_outlines_continuation_path(path)?;
+        }
+
+        let mut touched_located_ids = BTreeMap::new();
+        let mut touched_page_ids = HashSet::new();
+        for &page_index in &plan.touched_pages {
+            if let Some(page_number) = page_index.checked_add(1) {
+                if let Ok(page_id) = resolver.page_id(&self.document, page_number) {
+                    let resolved_page_id = self.resolve_object_id(page_id)?;
+                    touched_located_ids.insert(page_index, page_id);
+                    touched_page_ids.insert(page_id);
+                    touched_page_ids.insert(resolved_page_id);
+                }
+            }
+        }
+
+        // 2. Clean-page fast path: catalog-only saves, geometry-only saves on
+        //    unannotated pages, and clean-page additive annotation saves never
+        //    need to parse `/Annots` on untouched pages.
+        if plan.can_skip_untouched_annots
+            && !plan.has_bookmark_raw_refs
+            && touched_located_ids.len() == plan.touched_pages.len()
+        {
+            let all_clean = if plan.catalog_only {
+                true
+            } else {
+                let mut clean = true;
+                for &page_id in &touched_page_ids {
+                    if self.page_has_non_empty_annots(page_id)? {
+                        clean = false;
+                        break;
+                    }
+                }
+                clean
+            };
+            if all_clean {
+                return Ok(Some(LocatedPages {
+                    count: resolver.page_count(),
+                    ids: touched_located_ids,
+                }));
+            }
+        }
+
+        // 3. Targeted annotation graph: shallow annotation ownership across all
+        //    unique leaf pages (for cross-page /IRT /Popup /Parent threads and
+        //    stable-key resolution) plus full subgraphs of touched/reachable
+        //    addressed annotations and named recovery images (skipping page
+        //    /Contents, /Resources, /StructTreeRoot, and untouched appearance
+        //    streams).
+        let mut seen_pages = HashSet::new();
+        let mut all_page_ids = Vec::new();
+        if let Some(validated) = resolver.validated_pages() {
+            for &page_id in validated {
+                if seen_pages.insert(page_id) {
+                    all_page_ids.push(page_id);
+                }
+            }
+        } else if let Some(pages) = actual_pages {
+            for page_id in pages.into_values() {
+                if seen_pages.insert(page_id) {
+                    all_page_ids.push(page_id);
+                }
+            }
+        }
+
+        let mut shallow_seen = HashSet::new();
+        let mut deep_seeds = Vec::new();
+        for page_id in all_page_ids {
+            let listed = self.load_shallow_page_annotations(page_id, &mut shallow_seen)?;
+            if touched_page_ids.contains(&page_id) {
+                deep_seeds.extend(listed);
+            }
+        }
+        // Only deep-load addressed annotations that are actually reachable from
+        // the document's page /Annots graph (never revive unlinked orphans).
+        for &id in &plan.addressed_annotations {
+            if shallow_seen.contains(&id) {
+                deep_seeds.push(id);
+            }
+        }
+        for &id in &plan.restored_images {
+            if index_has_object(self.index, id) {
+                deep_seeds.push(id);
+            }
+        }
+        self.load_subgraph_stopping_at_pages(deep_seeds)?;
+
+        // 4. Placed-image exclusivity escalation: if an existing placed-image
+        //    stamp is being edited in place, `private_placed_image_refs` proves
+        //    exclusivity across the whole catalog graph; finish loading
+        //    remaining reachable objects using the same already-opened reader
+        //    and loader.
+        if has_existing_placed_image_target(&self.document, &resolver, mutations) {
+            self.load_remaining_reachable(&plan.restored_images)?;
+        }
+
+        Ok(None)
+    }
+}
+
+struct MutationLoadPlan<'a> {
+    validate_page_tree: bool,
+    catalog_only: bool,
+    can_skip_untouched_annots: bool,
+    has_bookmark_raw_refs: bool,
+    needs_page_labels_continuation: bool,
+    bookmarks_continuation_path: Option<&'a [u32]>,
+    touched_pages: std::collections::BTreeSet<u32>,
+    addressed_annotations: Vec<ObjectId>,
+    restored_images: Vec<ObjectId>,
+}
+
+impl<'a> MutationLoadPlan<'a> {
+    fn from_mutations(mutations: &'a NativeMutationsFile) -> Self {
+        let validate_page_tree = !mutations.page_rotations.is_empty()
+            || !mutations.page_crops.is_empty()
+            || !mutations.page_crop_removals.is_empty();
+        let has_annotation_mutations = !mutations.updates.is_empty()
+            || !mutations.geometry_updates.is_empty()
+            || !mutations.notes.is_empty()
+            || !mutations.free_text_notes.is_empty()
+            || !mutations.text_boxes.is_empty()
+            || !mutations.deletes.is_empty()
+            || mutations.shapes.is_some()
+            || mutations.markup.is_some()
+            || !mutations.placed_images.is_empty()
+            || !mutations.placed_image_geometry_updates.is_empty();
+        let geometry_or_catalog_only = !has_annotation_mutations;
+        let catalog_only = geometry_or_catalog_only && !validate_page_tree;
+
+        let mut touched_pages = std::collections::BTreeSet::new();
+        let mut addressed_annotations = Vec::new();
+        let mut restored_images = Vec::new();
+
+        for update in &mutations.updates {
+            addressed_annotations.push((update.object_number, update.generation_number));
+        }
+        for update in &mutations.geometry_updates {
+            touched_pages.insert(update.page_index);
+            addressed_annotations.push((update.object_number, update.generation_number));
+        }
+        let mut has_note_recovery = false;
+        for note in mutations
+            .notes
+            .iter()
+            .chain(mutations.free_text_notes.iter())
+        {
+            touched_pages.insert(note.page_index);
+            if note.recovery_data.is_some() {
+                has_note_recovery = true;
+            }
+        }
+        for editor in &mutations.text_boxes {
+            touched_pages.insert(editor.page_index);
+            if let Some(id) = editor
+                .annotation_id
+                .as_deref()
+                .and_then(parse_pdfjs_annotation_object_id)
+            {
+                addressed_annotations.push(id);
+            }
+        }
+        for delete in &mutations.deletes {
+            touched_pages.insert(delete.page_index);
+            if let (Some(num), Some(gen)) = (delete.object_number, delete.generation_number) {
+                addressed_annotations.push((num, gen));
+            }
+        }
+        for rotation in &mutations.page_rotations {
+            touched_pages.insert(rotation.page_index);
+        }
+        for crop in &mutations.page_crops {
+            touched_pages.insert(crop.page_index);
+        }
+        for &page_index in &mutations.page_crop_removals {
+            touched_pages.insert(page_index);
+        }
+        let mut has_bookmark_raw_refs = false;
+        if let Some(bookmarks) = &mutations.bookmarks {
+            collect_bookmark_load_targets(
+                &bookmarks.items,
+                &mut touched_pages,
+                &mut has_bookmark_raw_refs,
+            );
+        }
+        let mut has_shape_deletes = false;
+        if let Some(shapes) = &mutations.shapes {
+            if !shapes.deleted_annotation_ids.is_empty() || !shapes.deleted_stable_keys.is_empty() {
+                has_shape_deletes = true;
+            }
+            for shape in &shapes.shapes {
+                touched_pages.insert(shape.page_index);
+                if let Some(id) = shape
+                    .annotation_id
+                    .as_deref()
+                    .and_then(parse_pdfjs_annotation_object_id)
+                {
+                    addressed_annotations.push(id);
+                }
+            }
+            for id_str in &shapes.deleted_annotation_ids {
+                if let Some(id) = parse_pdfjs_annotation_object_id(id_str) {
+                    addressed_annotations.push(id);
+                }
+            }
+        }
+        if let Some(markup) = &mutations.markup {
+            for hint in &markup.hints {
+                touched_pages.insert(hint.page_index);
+                if let Some(id) = hint
+                    .annotation_id
+                    .as_deref()
+                    .and_then(parse_pdfjs_annotation_object_id)
+                {
+                    addressed_annotations.push(id);
+                }
+            }
+        }
+        for image in &mutations.placed_images {
+            touched_pages.insert(image.page_index);
+            if let Some(id) = image
+                .annotation_id
+                .as_deref()
+                .and_then(parse_pdfjs_annotation_object_id)
+            {
+                addressed_annotations.push(id);
+            }
+        }
+        for update in &mutations.placed_image_geometry_updates {
+            touched_pages.insert(update.page_index);
+            if let Some(id) = update
+                .annotation_id
+                .as_deref()
+                .and_then(parse_pdfjs_annotation_object_id)
+            {
+                addressed_annotations.push(id);
+            }
+            if let Some(source) = &update.source_image {
+                if let (Ok(num), Ok(gen)) = (
+                    u32::try_from(source.object_number),
+                    u16::try_from(source.generation_number),
+                ) {
+                    restored_images.push((num, gen));
+                }
+            }
+        }
+
+        let needs_page_labels_continuation = mutations.page_labels.is_some()
+            && mutations.continuation.as_ref().is_some_and(|continuation| {
+                continuation.family == NativeMutationContinuationFamily::PageLabels
+            });
+        let bookmarks_continuation_path = mutations
+            .bookmarks
+            .as_ref()
+            .and(mutations.continuation.as_ref())
+            .filter(|continuation| {
+                continuation.family == NativeMutationContinuationFamily::Bookmarks
+            })
+            .map(|continuation| continuation.bookmark_path.as_slice());
+
+        let can_skip_untouched_annots = geometry_or_catalog_only
+            || (mutations.updates.is_empty()
+                && mutations.geometry_updates.is_empty()
+                && mutations.deletes.is_empty()
+                && addressed_annotations.is_empty()
+                && mutations.placed_image_geometry_updates.is_empty()
+                && !has_note_recovery
+                && !has_shape_deletes);
+
+        Self {
+            validate_page_tree,
+            catalog_only,
+            can_skip_untouched_annots,
+            has_bookmark_raw_refs,
+            needs_page_labels_continuation,
+            bookmarks_continuation_path,
+            touched_pages,
+            addressed_annotations,
+            restored_images,
+        }
+    }
+}
+
+fn collect_bookmark_load_targets(
+    items: &[BookmarkEntry],
+    touched_pages: &mut std::collections::BTreeSet<u32>,
+    has_raw_refs: &mut bool,
+) {
+    use evb_native_support::pdf_catalog::BookmarkSourceTarget;
+    for item in items {
+        if let Some(index) = item.page_index {
+            touched_pages.insert(index);
+        }
+        if let Some(original) = &item.original_destination {
+            match original.source_target {
+                BookmarkSourceTarget::PageIndex(index) => {
+                    touched_pages.insert(index);
+                }
+                BookmarkSourceTarget::Reference { .. }
+                    if item.page_index.is_none()
+                        && item
+                            .named_dest
+                            .as_deref()
+                            .is_none_or(|name| name.trim().is_empty()) =>
+                {
+                    *has_raw_refs = true;
+                }
+                BookmarkSourceTarget::Reference { .. } => {}
+            }
+        }
+        collect_bookmark_load_targets(&item.items, touched_pages, has_raw_refs);
+    }
+}
+
+fn has_existing_placed_image_target(
+    document: &Document,
+    resolver: &PageTreeResolver,
+    mutations: &NativeMutationsFile,
+) -> bool {
+    if mutations.placed_images.is_empty() && mutations.placed_image_geometry_updates.is_empty() {
+        return false;
+    }
+    let chunk_index = placed_image_chunk_index(mutations);
+    for (index, image) in mutations.placed_images.iter().enumerate() {
+        let Ok(page_number) = mutation_page_number(image.page_index) else {
+            continue;
+        };
+        let Ok(page_id) = resolver.page_id(document, page_number) else {
+            continue;
+        };
+        if image.stable_key.is_none() && image.annotation_id.is_none() {
+            if get_page_annots(document, page_id)
+                .ok()
+                .is_some_and(|annots| {
+                    annots.iter().any(|item| {
+                        item.as_reference()
+                            .ok()
+                            .and_then(|id| document.dictionary(id).ok())
+                            .is_some_and(|dict| annotation_subtype(dict) == "stamp")
+                    })
+                })
+            {
+                return true;
+            }
+            continue;
+        }
+        let expected_name = placed_image_annotation_name(image, index, chunk_index, "");
+        if matches!(
+            resolve_placed_image_target(document, page_id, image, &expected_name),
+            Ok(Some(_))
+        ) {
+            return true;
+        }
+    }
+    for update in &mutations.placed_image_geometry_updates {
+        let Ok(page_number) = mutation_page_number(update.page_index) else {
+            continue;
+        };
+        let Ok(page_id) = resolver.page_id(document, page_number) else {
+            continue;
+        };
+        let probe = placed_image_geometry_probe(update);
+        let expected_name = update.stable_key.as_deref().unwrap_or_default();
+        if matches!(
+            resolve_placed_image_target(document, page_id, &probe, expected_name),
+            Ok(Some(_))
+        ) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Walks the document's `/Catalog /Pages` tree in order without lopdf's
+/// `objects.len()` traversal cap, returning 1-based page numbers mapped to leaf
+/// `/Page` object IDs. Memoizes zero-leaf `/Pages` branches and bounds internal
+/// node visits so shared-branch DAGs cannot stall traversal; when `max_pages`
+/// is `Some(limit)`, stops immediately with `NativeErrorCode::TooLarge` as soon
+/// as the tree exceeds `limit` leaves.
+pub(crate) fn collect_document_pages_bounded(
+    document: &Document,
+    max_pages: Option<usize>,
+) -> Result<BTreeMap<u32, ObjectId>> {
+    enum Frame {
+        Enter {
+            object: Object,
+            depth: usize,
+        },
+        Leave {
+            node_id: ObjectId,
+            leaves_before: u32,
+        },
+    }
+
+    let Ok(catalog) = document.catalog() else {
+        return Ok(BTreeMap::new());
+    };
+    let Ok(pages_root) = catalog.get(b"Pages") else {
+        return Ok(BTreeMap::new());
+    };
+
+    let mut pages = BTreeMap::new();
+    let mut active_ancestors = HashSet::new();
+    let mut zero_leaf_nodes = HashSet::new();
+    let max_internal_visits = max_pages
+        .map(|limit| limit.saturating_mul(2).max(16_384))
+        .unwrap_or(MAX_PDF_OBJECTS);
+    let mut visited_internal = 0usize;
+    let mut stack = vec![Frame::Enter {
+        object: pages_root.clone(),
+        depth: 0,
+    }];
+    let mut page_number = 0u32;
+
+    while let Some(frame) = stack.pop() {
+        match frame {
+            Frame::Leave {
+                node_id,
+                leaves_before,
+            } => {
+                active_ancestors.remove(&node_id);
+                if page_number == leaves_before {
+                    zero_leaf_nodes.insert(node_id);
+                }
+            }
+            Frame::Enter { object, depth } => {
+                if depth >= 256 {
+                    continue;
+                }
+                let Ok((resolved_id, resolved)) = document.dereference(&object) else {
+                    continue;
+                };
+                let Ok(dict) = resolved.as_dict() else {
+                    continue;
+                };
+                let type_name = dict
+                    .get(b"Type")
+                    .ok()
+                    .and_then(|value| document.dereference(value).ok())
+                    .and_then(|(_, value)| value.as_name().ok());
+                match type_name {
+                    Some(b"Page") => {
+                        let Some(page_id) = resolved_id else {
+                            continue;
+                        };
+                        let Some(next_number) = page_number.checked_add(1) else {
+                            return Err(domain_error(
+                                NativeErrorCode::TooLarge,
+                                "PDF page count exceeds the supported integer range",
+                            ));
+                        };
+                        if let Some(limit) = max_pages {
+                            if next_number as usize > limit {
+                                return Err(domain_error(
+                                    NativeErrorCode::TooLarge,
+                                    format!("PDF page count exceeds the {limit}-page ceiling"),
+                                ));
+                            }
+                        }
+                        page_number = next_number;
+                        pages.insert(page_number, page_id);
+                    }
+                    Some(b"Pages") => {
+                        if let Some(node_id) = resolved_id {
+                            if zero_leaf_nodes.contains(&node_id)
+                                || !active_ancestors.insert(node_id)
+                            {
+                                continue;
+                            }
+                            stack.push(Frame::Leave {
+                                node_id,
+                                leaves_before: page_number,
+                            });
+                        }
+                        visited_internal = visited_internal.saturating_add(1);
+                        if visited_internal > max_internal_visits {
+                            return Err(domain_error(
+                                NativeErrorCode::TooLarge,
+                                "PDF page tree exceeds the internal node traversal ceiling",
+                            ));
+                        }
+                        let Ok(kids_obj) = dict.get(b"Kids") else {
+                            continue;
+                        };
+                        let Ok((_, kids_resolved)) = document.dereference(kids_obj) else {
+                            continue;
+                        };
+                        let Ok(kids) = kids_resolved.as_array() else {
+                            continue;
+                        };
+                        for kid in kids.iter().rev() {
+                            stack.push(Frame::Enter {
+                                object: kid.clone(),
+                                depth: depth + 1,
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    Ok(pages)
+}
+
+pub(crate) fn collect_document_pages(document: &Document) -> BTreeMap<u32, ObjectId> {
+    collect_document_pages_bounded(document, Some(MAX_PATH_INPUT_PDF_PAGES))
+        .unwrap_or_else(|_| document.get_pages())
+}
+
 /// Loads only the catalog, page-tree nodes, leaf page dictionaries, and the
 /// indirect values their geometry attributes reference, never touching content
 /// streams, fonts, XObjects, annotations, or outlines. Refuses encrypted PDFs
@@ -893,79 +2068,21 @@ pub(crate) fn load_page_geometry_source<S: ByteSource>(bytes: S, len: u64) -> Re
             "Encrypted PDFs are not supported by native page ops",
         ));
     }
-    let mut document = Document::with_version(reader.version.clone());
-    document.max_id = index.max_number;
-    document.reference_table = Xref::new(document.max_id.saturating_add(1), index.xref_type);
-    document.trailer = index.trailer.clone();
-    let mut loader = Loader::new(&reader, &index);
-    let mut pending = Vec::new();
-    collect_object_references(document.trailer.get(b"Root")?, &mut pending);
-    while let Some(id) = pending.pop() {
-        if document.objects.contains_key(&id) {
-            continue;
-        }
-        if document.objects.len() >= MAX_PDF_OBJECTS {
-            return Err(domain_error(
-                NativeErrorCode::TooLarge,
-                format!("PDF page tree exceeds the {MAX_PDF_OBJECTS}-object admission ceiling"),
-            ));
-        }
-        let object = loader.load(id)?;
-        match &object {
-            Object::Dictionary(node) => [
-                b"Pages".as_slice(),
-                b"Kids",
-                b"Count",
-                b"Parent",
-                b"MediaBox",
-                b"CropBox",
-                b"Rotate",
-                b"UserUnit",
-            ]
-            .into_iter()
-            .filter_map(|key| node.get(key).ok())
-            .for_each(|value| collect_object_references(value, &mut pending)),
-            Object::Array(_) | Object::Reference(_) => {
-                collect_object_references(&object, &mut pending)
-            }
-            _ => {}
-        }
-        document.objects.insert(id, object);
-    }
+    let mut target = TargetedLoader::new(&reader, &index);
+    target.load_page_tree_all(true)?;
     // A page tree that lists no page, has an indexed wrong-type /Pages target,
     // or has broken ends is page-tree damage (`invalid-request`); a catalog or
     // /Pages root the cross-reference index cannot find is index damage (`corrupt-xref`).
-    let has_indexed_pages_entry = document
-        .catalog()
-        .ok()
-        .and_then(|catalog| catalog.get(b"Pages").ok())
-        .is_some_and(|pages| match pages {
-            Object::Reference(id) => {
-                matches!(
-                    index.entry(id.0),
-                    Some(XrefEntry::Offset { generation, .. }) if generation == id.1
-                ) || matches!(
-                    index.entry(id.0),
-                    Some(XrefEntry::InStream { .. }) if id.1 == 0
-                )
-            }
-            // A non-reference /Pages value inside a readable catalog is page-tree damage.
-            _ => true,
-        });
-    let resolver = PageTreeResolver::with_both_ends(&document).map_err(|error| {
-        if has_indexed_pages_entry {
-            page_tree_damaged(error)
-        } else {
-            corrupt(format!("PDF has no pages: {error}"))
-        }
-    })?;
+    let has_indexed_pages = has_indexed_pages_entry(&target.document, &index);
+    let resolver = PageTreeResolver::with_both_ends(&target.document)
+        .map_err(|error| classify_page_tree_error(has_indexed_pages, error))?;
     if resolver.page_count() as usize > MAX_PATH_INPUT_PDF_PAGES {
         return Err(domain_error(
             NativeErrorCode::TooLarge,
             format!("PDF page count exceeds the {MAX_PATH_INPUT_PDF_PAGES}-page ceiling"),
         ));
     }
-    Ok(document)
+    Ok(target.document)
 }
 
 fn collect_object_references(object: &Object, pending: &mut Vec<ObjectId>) {
@@ -1767,6 +2884,9 @@ impl<'r, 'a, S: ByteSource + ?Sized> Loader<'r, 'a, S> {
     fn load(&mut self, id: ObjectId) -> Result<Object> {
         let (object, reals) = match self.index.entry(id.0) {
             Some(XrefEntry::Offset { offset, generation }) if generation == id.1 => {
+                #[cfg(test)]
+                SOURCE_PDF_LOADED_OBJECT_COUNT
+                    .with(|count| count.set(count.get().saturating_add(1)));
                 let (object, reals, extent) = self.direct(id, offset)?;
                 if let Some(extent) = extent {
                     self.streams.insert(id, extent);
@@ -1774,6 +2894,9 @@ impl<'r, 'a, S: ByteSource + ?Sized> Loader<'r, 'a, S> {
                 (object, reals)
             }
             Some(XrefEntry::InStream { container, index }) if id.1 == 0 => {
+                #[cfg(test)]
+                SOURCE_PDF_LOADED_OBJECT_COUNT
+                    .with(|count| count.set(count.get().saturating_add(1)));
                 match self.member(container, id.0, index, true)? {
                     Some(member) => member,
                     None => return Ok(Object::Null),

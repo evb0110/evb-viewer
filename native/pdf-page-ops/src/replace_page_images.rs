@@ -93,7 +93,13 @@ pub(crate) fn write_replace_page_images_path(
     output_path: &Path,
     instructions: &ReplacePageImagesFile,
 ) -> Result<()> {
-    let (source, mut incremental) = SourcePdf::open_append_base_path(input_path)?;
+    let page_numbers: Vec<u32> = instructions
+        .pages
+        .iter()
+        .map(|page| page.page_number)
+        .collect();
+    let (source, mut incremental) =
+        SourcePdf::open_page_content_append_base_path(input_path, &page_numbers)?;
     let structural = Some(&source as StructuralSource);
     let report = replace_page_images_in(&mut incremental, structural, instructions, |path| {
         load_pdf_path(path)
@@ -137,7 +143,20 @@ pub(crate) fn replace_page_images_bytes(
             "replace-page-images names a replacement PDF the request does not carry",
         ));
     }
-    let (source, mut incremental) = incremental_from_bytes(data)?;
+    if data.len() > PAGE_OP_WASM_MAX_BUFFER_BYTES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Page-op WASM input exceeds the input admission ceiling",
+        ));
+    }
+    let page_numbers: Vec<u32> = instructions
+        .pages
+        .iter()
+        .map(|page| page.page_number)
+        .collect();
+    let (source, mut incremental) =
+        SourcePdf::open_page_content_append_base(data, u64::try_from(data.len())?, &page_numbers)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     let structural = Some(&source as StructuralSource);
     let report = replace_page_images_in(&mut incremental, structural, &instructions, |&index| {
         load_pdf_bytes(replacements[index])
@@ -167,11 +186,14 @@ pub(crate) fn replace_page_images_to_source<S: ByteSource>(
     let instructions: ReplacePageImagesFile<usize> = validate_replace_page_images(
         parse_json_sidecar_bytes(instructions, "replace-page-images instructions")?,
     )?;
-    let mut pdf = SourcePdf::open_append_base(source, len)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    let mut incremental = pdf
-        .take_append_base()
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let page_numbers: Vec<u32> = instructions
+        .pages
+        .iter()
+        .map(|page| page.page_number)
+        .collect();
+    let (pdf, mut incremental) =
+        SourcePdf::open_page_content_append_base(source, len, &page_numbers)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     let report = replace_page_images_in(
         &mut incremental,
         Some(&pdf as StructuralSource),

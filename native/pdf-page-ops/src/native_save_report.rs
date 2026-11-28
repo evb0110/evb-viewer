@@ -64,7 +64,7 @@ pub(crate) fn annotation_delete_effects(
 fn changed_annotation_pages(base: &IncrementalDocument) -> Result<LocatedPages> {
     let document = base.get_prev_documents();
     let rewritten = |id: ObjectId| base.new_document.objects.contains_key(&id);
-    let listing = AnnotationListing::new_for_pages(document, None);
+    let listing = AnnotationListing::new_for_pages(document, base.located_pages());
     let mut links: HashMap<ObjectId, Vec<ObjectId>> = HashMap::new();
     for id in listing.pages.keys() {
         let Ok(dict) = document.dictionary(*id) else {
@@ -97,7 +97,7 @@ fn changed_annotation_pages(base: &IncrementalDocument) -> Result<LocatedPages> 
             );
         }
     }
-    let page_numbers = document.page_ids();
+    let page_numbers = base.page_ids();
     // Each list is compared as it resolves, through every reference to it.
     for page_id in page_numbers.values() {
         let listed = get_page_annots(document, *page_id)?;
@@ -139,6 +139,17 @@ fn changed_annotation_pages(base: &IncrementalDocument) -> Result<LocatedPages> 
         if touched.is_empty() {
             break;
         }
+    }
+    if let Some(located) = base.located_pages() {
+        return Ok(LocatedPages {
+            count: located.count,
+            ids: located
+                .ids
+                .iter()
+                .filter(|(_, page_id)| pages.contains(*page_id))
+                .map(|(index, page_id)| (*index, *page_id))
+                .collect(),
+        });
     }
     let indexes = page_numbers
         .into_iter()
