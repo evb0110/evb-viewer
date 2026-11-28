@@ -48,6 +48,8 @@ pub(crate) enum Operation {
     EmbeddedShapeIndex,
     PdfConformance {
         strict: bool,
+        with_markers: bool,
+        markers_only: bool,
     },
     AppendAdmission,
     Decrypt {
@@ -117,6 +119,8 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     let mut append_in_place = false;
     let mut metadata_only = false;
     let mut strict = false;
+    let mut with_markers = false;
+    let mut markers_only = false;
     let mut view_mode = None;
     let mut orientation = None;
 
@@ -227,6 +231,12 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             "--strict" => {
                 strict = true;
             }
+            "--with-markers" => {
+                with_markers = true;
+            }
+            "--markers-only" => {
+                markers_only = true;
+            }
             "--view-mode" => {
                 view_mode = Some(PrintViewMode::parse(
                     &args.next().ok_or("Missing --view-mode value")?,
@@ -246,6 +256,15 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     }
     if strict && command != "pdf-conformance" && command != "conformance" {
         return Err("--strict is only valid for pdf-conformance".into());
+    }
+    if with_markers && command != "pdf-conformance" && command != "conformance" {
+        return Err("--with-markers is only valid for pdf-conformance".into());
+    }
+    if markers_only && command != "pdf-conformance" && command != "conformance" {
+        return Err("--markers-only is only valid for pdf-conformance".into());
+    }
+    if markers_only && (strict || with_markers) {
+        return Err("--markers-only cannot be combined with --strict or --with-markers".into());
     }
 
     if append_in_place && (!append || command != "save-mutations") {
@@ -312,7 +331,11 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         },
         "annotation-index" | "annotation-name-index" => Operation::AnnotationNameIndex,
         "embedded-shape-index" | "shape-index" => Operation::EmbeddedShapeIndex,
-        "pdf-conformance" | "conformance" => Operation::PdfConformance { strict },
+        "pdf-conformance" | "conformance" => Operation::PdfConformance {
+            strict,
+            with_markers,
+            markers_only,
+        },
         "append-admission" => Operation::AppendAdmission,
         "decrypt" => Operation::Decrypt { password_file },
         "page-geometry" | "get-page-geometry" => Operation::PageGeometry {
@@ -375,10 +398,16 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
 
 pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
     match &config.operation {
-        Operation::PdfConformance { strict } => {
+        Operation::PdfConformance {
+            strict,
+            with_markers,
+            markers_only,
+        } => {
             return write_pdf_conformance(
                 &config.input_path,
                 *strict,
+                *with_markers,
+                *markers_only,
                 &mut std::io::stdout().lock(),
             )
         }

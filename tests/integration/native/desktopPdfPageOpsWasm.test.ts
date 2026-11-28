@@ -23,6 +23,8 @@ import {
     it,
 } from 'vitest';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
+import {analyzePdfConformancePath} from '@electron/features/documents/main/pdfConformancePathAnalysis';
+import {createPdfConformanceProfile, scanPdfMarkerEvidence} from '@pdf-core/pdfConformanceHelpers';
 import {shutdownPdfPageOpsWorkers} from '@electron/native-tools/pdfPageOpsWorkerClient';
 import {
     runDesktopQpdfWasm,
@@ -835,5 +837,227 @@ describe('desktop evb-pdf-page-ops.wasm host-file streaming integration', () => 
             preservedOut,
         ])).rejects.toThrow(/(?:EISDIR|EPERM|EACCES|ENOTEMPTY|EEXIST).*rename.*preserved-out\.pdf\.decrypt\.json/u);
         expect(await readFile(preservedOut, 'utf8')).toBe('pre-existing-content');
+    }, TIMEOUT_MS);
+
+    it('matches JS full-marker conformance contract across plain, encrypted, PDF/A, and chunk-boundary-splitting PDFs', async () => {
+        tempRoot = await mkdtemp(join(tmpdir(), 'evb-desktop-page-ops-conformance-diff-'));
+        const wasmPath = resolveNativePageOpsPath()!;
+
+        const writeCustomPdfWithBodyStream = async (fileName: string, streamBytes: Buffer) => {
+            const filePath = join(tempRoot, fileName);
+            const enc = (text: string) => Buffer.from(text, 'latin1');
+            const parts: Buffer[] = [];
+            let pos = 0;
+            const offsets: number[] = [0];
+            const push = (buf: Buffer) => {
+                parts.push(buf);
+                pos += buf.byteLength;
+            };
+            push(enc('%PDF-1.7\n%\xE2\xE3\xCF\xD3\n'));
+            offsets[1] = pos;
+            push(enc('1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R >>\nendobj\n'));
+            offsets[2] = pos;
+            push(enc('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n'));
+            offsets[3] = pos;
+            push(enc('3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n'));
+            offsets[4] = pos;
+            push(enc(`4 0 obj\n<< /Type /Metadata /Subtype /XML /Length ${streamBytes.byteLength} >>\nstream\n`));
+            push(streamBytes);
+            push(enc('\nendstream\nendobj\n'));
+            const xrefStart = pos;
+            let xref = `xref\n0 ${offsets.length}\n0000000000 65535 f \n`;
+            for (let i = 1; i < offsets.length; i += 1) {
+                xref += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+            }
+            xref += `trailer\n<< /Size ${offsets.length} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`;
+            push(enc(xref));
+            const fullBytes = Buffer.concat(parts);
+            await writeFile(filePath, fullBytes);
+            return {filePath, fullBytes};
+        };
+
+        const plainPdf = join(tempRoot, 'plain.pdf');
+        await createMultiPagePdf(plainPdf, 2);
+
+        const encryptedPdf = join(tempRoot, 'encrypted.pdf');
+        await runQpdf(['--encrypt', 'secret123', 'owner456', '256', '--', plainPdf, encryptedPdf]);
+
+        // Chunk boundary in Rust conformance marker scanner is 4 MiB (4 * 1024 * 1024).
+        const rustChunkBytes = 4 * 1024 * 1024;
+
+        // Construct exact chunk-edge split fixtures by measuring exact stream start offset.
+        const writeExactBoundaryPdf = async (
+            fileName: string,
+            totalStreamBytes: number,
+            placements: Array<{fileOffset: number; text: string}>,
+        ) => {
+            const prefix = Buffer.from(
+                '%PDF-1.7\n%\xE2\xE3\xCF\xD3\n' +
+                    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R >>\nendobj\n' +
+                    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n' +
+                    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n' +
+                    `4 0 obj\n<< /Type /Metadata /Subtype /XML /Length ${totalStreamBytes} >>\nstream\n`,
+                'latin1',
+            );
+            const streamStart = prefix.byteLength;
+            const streamBytes = Buffer.alloc(totalStreamBytes, 0x20);
+            for (const {fileOffset, text} of placements) {
+                const rel = fileOffset - streamStart;
+                expect(rel).toBeGreaterThanOrEqual(0);
+                expect(rel + text.length).toBeLessThanOrEqual(totalStreamBytes);
+                streamBytes.write(text, rel, 'latin1');
+            }
+            return writeCustomPdfWithBodyStream(fileName, streamBytes);
+        };
+
+        const fixtures: Array<{
+            label: string;
+            filePath: string;
+            expectedPdfa: string | null;
+            expectedEncrypted: boolean;
+        }> = [
+            {label: 'plain', filePath: plainPdf, expectedPdfa: null, expectedEncrypted: false},
+            {label: 'encrypted', filePath: encryptedPdf, expectedPdfa: null, expectedEncrypted: true},
+            {
+                label: 'pdfa-1b',
+                filePath: (
+                    await writeCustomPdfWithBodyStream(
+                        'pdfa-1b.pdf',
+                        Buffer.from('<pdfaid:part>1</pdfaid:part><pdfaid:conformance>b</pdfaid:conformance>', 'latin1'),
+                    )
+                ).filePath,
+                expectedPdfa: 'PDF/A-1B',
+                expectedEncrypted: false,
+            },
+            {
+                label: 'pdfa-2b',
+                filePath: (
+                    await writeCustomPdfWithBodyStream(
+                        'pdfa-2b.pdf',
+                        Buffer.from('<pdfaid:part>2</pdfaid:part><pdfaid:conformance>B</pdfaid:conformance>', 'latin1'),
+                    )
+                ).filePath,
+                expectedPdfa: 'PDF/A-2B',
+                expectedEncrypted: false,
+            },
+            {
+                label: 'pdfa-3b',
+                filePath: (
+                    await writeCustomPdfWithBodyStream(
+                        'pdfa-3b.pdf',
+                        Buffer.from('<PDFAID:PART> 3 </PDFAID:PART><PDFAID:CONFORMANCE>\tb\n</PDFAID:CONFORMANCE>', 'latin1'),
+                    )
+                ).filePath,
+                expectedPdfa: 'PDF/A-3B',
+                expectedEncrypted: false,
+            },
+            {
+                label: 'pdfa-4-no-conformance',
+                filePath: (
+                    await writeCustomPdfWithBodyStream('pdfa-4.pdf', Buffer.from('<pdfaid:part>4</pdfaid:part>', 'latin1'))
+                ).filePath,
+                expectedPdfa: 'PDF/A-4',
+                expectedEncrypted: false,
+            },
+            {
+                label: 'chunk-boundary-split-pdfa-and-encrypt',
+                filePath: (
+                    await writeExactBoundaryPdf('chunk-split.pdf', rustChunkBytes * 2 + 1024, [
+                        {fileOffset: rustChunkBytes - 10, text: '<pdfaid:part>2</pdfaid:part>'},
+                        {fileOffset: rustChunkBytes * 2 - 12, text: '<pdfaid:conformance>u</pdfaid:conformance>'},
+                        {fileOffset: rustChunkBytes * 2 + 100, text: '/Encrypt 99 0 R'},
+                    ])
+                ).filePath,
+                expectedPdfa: 'PDF/A-2U',
+                expectedEncrypted: true,
+            },
+            {
+                label: 'chunk-boundary-encrypted-word-no-false-positive',
+                filePath: (
+                    await writeExactBoundaryPdf('chunk-encrypted-word.pdf', rustChunkBytes + 512, [
+                        {fileOffset: rustChunkBytes - '/Encrypt'.length, text: '/Encrypted'},
+                    ])
+                ).filePath,
+                expectedPdfa: null,
+                expectedEncrypted: false,
+            },
+            {
+                label: 'chunk-boundary-long-whitespace-pdfa',
+                filePath: (
+                    await writeExactBoundaryPdf('chunk-long-ws.pdf', rustChunkBytes + 16_384, [
+                        {
+                            fileOffset: rustChunkBytes - 7_000,
+                            text: `<pdfaid:part>${' '.repeat(9_000)}2</pdfaid:part><pdfaid:conformance>b</pdfaid:conformance>`,
+                        },
+                    ])
+                ).filePath,
+                expectedPdfa: 'PDF/A-2B',
+                expectedEncrypted: false,
+            },
+            {
+                label: 'oversized-64k-pdfa-token-ignored-within-stdout-budget',
+                filePath: (
+                    await writeCustomPdfWithBodyStream(
+                        'oversized-token.pdf',
+                        Buffer.from(`<pdfaid:part>${'X'.repeat(65_536)}</pdfaid:part>`, 'latin1'),
+                    )
+                ).filePath,
+                expectedPdfa: null,
+                expectedEncrypted: false,
+            },
+            {
+                label: 'windows-1252-0x9a-conformance-parity',
+                filePath: (
+                    await writeCustomPdfWithBodyStream(
+                        'win1252-9a.pdf',
+                        Buffer.concat([
+                            Buffer.from('<pdfaid:part>2</pdfaid:part><pdfaid:conformance>', 'latin1'),
+                            Buffer.from([0x9a]),
+                            Buffer.from('</pdfaid:conformance>', 'latin1'),
+                        ]),
+                    )
+                ).filePath,
+                expectedPdfa: 'PDF/A-2\u0160',
+                expectedEncrypted: false,
+            },
+        ];
+
+        for (const fixture of fixtures) {
+            const rawBytes = await readFile(fixture.filePath);
+            const jsMarkers = scanPdfMarkerEvidence(rawBytes);
+
+            const structuralRes = await runNativeToolCommand(wasmPath, ['pdf-conformance', '--input', fixture.filePath]);
+            const structuralFacts = JSON.parse(structuralRes.stdout) as {
+                isSigned: boolean;
+                isEncrypted: boolean;
+                isTagged: boolean;
+                hasAcroForm: boolean;
+                hasXfa: boolean;
+            };
+            expect(structuralFacts).not.toHaveProperty('pdfaLevel');
+
+            const expectedProfile = createPdfConformanceProfile(structuralFacts, jsMarkers);
+            const rustProfile = await analyzePdfConformancePath(fixture.filePath);
+
+            expect(rustProfile, `differential mismatch on ${fixture.label}`).toEqual(expectedProfile);
+            expect(rustProfile.pdfaLevel, `pdfaLevel mismatch on ${fixture.label}`).toBe(fixture.expectedPdfa);
+            expect(rustProfile.isEncrypted, `isEncrypted mismatch on ${fixture.label}`).toBe(fixture.expectedEncrypted);
+        }
+
+        // Corrupt-xref PDF whose /Encrypt and PDF/A markers sit in a comment that qpdf drops on repair:
+        // desktop analyzePdfConformancePath must scan markers from the original file via --markers-only.
+        const corruptWithComment = join(tempRoot, 'corrupt-comment-markers.pdf');
+        const corruptContent =
+            '%PDF-1.7\n' +
+            '% /Encrypt 4 0 R <pdfaid:part>2</pdfaid:part><pdfaid:conformance>b</pdfaid:conformance>\n' +
+            '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n' +
+            '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n' +
+            '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n' +
+            'xref\n0 4\n0000000000 65535 f \n0000000001 00000 n \n0000000002 00000 n \n0000000003 00000 n \n' +
+            'trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n999999\n%%EOF\n';
+        await writeFile(corruptWithComment, Buffer.from(corruptContent, 'latin1'));
+        const corruptProfile = await analyzePdfConformancePath(corruptWithComment);
+        expect(corruptProfile.isEncrypted).toBe(true);
+        expect(corruptProfile.pdfaLevel).toBe('PDF/A-2B');
     }, TIMEOUT_MS);
 });

@@ -64,6 +64,61 @@ describe('PDF conformance contract helpers', () => {
         expect(scanPdfMarkerEvidence(bytes).isEncrypted).toBe(true);
     });
 
+    it('handles /Encrypted boundary splits, split PDF/A tags, and PDF/A-4 without conformance', () => {
+        const enc = new TextEncoder();
+        // `/Encrypted` split right after `/Encrypt` at the chunk edge must not false-positive.
+        const encryptedWord = new Uint8Array(PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES + 64);
+        encryptedWord.fill(0x20);
+        encryptedWord.set(enc.encode('/Encrypted'), PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES - '/Encrypt'.length);
+        expect(scanPdfMarkerEvidence(encryptedWord)).toEqual({
+            isEncrypted: false,
+            pdfaLevel: null,
+        });
+
+        // `<pdfaid:part>` in chunk 0 and `<pdfaid:conformance>` in chunk 1 combine cleanly.
+        const splitPdfa = new Uint8Array(PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES + 256);
+        splitPdfa.fill(0x20);
+        splitPdfa.set(enc.encode('<pdfaid:part>2</pdfaid:part>'), 100);
+        splitPdfa.set(enc.encode('<pdfaid:conformance>b</pdfaid:conformance>'), PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES + 64);
+        expect(scanPdfMarkerEvidence(splitPdfa)).toEqual({
+            isEncrypted: false,
+            pdfaLevel: 'PDF/A-2B',
+        });
+
+        // PDF/A-4 omits `<pdfaid:conformance>`.
+        expect(scanPdfMarkerEvidence(enc.encode('<pdfaid:part>4</pdfaid:part>'))).toEqual({
+            isEncrypted: false,
+            pdfaLevel: 'PDF/A-4',
+        });
+
+        // Long whitespace (>9,000 spaces) straddling the 4 MiB boundary still matches.
+        const longWs = new Uint8Array(PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES + 16_384);
+        longWs.fill(0x20);
+        longWs.set(
+            enc.encode(`<pdfaid:part>${' '.repeat(9_500)}2</pdfaid:part><pdfaid:conformance>b</pdfaid:conformance>`),
+            PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES - 7_000,
+        );
+        expect(scanPdfMarkerEvidence(longWs)).toEqual({
+            isEncrypted: false,
+            pdfaLevel: 'PDF/A-2B',
+        });
+
+        // Oversized (>256 byte) malformed token is ignored cleanly; Windows-1252 0x9A matches Š.
+        expect(scanPdfMarkerEvidence(enc.encode(`<pdfaid:part>${'X'.repeat(65_536)}</pdfaid:part>`))).toEqual({
+            isEncrypted: false,
+            pdfaLevel: null,
+        });
+        const win1252 = new Uint8Array([
+            ...enc.encode('<pdfaid:part>2</pdfaid:part><pdfaid:conformance>'),
+            0x9a,
+            ...enc.encode('</pdfaid:conformance>'),
+        ]);
+        expect(scanPdfMarkerEvidence(win1252)).toEqual({
+            isEncrypted: false,
+            pdfaLevel: 'PDF/A-2\u0160',
+        });
+    });
+
     it('creates the default conformance profile', () => {
         expect(createDefaultPdfConformanceProfile()).toEqual({
             isSigned: false,

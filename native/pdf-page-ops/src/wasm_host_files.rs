@@ -300,15 +300,39 @@ fn read_source(
             encode_bytes(RESPONSE_JSON, serde_json::to_vec(&catalog)?)
         }
         OP_CONFORMANCE => {
-            let source = if after_page != 0 {
+            const CONFORMANCE_FLAG_STRICT: u32 = 1 << 0;
+            const CONFORMANCE_FLAG_WITH_MARKERS: u32 = 1 << 1;
+            const CONFORMANCE_FLAG_MARKERS_ONLY: u32 = 1 << 2;
+            const ALL_CONFORMANCE_FLAGS: u32 = CONFORMANCE_FLAG_STRICT
+                | CONFORMANCE_FLAG_WITH_MARKERS
+                | CONFORMANCE_FLAG_MARKERS_ONLY;
+            if after_page & !ALL_CONFORMANCE_FLAGS != 0 {
+                return Err("Invalid pdf-conformance flags".into());
+            }
+            let strict = (after_page & CONFORMANCE_FLAG_STRICT) != 0;
+            let with_markers = (after_page & CONFORMANCE_FLAG_WITH_MARKERS) != 0;
+            let markers_only = (after_page & CONFORMANCE_FLAG_MARKERS_ONLY) != 0;
+            if markers_only && (strict || with_markers) {
+                return Err("pdf-conformance --markers-only cannot be combined with --strict or --with-markers".into());
+            }
+            if markers_only {
+                let markers = scan_pdf_marker_evidence(&HostSource(0), len, false)?;
+                return encode_bytes(RESPONSE_JSON, serde_json::to_vec(&markers)?);
+            }
+            let source = if strict {
                 SourcePdf::open_strict_verify(HostSource(0), len)?
             } else {
                 SourcePdf::open_conformance(HostSource(0), len)?
             };
-            encode_bytes(
-                RESPONSE_JSON,
-                serde_json::to_vec(&pdf_conformance_facts(&source.document)?)?,
-            )
+            let facts = pdf_conformance_facts(&source.document)?;
+            let payload = if with_markers {
+                let (bytes, source_len) = source.raw_source();
+                let markers = scan_pdf_marker_evidence(bytes, source_len, facts.is_encrypted)?;
+                serde_json::to_vec(&facts.with_markers(markers))?
+            } else {
+                serde_json::to_vec(&facts)?
+            };
+            encode_bytes(RESPONSE_JSON, payload)
         }
         _ => {
             let with_evb_ocr_text = match tail {
