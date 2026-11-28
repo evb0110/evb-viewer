@@ -1,9 +1,11 @@
 import {Window} from 'happy-dom';
 import {getBrowserPageOpsWorkerRequestId} from '@contracts/browserPageOpsWorker';
+import {PDF_OCR_TEXT_VISIBILITY_FORMAT, PDF_OCR_TEXT_VISIBILITY_SCHEMA_VERSION} from '@contracts/pdfOcrTextVisibility';
 import {normalizePdfNativeTextBoxAppearanceRequest} from '@contracts/nativePdfMutations';
 import {afterEach, beforeEach, describe, expect, it, onTestFinished, vi} from 'vitest';
 import {effectScope, ref} from 'vue';
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import {browserHeavyWorkerAdmission} from '@app/platform/browser-api/browserWorkerAdmission';
 import {WASM_REQUEST_ALLOCATION_ABI_VERSION} from '@contracts/getCheckedWasmMemoryView';
 import {cast} from '@tests/helpers/cast';
 import {createPlatformApiFixture} from '@tests/helpers/createPlatformApiFixture';
@@ -1397,5 +1399,160 @@ describe('browserPageOpsWorkerClient', () => {
         expect(await multi.merge()).toBeNull();
 
         vi.doUnmock('@app/platform/browser-api/browserPageOpsWorkerClient');
+    });
+
+    it('keeps locally queued page-ops requests from claiming aggregate admission slots ahead of interactive search', async () => {
+        FakeWorker.autoRespond = false;
+        vi.stubGlobal('navigator', {
+            hardwareConcurrency: 4,
+            deviceMemory: 8,
+            userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+        });
+        const flushMicrotasks = async () => {
+            for (let step = 0; step < 8; step += 1) {
+                await Promise.resolve();
+            }
+        };
+
+        // On 4-core/8GiB Chromium the aggregate heavy-worker limit is 3, while
+        // browserPageOpsWorkerClient has a local concurrency cap of 2.
+        const requests = Array.from({length: 4}, () =>
+            runBrowserPageOpsWorkerRequest('renderScanCleanupRaster', {
+                source: new Blob([Uint8Array.of(1)]),
+                request: {pageNumber: 1, dpi: 72, renderBox: 'cropBox', maxPixels: 100_000},
+            }),
+        );
+        await flushMicrotasks();
+
+        expect(FakeWorker.instances).toHaveLength(2);
+        expect(browserHeavyWorkerAdmission.snapshot()).toMatchObject({
+            active: 2,
+            activeByCategory: {'page-ops': 2},
+            queuedInteractive: 2,
+            queuedBatch: 0,
+            limit: 3,
+        });
+
+        // Because the 3rd and 4th page-ops requests wait on categoryLimit=2 rather than
+        // claiming the 3rd aggregate slot, an interactive Search request runs immediately.
+        let searchRan = false;
+        await browserHeavyWorkerAdmission.run({category: 'search', priority: 'interactive', categoryLimit: 1}, async () => {
+            searchRan = true;
+            return 'ok';
+        });
+        expect(searchRan).toBe(true);
+
+        // Drain the four in-flight/queued page-ops requests cleanly.
+        const respondAll = async () => {
+            for (let step = 0; step < 8; step += 1) {
+                for (const worker of FakeWorker.instances) {
+                    const lastCall = worker.postMessageCalls.at(-1);
+                    const id = lastCall ? getBrowserPageOpsWorkerRequestId(lastCall.message) : null;
+                    if (id !== null) {
+                        worker.dispatchMessage({
+                            id,
+                            type: 'renderScanCleanupRaster',
+                            ok: true,
+                            data: {data: new Uint8Array([2]), report: {width: 1, height: 1, compatibility: 'exact'}},
+                        });
+                    }
+                }
+                await flushMicrotasks();
+            }
+        };
+        await respondAll();
+        await Promise.all(requests);
+        expect(browserHeavyWorkerAdmission.snapshot().active).toBe(0);
+    });
+
+    it('lets interactive page-ops claims bypass queued batch page-ops work on constrained devices', async () => {
+        FakeWorker.autoRespond = false;
+        vi.stubGlobal('navigator', {
+            hardwareConcurrency: 4,
+            deviceMemory: 4,
+            userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+        });
+        const flushMicrotasks = async () => {
+            for (let step = 0; step < 8; step += 1) {
+                await Promise.resolve();
+            }
+        };
+
+        // On a constrained 4 GiB device, aggregate limit is 2 (1 batch + 1 interactive reserve).
+        const batchOne = runBrowserPageOpsWorkerRequest(
+            'ocrTextVisibility',
+            {source: new Blob([Uint8Array.of(1)]), pages: [1], withEvbOcrText: false},
+            {admissionPriority: 'batch'},
+        );
+        const batchTwo = runBrowserPageOpsWorkerRequest(
+            'ocrTextVisibility',
+            {source: new Blob([Uint8Array.of(2)]), pages: [2], withEvbOcrText: false},
+            {admissionPriority: 'batch'},
+        );
+        await flushMicrotasks();
+
+        expect(FakeWorker.instances).toHaveLength(1);
+        expect(browserHeavyWorkerAdmission.snapshot()).toMatchObject({
+            active: 1,
+            queuedBatch: 1,
+            limit: 2,
+        });
+
+        // An interactive preview raster (default priority 'interactive') claims the reserved slot immediately.
+        const interactivePreview = runBrowserPageOpsWorkerRequest('renderScanCleanupRaster', {
+            source: new Blob([Uint8Array.of(3)]),
+            request: {pageNumber: 1, dpi: 72, renderBox: 'cropBox', maxPixels: 100_000},
+        });
+        await flushMicrotasks();
+
+        expect(FakeWorker.instances).toHaveLength(2);
+        expect(browserHeavyWorkerAdmission.snapshot()).toMatchObject({
+            active: 2,
+            queuedBatch: 1,
+            queuedInteractive: 0,
+        });
+
+        // Respond to interactive preview first, then batch jobs.
+        const previewWorker = FakeWorker.instances[1]!;
+        previewWorker.dispatchMessage({
+            id: workerRequestId(previewWorker),
+            type: 'renderScanCleanupRaster',
+            ok: true,
+            data: {data: new Uint8Array([3]), report: {width: 1, height: 1, compatibility: 'exact'}},
+        });
+        await interactivePreview;
+
+        const batchWorker = FakeWorker.instances[0]!;
+        batchWorker.dispatchMessage({
+            id: workerRequestId(batchWorker),
+            type: 'ocrTextVisibility',
+            ok: true,
+            data: {
+                format: PDF_OCR_TEXT_VISIBILITY_FORMAT,
+                schemaVersion: PDF_OCR_TEXT_VISIBILITY_SCHEMA_VERSION,
+                pages: [],
+            },
+        });
+        await batchOne;
+        await flushMicrotasks();
+
+        // Now batchTwo has been dispatched on one of the two warm workers.
+        for (const worker of FakeWorker.instances) {
+            const last = worker.postMessageCalls.at(-1)?.message as {id?: number; type?: string} | undefined;
+            if (last?.type === 'ocrTextVisibility' && typeof last.id === 'number') {
+                worker.dispatchMessage({
+                    id: last.id,
+                    type: 'ocrTextVisibility',
+                    ok: true,
+                    data: {
+                        format: PDF_OCR_TEXT_VISIBILITY_FORMAT,
+                        schemaVersion: PDF_OCR_TEXT_VISIBILITY_SCHEMA_VERSION,
+                        pages: [],
+                    },
+                });
+            }
+        }
+        await batchTwo;
+        expect(browserHeavyWorkerAdmission.snapshot().active).toBe(0);
     });
 });

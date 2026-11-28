@@ -6,6 +6,7 @@ import {
     runBrowserScanCleanupWorkerRequest,
 } from '@app/platform/browser-api/browserScanCleanupWorkerClient';
 import {resolveBrowserPageLanes} from '@app/platform/browser-api/browserWorkerClient';
+import type {TBrowserHeavyWorkerPriority} from '@app/platform/browser-api/browserWorkerAdmission';
 import {BrowserPageOpsWorkerUnavailableError, runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {
     browserScanCleanupRasterCache,
@@ -159,25 +160,16 @@ export function unwrapBrowserScanCleanupOutcome<TResult>(outcome: TScanCleanupWa
     return outcome.result;
 }
 
-/**
- * The page view the desktop page record describes, annotation-free and on
- * white, as desktop's `pdftoppm` renders a cleanup raster. The page-ops engine
- * paints scanned pages as Poppler does; PDF.js paints the pages it reports
- * unsupported. A region renders one tile of the full raster.
- */
+/** Renders a cleanup raster (page-ops first, PDF.js fallback). */
 export async function renderPageRaster(
     source: IBrowserScanCleanupSource,
     pageSize: IPdfPageSize,
     dpi: number,
     maxPixels: number,
     signal: AbortSignal,
-    region?: {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-    },
+    region?: {x: number; y: number; width: number; height: number},
     onEngineIdentity?: (sha256: string) => void,
+    admissionPriority: TBrowserHeavyWorkerPriority = 'interactive',
 ): Promise<IPageRaster> {
     const cacheKey = isCacheableScanCleanupRaster(dpi, region)
         ? buildScanCleanupRasterCacheKey({ref: source.ref, revision: source.revision, pageSize, dpi})
@@ -222,6 +214,7 @@ export async function renderPageRaster(
             {
                 signal,
                 requireWorker: true,
+                admissionPriority,
                 onEngineIdentity: (sha256) => {
                     engineSha256 = sha256;
                     onEngineIdentity?.(sha256);
@@ -235,8 +228,7 @@ export async function renderPageRaster(
             throw error;
         });
     const rendered = await runRaster().catch(async (error: unknown) => {
-        // An in-place OPFS append (or discarded append) invalidates previously
-        // opened File handles; re-check the revision and refresh once if still current.
+        // Refresh a stale OPFS File handle once if the revision is still current.
         const isStale =
             error instanceof Error &&
             (error.name === 'NotReadableError' ||

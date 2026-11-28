@@ -15,14 +15,21 @@ import {settleBrowserWorkerResult, type ITypedPendingBrowserWorkerRequest} from 
 import {BROWSER_SCAN_CLEANUP_THREADS_WASM_PATH, BROWSER_SCAN_CLEANUP_WASM_PATH} from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import {readScanCleanupEngineWorkerThreads} from '@app/platform/browser-api/scanCleanupEngineWorkerName';
 import {
+    MAX_LIVE_THREADED_SCAN_CLEANUP_ENGINES,
     observeScanCleanupEngineReply,
     registerScanCleanupEnginePool,
     runWithScanCleanupEngineFailover,
     scanCleanupEngineAdmission,
     threadedScanCleanupEngineBudget,
+    usesThreadedScanCleanupEngine,
 } from '@app/platform/browser-api/scanCleanupEngineVariant';
 import type {BrowserWorkerBudget, IBrowserWorkerAdmission} from '@app/platform/browser-api/browserWorkerClient';
-import {resolvePerformanceProfile} from '@app/utils/performanceProfile';
+import {
+    browserHeavyWorkerAdmission,
+    runWithBrowserWorkerAdmission,
+    type TBrowserWorkerCategoryLimit,
+} from '@app/platform/browser-api/browserWorkerAdmission';
+import {resolveBrowserEstimatedMemoryGiB, resolvePerformanceProfile} from '@app/utils/performanceProfile';
 import * as v from 'valibot';
 
 const MIB = 1024 * 1024;
@@ -118,7 +125,8 @@ export function resolveBrowserOcrLanes(pagePixels = 0, modelBytes = 0, cleanup?:
     if (memoryGb !== undefined && memoryGb <= 4) {
         return single;
     }
-    const totalBudget = ((memoryGb ?? 4) * 1024 ** 3) / 2;
+    const effectiveMemoryGb = memoryGb ?? resolveBrowserEstimatedMemoryGiB();
+    const totalBudget = (effectiveMemoryGb * 1024 ** 3) / 2;
     const perLane = 192 * 1024 * 1024 + pagePixels * 12 + modelBytes * 3;
     if (!cleanup) {
         return {
@@ -243,7 +251,11 @@ function getPreprocessOwner() {
             resolveBrowserOcrLanes().lanes,
             threadedScanCleanupEngineBudget,
         );
-        registerScanCleanupEnginePool(() => pool.resetIdleWorkers());
+        registerScanCleanupEnginePool(() => {
+            pool.resetIdleWorkers();
+            browserHeavyWorkerAdmission.wake();
+        });
+        threadedScanCleanupEngineBudget.onRelease(() => browserHeavyWorkerAdmission.wake());
         preprocessOwner = pool;
     }
     return preprocessOwner;
@@ -263,6 +275,7 @@ function runWorkerRequest<TResult>(
         message: string;
     },
     admission: IBrowserWorkerAdmission = {},
+    categoryLimit?: TBrowserWorkerCategoryLimit,
 ): Promise<TResult> {
     const {payload} = request;
     const closeTiles = () => {
@@ -275,51 +288,59 @@ function runWorkerRequest<TResult>(
         closeTiles();
     }
     signal.throwIfAborted();
-    const requestId = pool.createRequestId();
-    const onAbort = () =>
-        pool.cancel(requestId, signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError'));
-    signal.addEventListener('abort', onAbort, {once: true});
-    return pool
-        .run(
-            requestId,
-            (client, isAdmitted, workerKey) =>
-                new Promise<TResult>((resolve, reject) => {
-                    if (!isAdmitted()) {
-                        reject(new DOMException('OCR was canceled', 'AbortError'));
-                        return;
-                    }
-                    const worker = client.getWorker(workerKey);
-                    client.registerPendingRequest(
-                        requestId,
-                        {
-                            requestType: request.type,
-                            reject,
-                            resolveData: (data) => {
-                                const result = readResult(data);
-                                if (result === null) {
-                                    return false;
-                                }
-                                resolve(result);
-                                return true;
-                            },
-                        },
-                        () => new Error(timeout.message),
-                        timeout.ms,
-                    );
-                    worker.postMessage(
-                        {
-                            ...request,
-                            id: requestId,
-                        },
-                        payload.image instanceof Uint8Array ? [payload.image.buffer] : payload.image.tiles,
-                    );
-                }),
-            admission,
-        )
-        .finally(() => {
-            signal.removeEventListener('abort', onAbort);
-            closeTiles();
-        });
+    const createAbortError = () => (signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError'));
+    return runWithBrowserWorkerAdmission(
+        {
+            category: 'ocr',
+            priority: 'batch',
+            ...(categoryLimit === undefined ? {} : {categoryLimit}),
+            signal,
+            createAbortError,
+        },
+        () => {
+            const requestId = pool.createRequestId();
+            const onAbort = () => pool.cancel(requestId, createAbortError());
+            signal.addEventListener('abort', onAbort, {once: true});
+            return pool
+                .run(
+                    requestId,
+                    (client, _isAdmitted, workerKey) =>
+                        new Promise<TResult>((resolve, reject) => {
+                            const worker = client.getWorker(workerKey);
+                            client.registerPendingRequest(
+                                requestId,
+                                {
+                                    requestType: request.type,
+                                    reject,
+                                    resolveData: (data) => {
+                                        const result = readResult(data);
+                                        if (result === null) {
+                                            return false;
+                                        }
+                                        resolve(result);
+                                        return true;
+                                    },
+                                },
+                                () => new Error(timeout.message),
+                                timeout.ms,
+                            );
+                            worker.postMessage(
+                                {
+                                    ...request,
+                                    id: requestId,
+                                },
+                                payload.image instanceof Uint8Array ? [payload.image.buffer] : payload.image.tiles,
+                            );
+                        }),
+                    admission,
+                )
+                .finally(() => {
+                    signal.removeEventListener('abort', onAbort);
+                });
+        },
+    ).finally(() => {
+        closeTiles();
+    });
 }
 
 /** Runs one page's Tesseract passes on the dedicated Tesseract worker pool. */
@@ -357,6 +378,13 @@ export function preprocessBrowserOcrRaster(
     signal: AbortSignal,
     concurrency?: number,
 ): Promise<IBrowserOcrPreprocessResult> {
+    const threadedKeepFree = (concurrency ?? 1) > 1 ? 1 : 0;
+    const categoryLimit: TBrowserWorkerCategoryLimit = () => {
+        if (!usesThreadedScanCleanupEngine()) {
+            return undefined;
+        }
+        return threadedScanCleanupEngineBudget.admits(threadedKeepFree) ? MAX_LIVE_THREADED_SCAN_CLEANUP_ENGINES - threadedKeepFree : 0;
+    };
     return runWithScanCleanupEngineFailover(payload, (attempt) =>
         runWorkerRequest(
             getPreprocessOwner(),
@@ -374,6 +402,7 @@ export function preprocessBrowserOcrRaster(
                 message: 'OCR preprocessing did not finish within its time limit',
             },
             scanCleanupEngineAdmission(concurrency),
+            categoryLimit,
         ),
     );
 }

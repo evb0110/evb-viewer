@@ -1387,4 +1387,217 @@ describe('scan cleanup engine threads', () => {
         assemblyWorker.replyAssemble(assemblyWorker.posted[0]!.id);
         await expect(assembled).resolves.toMatchObject({width: 1, height: 1});
     });
+
+    it('holds the aggregate browser admission slot while a warm-canceled scan cleanup preview is still draining', async () => {
+        vi.useFakeTimers();
+        vi.stubGlobal('crossOriginIsolated', false);
+        vi.stubGlobal('navigator', {
+            hardwareConcurrency: 2,
+            deviceMemory: 2,
+            userAgent:
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15',
+        });
+        vi.resetModules();
+
+        interface IDrainingWorkerRecord {
+            terminated: boolean;
+            posted: Array<{id: number; type: string}>;
+            reply: (id: number, type: string) => void;
+        }
+        const workers: IDrainingWorkerRecord[] = [];
+        class DrainingPreviewWorker extends EventTarget {
+            public readonly record: IDrainingWorkerRecord;
+            public constructor() {
+                super();
+                this.record = {
+                    terminated: false,
+                    posted: [],
+                    reply: (id, type) => {
+                        this.dispatchEvent(
+                            new MessageEvent('message', {
+                                data: {id, ok: true, type, data: {status: 'succeeded', result: {}}},
+                            }),
+                        );
+                    },
+                };
+                workers.push(this.record);
+            }
+
+            public postMessage(message: {id: number; type: string}) {
+                this.record.posted.push({id: message.id, type: message.type});
+            }
+
+            public terminate() {
+                this.record.terminated = true;
+            }
+        }
+        vi.stubGlobal('Worker', DrainingPreviewWorker);
+        const {browserHeavyWorkerAdmission} = await import('@app/platform/browser-api/browserWorkerAdmission');
+        const {runBrowserScanCleanupWorkerRequest} = await import('@app/platform/browser-api/browserScanCleanupWorkerClient');
+
+        const previewController = new AbortController();
+        const preview = runBrowserScanCleanupWorkerRequest('render-preview', {} as never, previewController.signal, undefined, 1);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(browserHeavyWorkerAdmission.snapshot().activeByCategory['scan-cleanup']).toBe(1);
+
+        previewController.abort(new DOMException('canceled preview', 'AbortError'));
+        await expect(preview).rejects.toMatchObject({name: 'AbortError'});
+        // Worker is still draining, so the aggregate slot stays held until the stale reply arrives.
+        expect(workers[0]!.terminated).toBe(false);
+        expect(browserHeavyWorkerAdmission.snapshot().activeByCategory['scan-cleanup']).toBe(1);
+
+        const req = workers[0]!.posted[0]!;
+        workers[0]!.reply(req.id, req.type);
+        expect(browserHeavyWorkerAdmission.snapshot().activeByCategory['scan-cleanup']).toBe(0);
+    });
+
+    it('never starts a queued preview when pagehide or persisted pageshow terminates a draining worker', async () => {
+        for (const eventSpec of [
+            {type: 'pagehide', persisted: false},
+            {type: 'pageshow', persisted: true},
+        ] as const) {
+            vi.useFakeTimers();
+            vi.stubGlobal('crossOriginIsolated', false);
+            vi.stubGlobal('navigator', {
+                hardwareConcurrency: 2,
+                deviceMemory: 2,
+                userAgent:
+                    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15',
+            });
+            const pageWindow = new EventTarget();
+            vi.stubGlobal('window', pageWindow);
+            vi.resetModules();
+
+            const posted: Array<{id: number; type: string}> = [];
+            class DrainingWorker extends EventTarget {
+                public postMessage(message: {id: number; type: string}) {
+                    posted.push({id: message.id, type: message.type});
+                }
+
+                public terminate() {
+                    // Terminating runs the scan-cleanup drain release wrapper synchronously.
+                }
+            }
+            vi.stubGlobal('Worker', DrainingWorker);
+            const {browserHeavyWorkerAdmission} = await import('@app/platform/browser-api/browserWorkerAdmission');
+            const {runBrowserScanCleanupWorkerRequest} = await import('@app/platform/browser-api/browserScanCleanupWorkerClient');
+            const {BrowserWorkerResetError} = await import('@app/platform/browser-api/browserWorkerClient');
+
+            const firstController = new AbortController();
+            const first = runBrowserScanCleanupWorkerRequest('render-preview', {} as never, firstController.signal, undefined, 1);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(posted).toHaveLength(1);
+
+            firstController.abort(new DOMException('superseded preview', 'AbortError'));
+            await expect(first).rejects.toMatchObject({name: 'AbortError'});
+            expect(browserHeavyWorkerAdmission.snapshot().activeByCategory['scan-cleanup']).toBe(1);
+
+            const queued = runBrowserScanCleanupWorkerRequest('render-preview', {} as never, new AbortController().signal, undefined, 1);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(posted).toHaveLength(1);
+            expect(browserHeavyWorkerAdmission.snapshot().queuedInteractive).toBe(1);
+
+            const pageEvent = new Event(eventSpec.type);
+            Object.defineProperty(pageEvent, 'persisted', {value: eventSpec.persisted});
+            pageWindow.dispatchEvent(pageEvent);
+
+            await expect(queued).rejects.toBeInstanceOf(BrowserWorkerResetError);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(posted).toHaveLength(1);
+            expect(browserHeavyWorkerAdmission.snapshot()).toMatchObject({
+                active: 0,
+                queuedInteractive: 0,
+                queuedBatch: 0,
+            });
+            vi.useRealTimers();
+        }
+    });
+
+    it('caps threaded scan-cleanup batch admission to local threaded budget so interactive search and page-ops run immediately', async () => {
+        vi.stubGlobal('crossOriginIsolated', true);
+        vi.stubGlobal('SharedArrayBuffer', ArrayBuffer);
+        vi.stubGlobal('navigator', {
+            hardwareConcurrency: 16,
+            userAgent: 'Mozilla/5.0 (X11; Linux x86_64; rv:136.0) Gecko/20100101 Firefox/136.0',
+        });
+        vi.resetModules();
+
+        interface IHeldWorker {
+            posted: Array<{id: number; type: string}>;
+            replyAll: () => void;
+        }
+        const workers: IHeldWorker[] = [];
+        class HeldThreadedWorker extends EventTarget {
+            public readonly record: IHeldWorker;
+            public constructor() {
+                super();
+                this.record = {
+                    posted: [],
+                    replyAll: () => {
+                        for (const msg of this.record.posted.splice(0)) {
+                            this.dispatchEvent(
+                                new MessageEvent('message', {
+                                    data: {id: msg.id, ok: true, type: msg.type, data: {status: 'succeeded', result: {}}},
+                                }),
+                            );
+                        }
+                    },
+                };
+                workers.push(this.record);
+            }
+
+            public postMessage(message: {id: number; type: string}) {
+                this.record.posted.push({id: message.id, type: message.type});
+            }
+
+            public terminate() {
+                // No-op in worker double.
+            }
+        }
+        vi.stubGlobal('Worker', HeldThreadedWorker);
+        const {browserHeavyWorkerAdmission} = await import('@app/platform/browser-api/browserWorkerAdmission');
+        const {runBrowserScanCleanupWorkerRequest} = await import('@app/platform/browser-api/browserScanCleanupWorkerClient');
+
+        // 7 batch analyses on 16-core Firefox (aggregate limit=8, threaded batch budget=5).
+        const signal = new AbortController().signal;
+        const batch = Array.from({length: 7}, () => runBrowserScanCleanupWorkerRequest('plan-analysis', {} as never, signal, undefined, 7));
+        await vi.waitFor(() => expect(workers).toHaveLength(5));
+
+        expect(browserHeavyWorkerAdmission.snapshot()).toMatchObject({
+            active: 5,
+            activeByCategory: {'scan-cleanup': 5},
+            queuedBatch: 2,
+            limit: 8,
+        });
+
+        // Both an interactive search AND an interactive page-ops request must start immediately
+        // without waiting on the 2 queued batch analyses.
+        const searchGate = Promise.withResolvers<string>();
+        const pageOpsGate = Promise.withResolvers<string>();
+        const started: string[] = [];
+        const search = browserHeavyWorkerAdmission.run({category: 'search', priority: 'interactive', categoryLimit: 2}, () => {
+            started.push('search');
+            return searchGate.promise;
+        });
+        const pageOps = browserHeavyWorkerAdmission.run({category: 'page-ops', priority: 'interactive', categoryLimit: 2}, () => {
+            started.push('page-ops');
+            return pageOpsGate.promise;
+        });
+        expect(started).toEqual(['search', 'page-ops']);
+
+        searchGate.resolve('ok');
+        pageOpsGate.resolve('ok');
+        await Promise.all([search, pageOps]);
+
+        // Drain all 7 batch analyses cleanly.
+        for (let step = 0; step < 4; step += 1) {
+            for (const worker of workers) {
+                worker.replyAll();
+            }
+            await Promise.resolve();
+            await Promise.resolve();
+        }
+        await Promise.all(batch);
+        expect(browserHeavyWorkerAdmission.snapshot().active).toBe(0);
+    });
 });
