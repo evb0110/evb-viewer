@@ -210,6 +210,118 @@ describe('createDocumentOpenFlow', () => {
         expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledTimes(2);
     });
 
+    it('misses cache on same-path replacement with a new document instance and preserves the prior displayed document on invalid PDF', async () => {
+        const {openFlow, state, deps} = createOpenFlowHarness();
+        const originalPath = requireDocumentRef('/documents/replaced.pdf');
+        const firstWorkingPath = requireDocumentRef('/tmp/replaced-working-1.pdf');
+        const secondWorkingPath = requireDocumentRef('/tmp/replaced-working-2.pdf');
+        const identicalStat = {
+            size: PDF_BYTES.byteLength,
+            modifiedAt: requireEpochMs(500),
+        };
+        mocks.documentFiles.statFile.mockResolvedValue(identicalStat);
+
+        await expect(
+            openFlow.openFile({
+                kind: 'pdf',
+                originalPath,
+                workingPath: firstWorkingPath,
+            }),
+        ).resolves.toMatchObject({status: 'opened'});
+        const displayedPdfSrc = state.pdfSrc.value;
+        expect(displayedPdfSrc).not.toBeNull();
+        expect(state.workingCopyPath.value).toBe(firstWorkingPath);
+        deps.resetDocumentPresentation.mockClear();
+
+        // Same path, identical size and mtime, but a new admitted working copy instance whose bytes are invalid.
+        mocks.documentPdf.validatePdfPath.mockResolvedValueOnce({
+            isValid: false,
+            tool: 'qpdf',
+            errors: ['corrupt replacement'],
+            warnings: [],
+        });
+
+        await expect(
+            openFlow.openFile({
+                kind: 'pdf',
+                originalPath,
+                workingPath: secondWorkingPath,
+            }),
+        ).resolves.toMatchObject({status: 'failed'});
+
+        // Must have re-validated instead of reusing the prior instance's cache hit,
+        // and must preserve the previously displayed document without blanking it.
+        expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledTimes(2);
+        expect(state.pdfSrc.value).toBe(displayedPdfSrc);
+        expect(state.workingCopyPath.value).toBe(firstWorkingPath);
+        expect(deps.resetDocumentPresentation).not.toHaveBeenCalled();
+    });
+
+    it('bypasses validation cache when admitted revision metadata is unavailable or copy differs from original', async () => {
+        const {openFlow} = createOpenFlowHarness();
+        const originalPath = requireDocumentRef('/documents/recovered.pdf');
+        const workingPath = requireDocumentRef('/tmp/recovered-working.pdf');
+        mocks.documentFiles.statFile.mockImplementation(async (path: string) =>
+            path === originalPath
+                ? {
+                      size: PDF_BYTES.byteLength,
+                      modifiedAt: requireEpochMs(700),
+                  }
+                : {size: PDF_BYTES.byteLength},
+        );
+
+        await expect(
+            openFlow.openFile({
+                kind: 'pdf',
+                originalPath,
+                workingPath,
+            }),
+        ).resolves.toMatchObject({status: 'opened'});
+
+        // Recovery dirty baseline has modified working bytes, so it must NOT reuse originalPath's cached validation.
+        await expect(
+            openFlow.openFile({
+                kind: 'pdf',
+                originalPath,
+                workingPath,
+                recoveryDirtyBaseline: true,
+            }),
+        ).resolves.toMatchObject({status: 'opened'});
+
+        // Missing getDocumentRevision must bypass the cache cleanly.
+        mocks.documentFiles.getDocumentRevision.mockRejectedValueOnce(new Error('unavailable'));
+        await expect(
+            openFlow.openFile({
+                kind: 'pdf',
+                originalPath,
+                workingPath,
+            }),
+        ).resolves.toMatchObject({status: 'opened'});
+
+        // A working copy mutated between pre-read revision check and post-read revision check must bypass cache.
+        let revisionCall = 0;
+        mocks.documentFiles.getDocumentRevision.mockImplementation(async (path: string) => {
+            revisionCall += 1;
+            return {
+                version: 1,
+                token: `revision:${path}:r${revisionCall === 1 ? 1 : 2}`,
+                documentRef: path,
+                authority: 'electron-working-copy',
+                contentRevision: revisionCall === 1 ? 0 : 1,
+                mintedAt: 1,
+            };
+        });
+        await expect(
+            openFlow.openFile({
+                kind: 'pdf',
+                originalPath,
+                workingPath,
+            }),
+        ).resolves.toMatchObject({status: 'opened'});
+
+        expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledTimes(4);
+    });
+
     it('reads PDF state with the split document files stat capability', async () => {
         const {openFlow} = createOpenFlowHarness();
 

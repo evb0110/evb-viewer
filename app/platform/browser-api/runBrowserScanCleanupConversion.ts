@@ -362,7 +362,7 @@ function rasterizePage(
     maxPixels: number,
     signal = context.signal,
 ) {
-    return renderPageRaster(context.source, pageSize, dpi, maxPixels, signal, undefined, context.engines.observe('pdfPageOps'));
+    return renderPageRaster(context.source, pageSize, dpi, maxPixels, signal, undefined, context.engines.observe('pdfPageOps'), 'batch');
 }
 
 async function runRasterConversion(
@@ -373,6 +373,7 @@ async function runRasterConversion(
     const {request, signal, summary, emitProgress, pageNumbers, pageCount, options, documentCanvas} = context;
     const output = createOrderedPdfMerge({
         signal,
+        admissionPriority: 'batch',
         onEngineIdentity: context.engines.observe('pdfPageOps'),
         createError: (reason) => new ScanCleanupContractError(`Scan cleanup could not merge its output pages: ${reason}`),
     });
@@ -713,6 +714,7 @@ async function runRasterConversion(
             signal,
             requireWorker: true,
             transferInput: true,
+            admissionPriority: 'batch',
             onEngineIdentity: context.engines.observe('pdfPageOps'),
         },
     );
@@ -918,6 +920,7 @@ async function inspectOmittedSourceText(context: IBrowserConversionContext, page
             {
                 signal: context.signal,
                 requireWorker: true,
+                admissionPriority: 'batch',
                 onEngineIdentity: context.engines.observe('pdfPageOps'),
             },
         );
@@ -1138,6 +1141,7 @@ async function runLosslessConversion(
         signal,
         requireWorker: true,
         transferInput: true,
+        admissionPriority: 'batch',
         onEngineIdentity: context.engines.observe('pdfPageOps'),
     });
     sourceBytes = null;

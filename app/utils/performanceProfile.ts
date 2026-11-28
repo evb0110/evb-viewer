@@ -41,6 +41,16 @@ interface IPerformanceProfileNavigator extends Navigator {
     deviceMemory?: number;
 }
 
+export type TBrowserEngine = 'webkit' | 'firefox' | 'chromium' | 'unknown';
+
+export interface IBrowserMemoryEnvironment {
+    deviceMemory?: number;
+    hardwareConcurrency?: number;
+    userAgent?: string;
+    mobile?: boolean;
+    maxTouchPoints?: number;
+}
+
 export interface IPerformanceProfileEnvironment {
     deviceMemory?: number;
     hardwareConcurrency?: number;
@@ -49,6 +59,87 @@ export interface IPerformanceProfileEnvironment {
     tier?: THostResourceTier;
     performanceMode?: TPerformanceMode;
     mobile?: boolean;
+    maxTouchPoints?: number;
+    userAgent?: string;
+}
+
+export function detectBrowserEngine(userAgent: string | undefined): TBrowserEngine {
+    if (!userAgent) {
+        return 'unknown';
+    }
+    // Every iOS browser runs WebKit under the hood.
+    if (/iPhone|iPad|iPod/u.test(userAgent)) {
+        return 'webkit';
+    }
+    if (/\bFirefox\//u.test(userAgent) || (/\bGecko\/\d/u.test(userAgent) && !/like Gecko/u.test(userAgent))) {
+        return 'firefox';
+    }
+    if (/\b(?:Chrome|Chromium|Edg|OPR)\//u.test(userAgent)) {
+        return 'chromium';
+    }
+    if (/\bAppleWebKit\//u.test(userAgent)) {
+        return 'webkit';
+    }
+    return 'unknown';
+}
+
+export function isMobileBrowserUserAgent(userAgent: string | undefined, maxTouchPoints = 0): boolean {
+    if (!userAgent) {
+        return false;
+    }
+    // iPadOS Safari reports a Macintosh user agent; touch input tells it apart.
+    return /Android|iPhone|iPad|iPod|Mobi/u.test(userAgent) || (/Macintosh/u.test(userAgent) && maxTouchPoints > 1);
+}
+
+export function readNavigatorBrowserMemoryEnvironment(): IBrowserMemoryEnvironment {
+    if (typeof navigator === 'undefined') {
+        return {};
+    }
+    const runtimeNavigator = navigator as IPerformanceProfileNavigator;
+    const userAgent = typeof runtimeNavigator.userAgent === 'string' ? runtimeNavigator.userAgent : undefined;
+    const hasMaxTouchPoints = typeof runtimeNavigator.maxTouchPoints === 'number';
+    const maxTouchPoints = hasMaxTouchPoints ? runtimeNavigator.maxTouchPoints : 0;
+    const mobile = isMobileBrowserUserAgent(userAgent, maxTouchPoints);
+    const environment: IBrowserMemoryEnvironment = {
+        ...(hasMaxTouchPoints || mobile ? {mobile} : {}),
+        ...(hasMaxTouchPoints ? {maxTouchPoints} : {}),
+        ...(userAgent === undefined ? {} : {userAgent}),
+    };
+    if (typeof runtimeNavigator.deviceMemory === 'number') {
+        environment.deviceMemory = runtimeNavigator.deviceMemory;
+    }
+    if (typeof runtimeNavigator.hardwareConcurrency === 'number') {
+        environment.hardwareConcurrency = runtimeNavigator.hardwareConcurrency;
+    }
+    return environment;
+}
+
+/**
+ * Estimates usable browser memory in GiB when `navigator.deviceMemory` is omitted
+ * (Safari/Firefox). Explicitly reported `deviceMemory` always wins; mobile and
+ * low-CPU devices stay at 4 GiB; desktop Firefox scales with CPU count up to
+ * Chromium's 8 GiB bucket, while desktop WebKit caps at 6 GiB to respect
+ * WebKit's tighter per-tab WASM/shared-memory ceiling without throttling 16+ GiB
+ * Macs down to 4 GiB mode.
+ */
+export function resolveBrowserEstimatedMemoryGiB(environment: IBrowserMemoryEnvironment = readNavigatorBrowserMemoryEnvironment()): number {
+    const deviceMemory = normalizePositiveNumber(environment.deviceMemory);
+    if (deviceMemory !== null) {
+        return deviceMemory;
+    }
+    const mobile = environment.mobile ?? isMobileBrowserUserAgent(environment.userAgent, environment.maxTouchPoints);
+    const hardwareConcurrency = normalizePositiveNumber(environment.hardwareConcurrency);
+    if (mobile || (hardwareConcurrency !== null && hardwareConcurrency <= HOST_TIER_LOW_CPU_MAX)) {
+        return 4;
+    }
+    const engine = detectBrowserEngine(environment.userAgent);
+    if (engine === 'firefox') {
+        return hardwareConcurrency !== null && hardwareConcurrency >= HOST_TIER_HIGH_CPU_MIN ? 8 : 6;
+    }
+    if (engine === 'webkit') {
+        return 6;
+    }
+    return 4;
 }
 
 export interface IPerformanceProfile {
@@ -91,8 +182,8 @@ function readNavigatorPerformanceEnvironment(): IPerformanceProfileEnvironment {
     const userAgent = runtimeNavigator.userAgent;
     const environment: IPerformanceProfileEnvironment = {
         performanceMode,
-        // iPadOS Safari reports a Macintosh user agent; touch input tells it apart.
-        mobile: /Android|iPhone|iPad|iPod|Mobi/u.test(userAgent) || (/Macintosh/u.test(userAgent) && runtimeNavigator.maxTouchPoints > 1),
+        mobile: isMobileBrowserUserAgent(userAgent, runtimeNavigator.maxTouchPoints),
+        ...(typeof userAgent === 'string' ? {userAgent} : {}),
     };
     if (typeof runtimeNavigator.deviceMemory === 'number') {
         environment.deviceMemory = runtimeNavigator.deviceMemory;
@@ -199,15 +290,17 @@ function applySoftwareCanvasConstraint(profile: IPerformanceProfile, gpuStatus: 
 
 /**
  * The tier `auto` detects. Host RAM goes through the shared host classifier.
- * A browser reports no RAM: Safari and Firefox omit `navigator.deviceMemory`
- * and Chrome caps it at 8, so the browser is low only on evidence of a small
- * device, high only when Chrome's top memory bucket meets a high CPU count,
- * and medium otherwise.
+ * Safari and Firefox intentionally omit `navigator.deviceMemory` and Chrome
+ * caps it at 8, so a browser is low only on evidence of a small or mobile
+ * device. Firefox desktop scales to `high` on high-core workstations; WebKit
+ * desktop stays at `medium` to respect its tighter per-tab canvas/WASM ceiling
+ * without throttling 16+ GiB Macs down to `low`.
  */
 function resolveDetectedTier(
     environment: IPerformanceProfileEnvironment,
     hardwareConcurrency: number | null,
     totalMemoryBytes: number | null,
+    mobile: boolean,
 ): THostResourceTier {
     if (totalMemoryBytes !== null) {
         return resolveDetectedHostResourceTier({
@@ -217,13 +310,21 @@ function resolveDetectedTier(
     }
     const deviceMemory = normalizePositiveNumber(environment.deviceMemory);
     if (
-        environment.mobile === true ||
+        mobile ||
         (hardwareConcurrency !== null && hardwareConcurrency <= HOST_TIER_LOW_CPU_MAX) ||
         (deviceMemory !== null && deviceMemory < HOST_TIER_LOW_RAM_MAX_GIB)
     ) {
         return 'low';
     }
-    return deviceMemory !== null && hardwareConcurrency !== null && hardwareConcurrency >= HOST_TIER_HIGH_CPU_MIN ? 'high' : 'medium';
+    const browserEngine = detectBrowserEngine(environment.userAgent);
+    if (
+        hardwareConcurrency !== null &&
+        hardwareConcurrency >= HOST_TIER_HIGH_CPU_MIN &&
+        (deviceMemory !== null || browserEngine === 'firefox')
+    ) {
+        return 'high';
+    }
+    return 'medium';
 }
 
 export function resolvePerformanceProfile(
@@ -231,10 +332,13 @@ export function resolvePerformanceProfile(
 ): IPerformanceProfile {
     const hardwareConcurrency = normalizePositiveNumber(environment.hardwareConcurrency);
     const totalMemoryBytes = normalizePositiveNumber(environment.totalMemoryBytes);
+    const mobile =
+        environment.mobile ??
+        (environment.userAgent !== undefined ? isMobileBrowserUserAgent(environment.userAgent, environment.maxTouchPoints) : false);
     const performanceMode = environment.performanceMode ?? 'auto';
     const tier =
         environment.tier ??
-        (performanceMode === 'auto' ? resolveDetectedTier(environment, hardwareConcurrency, totalMemoryBytes) : performanceMode);
+        (performanceMode === 'auto' ? resolveDetectedTier(environment, hardwareConcurrency, totalMemoryBytes, mobile) : performanceMode);
 
     return applySoftwareCanvasConstraint(
         resolveCanonicalPerformanceProfile(
@@ -242,7 +346,7 @@ export function resolvePerformanceProfile(
             hardwareConcurrency,
             totalMemoryBytes === null ? null : totalMemoryBytes / 1024 ** 3,
             performanceMode,
-            environment.mobile === true,
+            mobile,
         ),
         environment.gpuStatus,
     );

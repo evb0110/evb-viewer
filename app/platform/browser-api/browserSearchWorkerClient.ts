@@ -15,6 +15,7 @@ import {isRecord} from '@contracts/runtimeGuards';
 import {SEARCH_REGEX_MAX_EXECUTION_MS} from '@contracts/search';
 import {SearchRegexLimitError} from '@pdf-core';
 import {BrowserWorkerClient, BrowserWorkerRequestOwner, canUseBrowserWorker} from '@app/platform/browser-api/browserWorkerClient';
+import {runWithBrowserWorkerAdmission} from '@app/platform/browser-api/browserWorkerAdmission';
 import {getErrorMessage} from '@app/utils/error';
 import {captureRendererFailure} from '@app/utils/failureReporter';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
@@ -215,7 +216,12 @@ function createBrowserSearchWorkerClient() {
     return client;
 }
 
-const browserSearchWorkerOwner = new BrowserWorkerRequestOwner(createBrowserSearchWorkerClient);
+const browserSearchWorkerSlots = Math.min(
+    2,
+    Math.max(1, Math.floor((typeof navigator === 'undefined' ? 4 : navigator.hardwareConcurrency || 4) / 2)),
+);
+const browserSearchWorkerOwner = new BrowserWorkerRequestOwner(createBrowserSearchWorkerClient, browserSearchWorkerSlots);
+const pendingSearchAdmissionCancels = new Map<number, AbortController>();
 let globalCacheEvictionEpoch = 0;
 const documentCacheEvictionEpochs = new Map<string, number>();
 
@@ -235,83 +241,97 @@ export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerR
     const globalEpochAtEnqueue = globalCacheEvictionEpoch;
     const documentEpochAtEnqueue = initialDocumentKey === undefined ? 0 : (documentCacheEvictionEpochs.get(initialDocumentKey) ?? 0);
 
-    const promise = browserSearchWorkerOwner.run(
-        requestId,
-        (client) => {
-            const cacheStillValid =
-                globalCacheEvictionEpoch === globalEpochAtEnqueue &&
-                (initialDocumentKey === undefined ||
-                    (documentCacheEvictionEpochs.get(initialDocumentKey) ?? 0) === documentEpochAtEnqueue) &&
-                options.isCacheable?.() !== false;
+    const admissionAbort = new AbortController();
+    pendingSearchAdmissionCancels.set(requestId, admissionAbort);
+    const promise = runWithBrowserWorkerAdmission(
+        {
+            category: 'search',
+            priority: 'interactive',
+            categoryLimit: browserSearchWorkerSlots,
+            signal: admissionAbort.signal,
+            createAbortError: () => new Error('ERR_BROWSER_SEARCH_CANCELED'),
+        },
+        () =>
+            browserSearchWorkerOwner.run(
+                requestId,
+                (client) => {
+                    const cacheStillValid =
+                        globalCacheEvictionEpoch === globalEpochAtEnqueue &&
+                        (initialDocumentKey === undefined ||
+                            (documentCacheEvictionEpochs.get(initialDocumentKey) ?? 0) === documentEpochAtEnqueue) &&
+                        options.isCacheable?.() !== false;
 
-            let dispatchPayload = payload;
-            if (!cacheStillValid && (type === 'search' || type === 'index')) {
-                if (type === 'search' && (payload as IBrowserSearchWorkerRequestMap['search']).indexBytes === undefined) {
-                    return Promise.resolve({cacheMiss: true} as IBrowserSearchWorkerResultMap[K]);
-                }
-                if (initialDocumentKey !== undefined) {
-                    const {documentKey: _omitted, ...uncachedPayload} = payload as
-                        IBrowserSearchWorkerRequestMap['search'] | IBrowserSearchWorkerRequestMap['index'];
-                    dispatchPayload = uncachedPayload as IBrowserSearchWorkerRequestMap[K];
-                }
-            }
-
-            const request = {
-                id: requestId,
-                type,
-                payload: dispatchPayload,
-            } as IBrowserSearchWorkerRequest<K>;
-
-            const worker = client.getWorker();
-            return new Promise<IBrowserSearchWorkerResultMap[K]>((resolve, reject) => {
-                client.registerPendingRequest(
-                    request.id,
-                    {
-                        requestType: type,
-                        ...(options.matchTimeoutMs === undefined ? {} : {matchTimeoutMs: options.matchTimeoutMs}),
-                        resolveData: (value) => {
-                            const decoded = decodeSearchWorkerResult(type, value);
-                            if (!decoded) {
-                                return false;
-                            }
-                            resolve(decoded);
-                            return true;
-                        },
-                        reject: (error) => reject(reportWorkerFailure(error)),
-                        // As on desktop a search runs until it finishes or is canceled; only
-                        // a regular expression's match has a time bound (matchTimeoutMs).
-                    },
-                    () => reportWorkerFailure(new BrowserSearchWorkerTimeoutError('Browser search worker request timed out')),
-                );
-
-                try {
-                    const transfer: Transferable[] = [];
-                    if (type === 'index') {
-                        const {documentKey, pagesBuffer} = dispatchPayload as IBrowserSearchWorkerRequestMap['index'];
-                        if (documentKey !== undefined) {
-                            // Evict any older cached revision for this document across all active workers
-                            // before posting the index build (worker message delivery is FIFO).
-                            browserSearchWorkerOwner.postToActiveWorkers({type: 'evictCache', documentKey});
+                    let dispatchPayload = payload;
+                    if (!cacheStillValid && (type === 'search' || type === 'index')) {
+                        if (type === 'search' && (payload as IBrowserSearchWorkerRequestMap['search']).indexBytes === undefined) {
+                            return Promise.resolve({cacheMiss: true} as IBrowserSearchWorkerResultMap[K]);
                         }
-                        if (
-                            pagesBuffer.buffer instanceof ArrayBuffer &&
-                            pagesBuffer.byteOffset === 0 &&
-                            pagesBuffer.byteLength === pagesBuffer.buffer.byteLength
-                        ) {
-                            transfer.push(pagesBuffer.buffer);
+                        if (initialDocumentKey !== undefined) {
+                            const {documentKey: _omitted, ...uncachedPayload} = payload as
+                                IBrowserSearchWorkerRequestMap['search'] | IBrowserSearchWorkerRequestMap['index'];
+                            dispatchPayload = uncachedPayload as IBrowserSearchWorkerRequestMap[K];
                         }
                     }
-                    worker.postMessage(request, transfer);
-                } catch (error) {
-                    client.cancelPendingRequest(
-                        request.id,
-                        reportWorkerFailure(new BrowserSearchWorkerRequestError(getErrorMessage(error))),
-                    );
-                }
-            });
-        },
-        options.affinityKey === undefined ? {} : {affinityKey: options.affinityKey},
-    );
+
+                    const request = {
+                        id: requestId,
+                        type,
+                        payload: dispatchPayload,
+                    } as IBrowserSearchWorkerRequest<K>;
+
+                    const worker = client.getWorker();
+                    return new Promise<IBrowserSearchWorkerResultMap[K]>((resolve, reject) => {
+                        client.registerPendingRequest(
+                            request.id,
+                            {
+                                requestType: type,
+                                ...(options.matchTimeoutMs === undefined ? {} : {matchTimeoutMs: options.matchTimeoutMs}),
+                                resolveData: (value) => {
+                                    const decoded = decodeSearchWorkerResult(type, value);
+                                    if (!decoded) {
+                                        return false;
+                                    }
+                                    resolve(decoded);
+                                    return true;
+                                },
+                                reject: (error) => reject(reportWorkerFailure(error)),
+                                // As on desktop a search runs until it finishes or is canceled; only
+                                // a regular expression's match has a time bound (matchTimeoutMs).
+                            },
+                            () => reportWorkerFailure(new BrowserSearchWorkerTimeoutError('Browser search worker request timed out')),
+                        );
+
+                        try {
+                            const transfer: Transferable[] = [];
+                            if (type === 'index') {
+                                const {documentKey, pagesBuffer} = dispatchPayload as IBrowserSearchWorkerRequestMap['index'];
+                                if (documentKey !== undefined) {
+                                    // Evict any older cached revision for this document across all active workers
+                                    // before posting the index build (worker message delivery is FIFO).
+                                    browserSearchWorkerOwner.postToActiveWorkers({type: 'evictCache', documentKey});
+                                }
+                                if (
+                                    pagesBuffer.buffer instanceof ArrayBuffer &&
+                                    pagesBuffer.byteOffset === 0 &&
+                                    pagesBuffer.byteLength === pagesBuffer.buffer.byteLength
+                                ) {
+                                    transfer.push(pagesBuffer.buffer);
+                                }
+                            }
+                            worker.postMessage(request, transfer);
+                        } catch (error) {
+                            client.cancelPendingRequest(
+                                request.id,
+                                reportWorkerFailure(new BrowserSearchWorkerRequestError(getErrorMessage(error))),
+                            );
+                        }
+                    });
+                },
+                options.affinityKey === undefined ? {} : {affinityKey: options.affinityKey},
+            ),
+    ).finally(() => {
+        pendingSearchAdmissionCancels.delete(requestId);
+    });
 
     return {
         requestId,
@@ -335,5 +355,8 @@ export function evictBrowserSearchWorkerCache(documentKey?: string) {
 
 /** Canceling an admitted synchronous match terminates only its worker. */
 export function cancelBrowserSearchWorkerRequest(requestId: number) {
+    const admissionAbort = pendingSearchAdmissionCancels.get(requestId);
+    pendingSearchAdmissionCancels.delete(requestId);
+    admissionAbort?.abort(new Error('ERR_BROWSER_SEARCH_CANCELED'));
     browserSearchWorkerOwner.cancel(requestId, new Error('ERR_BROWSER_SEARCH_CANCELED'));
 }

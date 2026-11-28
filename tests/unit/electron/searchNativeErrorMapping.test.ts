@@ -1,8 +1,9 @@
 import type * as TJobBrokerModule from '@electron/resources/jobBroker';
-import {mkdtemp, readdir, readFile, readlink, rm} from 'node:fs/promises';
+import {mkdtemp, readdir, readFile, readlink, rm, writeFile} from 'node:fs/promises';
 import {EventEmitter} from 'node:events';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {PDF_PAGE_SIZE_SIDECAR_FORMAT, PDF_PAGE_SIZE_SIDECAR_SCHEMA_VERSION} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {toSearchIpcError} from '@electron/features/search/main/searchErrors';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import type * as TWorkerTaskModule from '@electron/utils/workerTask';
@@ -303,6 +304,29 @@ vi.mock('@electron/native-tools/qpdfWasmWorkerClient', () => ({
             };
         }
         throw new Error(`Unexpected qpdf command in search test: ${args.join(' ')}`);
+    },
+}));
+vi.mock('@electron/native-tools/pdfPageOpsWorkerClient', () => ({
+    runDesktopPageOpsWasm: async (_wasmPath: string, args: string[]) => {
+        if (args[0] === 'page-sizes') {
+            const outputPath = args[args.indexOf('--output') + 1];
+            if (!outputPath) {
+                throw new Error('Missing --output path in page-sizes test mock');
+            }
+            const header = JSON.stringify({
+                kind: 'header',
+                format: PDF_PAGE_SIZE_SIDECAR_FORMAT,
+                schemaVersion: PDF_PAGE_SIZE_SIDECAR_SCHEMA_VERSION,
+                pageCount: fake.pageTexts.size,
+            });
+            await writeFile(outputPath, `${header}\n`, 'utf8');
+            return {
+                stdout: '',
+                stderr: '',
+                exitCode: 0,
+            };
+        }
+        throw new Error(`Unexpected pdf-page-ops command in search test: ${args.join(' ')}`);
     },
 }));
 vi.mock('@electron/file-access/documentStore', async (importOriginal) => ({

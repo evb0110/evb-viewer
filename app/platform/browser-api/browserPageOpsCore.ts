@@ -87,7 +87,10 @@ type TWriterResult<K extends 'splitPages' | 'overlayText' | 'recompressImages' |
 export function splitPdfPages(
     data: Uint8Array,
     instructions: ISplitPagesInstructions,
-    options: Pick<IRunBrowserPageOpsWorkerRequestOptions, 'signal' | 'requireWorker' | 'onEngineIdentity' | 'transferInput'> = {},
+    options: Pick<
+        IRunBrowserPageOpsWorkerRequestOptions,
+        'signal' | 'requireWorker' | 'onEngineIdentity' | 'transferInput' | 'admissionPriority'
+    > = {},
 ): Promise<TWriterResult<'splitPages'>> {
     return requireBrowserPageOpsWasmResult('page split', () =>
         runBrowserPageOpsWorkerRequest(
@@ -109,7 +112,10 @@ export function overlayPdfTextLayers(
     data: Uint8Array,
     sourceData: Uint8Array,
     instructions: IOverlayTextInstructions,
-    options: Pick<IRunBrowserPageOpsWorkerRequestOptions, 'signal' | 'requireWorker' | 'onEngineIdentity' | 'transferInput'> = {},
+    options: Pick<
+        IRunBrowserPageOpsWorkerRequestOptions,
+        'signal' | 'requireWorker' | 'onEngineIdentity' | 'transferInput' | 'admissionPriority'
+    > = {},
 ): Promise<TWriterResult<'overlayText'>> {
     return requireBrowserPageOpsWasmResult('text overlay', () =>
         runBrowserPageOpsWorkerRequest(
@@ -183,6 +189,7 @@ function toPdfBlob(bytes: Uint8Array) {
 export function createOrderedPdfMerge(options: {
     signal: AbortSignal;
     onEngineIdentity?: (sha256: string) => void;
+    admissionPriority?: IRunBrowserPageOpsWorkerRequestOptions['admissionPriority'];
     createError: (reason: string, code?: string) => Error;
 }) {
     let firstPage: Uint8Array | null = null;
@@ -225,6 +232,7 @@ export function createOrderedPdfMerge(options: {
                     signal: options.signal,
                     dedicated: true,
                     requireWorker: true,
+                    ...(options.admissionPriority === undefined ? {} : {admissionPriority: options.admissionPriority}),
                     ...(options.onEngineIdentity === undefined ? {} : {onEngineIdentity: options.onEngineIdentity}),
                 },
             );

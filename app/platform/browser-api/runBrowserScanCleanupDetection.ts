@@ -89,7 +89,7 @@ export async function runBrowserScanCleanupDetection({
                 page: facts,
             });
         const rasterize = (view: IPdfPageSize, dpi: number, jobSignal: AbortSignal) =>
-            renderPageRaster(source, view, dpi, SCAN_CLEANUP_RASTER_MAX_PIXELS, jobSignal);
+            renderPageRaster(source, view, dpi, SCAN_CLEANUP_RASTER_MAX_PIXELS, jobSignal, undefined, undefined, 'batch');
 
         const pageScope = resolveScanCleanupPageScopeLazy(undefined, totalPages);
         for (const batch of iterateScanCleanupPageBatches(pageScope.length, SCAN_CLEANUP_STREAMING_BATCH_PAGES)) {

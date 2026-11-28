@@ -316,30 +316,13 @@ export function createDocumentOpenFlow(state: IDocumentSessionState, deps: ICrea
         }
         const registeredRasterDisplayProfile = consumeRegisteredPdfRasterDisplayProfile(result.originalPath, result.workingPath);
         const rasterDisplayProfile = options.rasterDisplayProfile ?? registeredRasterDisplayProfile;
-        const documentFiles = getDocumentFilesCapability();
-        // The source's revision lets a cached validation of the same bytes stand.
-        const validationRevision = documentFiles
-            .statFile(result.originalPath)
-            .catch(() => documentFiles.statFile(result.workingPath))
-            .then(
-                (source): IPdfValidationSourceRevision | null => {
-                    const modifiedAt = parseEpochMs(source.modifiedAt);
-                    return modifiedAt === null
-                        ? null
-                        : {
-                              documentId: result.originalPath,
-                              size: source.size,
-                              modifiedAt,
-                          };
-                },
-                () => null,
-            );
+        const usesOriginalBacking = !result.isGenerated && !result.recoveryDirtyBaseline && !result.wasEncrypted;
         const job = await loadPdfFromPath(result.workingPath, {
             originalPath: result.originalPath,
             markDirty: result.isGenerated === true || result.recoveryDirtyBaseline === true,
             recoveryDirtyBaseline: result.recoveryDirtyBaseline === true,
             openRequestId,
-            validationRevision,
+            validationBackingPath: usesOriginalBacking ? result.originalPath : result.workingPath,
         }).catch(async (error: unknown) => {
             await cleanupAbandonedPdfWorkingCopy(result, 'failed-pdf-load');
             throw error;
@@ -728,6 +711,50 @@ export function createDocumentOpenFlow(state: IDocumentSessionState, deps: ICrea
         };
     }
 
+    async function resolveValidationSourceRevision(
+        workingPath: TDocumentRef,
+        backingPath: TDocumentRef,
+        revisionBeforeRead: Awaited<ReturnType<ReturnType<typeof getDocumentFilesCapability>['getDocumentRevision']>> | null,
+    ): Promise<IPdfValidationSourceRevision | null> {
+        if (!revisionBeforeRead) {
+            return null;
+        }
+        const documentFiles = getDocumentFilesCapability();
+        const [revisionAfterRead, backing] = await Promise.all([
+            documentFiles.getDocumentRevision(workingPath).catch(() => null),
+            documentFiles
+                .statFile(backingPath)
+                .then((stat) => ({path: backingPath, stat}))
+                .catch(() =>
+                    backingPath === workingPath
+                        ? null
+                        : documentFiles
+                              .statFile(workingPath)
+                              .then((stat) => ({path: workingPath, stat}))
+                              .catch(() => null),
+                ),
+        ]);
+        if (
+            !revisionAfterRead ||
+            !backing ||
+            revisionAfterRead.authority !== revisionBeforeRead.authority ||
+            revisionAfterRead.documentRef !== revisionBeforeRead.documentRef ||
+            revisionAfterRead.token !== revisionBeforeRead.token ||
+            revisionAfterRead.contentRevision !== revisionBeforeRead.contentRevision
+        ) {
+            return null;
+        }
+        const modifiedAt = parseEpochMs(backing.stat.modifiedAt);
+        if (modifiedAt === null || !Number.isSafeInteger(backing.stat.size) || backing.stat.size < 0) {
+            return null;
+        }
+        return {
+            documentInstance: `${revisionAfterRead.authority}:${revisionAfterRead.documentRef}:${revisionAfterRead.token}`,
+            backingIdentity: `${backing.path}:${backing.stat.size}:${modifiedAt}`,
+            byteRevision: `${revisionAfterRead.contentRevision}:${revisionAfterRead.token}`,
+        };
+    }
+
     async function loadPdfFromPath(
         path: TDocumentRef,
         opts: {
@@ -735,7 +762,7 @@ export function createDocumentOpenFlow(state: IDocumentSessionState, deps: ICrea
             markDirty?: boolean;
             recoveryDirtyBaseline?: boolean;
             openRequestId: string | null;
-            validationRevision?: Promise<IPdfValidationSourceRevision | null>;
+            validationBackingPath?: TDocumentRef;
         },
     ) {
         const traceContext = {openRequestId: opts.openRequestId};
@@ -765,6 +792,11 @@ export function createDocumentOpenFlow(state: IDocumentSessionState, deps: ICrea
         // Only the file state is needed for rendering; conformance analysis
         // (used only for save restrictions) is deferred so it does not block
         // the initial display of the document.
+        const revisionBeforeRead = opts.validationBackingPath
+            ? await getDocumentFilesCapability()
+                  .getDocumentRevision(path)
+                  .catch(() => null)
+            : null;
         const nextState = await readPdfStateFromPath(path, traceContext);
 
         if (!isCurrent()) {
@@ -787,8 +819,13 @@ export function createDocumentOpenFlow(state: IDocumentSessionState, deps: ICrea
             path,
             ...traceContext,
         });
-        const {validation, cacheResult} = await (opts.validationRevision ?? Promise.resolve(null)).then((revision) =>
-            validatePdfRevision(revision, () => getDocumentPdfCapability().validatePdfPath(path, {purpose: 'opening'}), 'opening'),
+        const validationRevision = opts.validationBackingPath
+            ? await resolveValidationSourceRevision(path, opts.validationBackingPath, revisionBeforeRead)
+            : null;
+        const {validation, cacheResult} = await validatePdfRevision(
+            validationRevision,
+            () => getDocumentPdfCapability().validatePdfPath(path, {purpose: 'opening'}),
+            'opening',
         );
         logPdfRenderTrace('pdf-open-validate-end', {
             path,

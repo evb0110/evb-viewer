@@ -16,6 +16,7 @@ import {
     BrowserWorkerResetError,
     canUseBrowserWorker,
 } from '@app/platform/browser-api/browserWorkerClient';
+import {runWithBrowserWorkerAdmission, type TBrowserHeavyWorkerPriority} from '@app/platform/browser-api/browserWorkerAdmission';
 import {BrowserPageOpsWorkerUnavailableError} from '@app/platform/browser-api/browserPageOpsWorkerUnavailableError';
 import {onBrowserWorkingCopyClose} from '@app/platform/browser-api/browserWorkingCopyClose';
 import {getErrorMessage} from '@app/utils/error';
@@ -207,8 +208,9 @@ function createBrowserPageOpsWorkerClient() {
 }
 
 const browserPageOpsWorkerClient = createBrowserPageOpsWorkerClient();
+const PAGE_OPS_OWNER_CONCURRENCY = 2;
 // Two reusable workers admit isolated and CPU-bound operations; the rest wait their turn.
-const pageOpsWorkerOwner = new BrowserWorkerRequestOwner(createBrowserPageOpsWorkerClient, 2);
+const pageOpsWorkerOwner = new BrowserWorkerRequestOwner(createBrowserPageOpsWorkerClient, PAGE_OPS_OWNER_CONCURRENCY);
 
 /**
  * Evicts any parsed PDF `Document` cached inside active page-ops workers whose
@@ -236,37 +238,51 @@ async function runAdmittedPageOperation<TResult>(
         yieldAdmitted: () => Promise<void>,
     ) => Promise<TResult>,
     affinityKey?: string,
+    admissionPriority: TBrowserHeavyWorkerPriority = 'interactive',
 ) {
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);
     }
-    const requestId = pageOpsWorkerOwner.createRequestId();
-    const abort = () => pageOpsWorkerOwner.cancel(requestId, abortErrorFromSignal(signal!));
-    signal?.addEventListener('abort', abort, {once: true});
-    try {
-        // An operation aborted or reset during a yield starts no more work.
-        return await pageOpsWorkerOwner.run(
-            requestId,
-            (client, isAdmitted) =>
-                run(client, requestId, async () => {
-                    await yieldToBrowser();
-                    if (signal?.aborted) {
-                        throw abortErrorFromSignal(signal);
-                    }
-                    if (!isAdmitted()) {
-                        throw new BrowserWorkerResetError();
-                    }
-                }),
-            affinityKey === undefined ? {} : {affinityKey},
-        );
-    } finally {
-        signal?.removeEventListener('abort', abort);
-    }
+    return runWithBrowserWorkerAdmission(
+        {
+            category: 'page-ops',
+            priority: admissionPriority,
+            categoryLimit: PAGE_OPS_OWNER_CONCURRENCY,
+            signal,
+            createAbortError: () => abortErrorFromSignal(signal!),
+        },
+        async () => {
+            const requestId = pageOpsWorkerOwner.createRequestId();
+            const abort = () => pageOpsWorkerOwner.cancel(requestId, abortErrorFromSignal(signal!));
+            signal?.addEventListener('abort', abort, {once: true});
+            try {
+                // An operation aborted or reset during a yield starts no more work.
+                return await pageOpsWorkerOwner.run(
+                    requestId,
+                    (client, isAdmitted) =>
+                        run(client, requestId, async () => {
+                            await yieldToBrowser();
+                            if (signal?.aborted) {
+                                throw abortErrorFromSignal(signal);
+                            }
+                            if (!isAdmitted()) {
+                                throw new BrowserWorkerResetError();
+                            }
+                        }),
+                    affinityKey === undefined ? {} : {affinityKey},
+                );
+            } finally {
+                signal?.removeEventListener('abort', abort);
+            }
+        },
+    );
 }
 
 export interface IRunBrowserPageOpsWorkerRequestOptions {
     signal?: AbortSignal;
     dedicated?: boolean;
+    /** Aggregate browser worker admission priority; background batch work passes `'batch'`. */
+    admissionPriority?: TBrowserHeavyWorkerPriority;
     /** Replaces the default deadline: none with a signal, else size-scaled. */
     timeoutMs?: number;
     /**
@@ -442,6 +458,7 @@ function runAdmittedBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerR
             });
         },
         affinityKey,
+        options.admissionPriority ?? 'interactive',
     );
 }
 
@@ -450,23 +467,36 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
     payload: IBrowserPageOpsWorkerRequestMap[K],
     options: IRunBrowserPageOpsWorkerRequestOptions = {},
 ): Promise<IBrowserPageOpsWorkerResultMap[K]> {
+    const admissionPriority = options.admissionPriority ?? 'interactive';
     if (isCpuPageOperation(type)) {
         if (canUseBrowserPageOpsWorker()) {
             return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options);
         }
-        return runAdmittedPageOperation(options.signal, (_client, _requestId, yieldAdmitted) =>
-            runBrowserPageOpsWithoutWorker(type, payload, yieldAdmitted, options.requireWorker),
+        return runAdmittedPageOperation(
+            options.signal,
+            (_client, _requestId, yieldAdmitted) => runBrowserPageOpsWithoutWorker(type, payload, yieldAdmitted, options.requireWorker),
+            undefined,
+            admissionPriority,
         );
     }
     if (options.dedicated) {
         return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options);
     }
 
-    return runBrowserPageOpsWorkerRequestWithClient(
-        browserPageOpsWorkerClient,
-        browserPageOpsWorkerClient.createRequestId(),
-        type,
-        payload,
-        options,
+    return runWithBrowserWorkerAdmission(
+        {
+            category: 'page-ops',
+            priority: admissionPriority,
+            signal: options.signal,
+            createAbortError: () => abortErrorFromSignal(options.signal!),
+        },
+        () =>
+            runBrowserPageOpsWorkerRequestWithClient(
+                browserPageOpsWorkerClient,
+                browserPageOpsWorkerClient.createRequestId(),
+                type,
+                payload,
+                options,
+            ),
     );
 }

@@ -1,4 +1,11 @@
 import {
+    detectBrowserEngine,
+    isMobileBrowserUserAgent,
+    readNavigatorBrowserMemoryEnvironment,
+    type IBrowserMemoryEnvironment,
+} from '@app/utils/performanceProfile';
+import {HOST_TIER_LOW_CPU_MAX} from '@contracts/hostResourceProfile';
+import {
     isRealWasmModule,
     parsePrecompiledWasmModuleMessage,
     PRECOMPILED_WASM_MODULE_MESSAGE_TYPE,
@@ -8,17 +15,61 @@ export {PRECOMPILED_WASM_MODULE_MESSAGE_TYPE, type IPrecompiledWasmModuleMessage
 
 const DEFAULT_WASM_STALL_TIMEOUT_MS = 30_000;
 const MIB = 1024 * 1024;
+export const WASM_MEMORY_HIGH_WATER_LOW_BYTES = 128 * MIB;
+export const WASM_MEMORY_HIGH_WATER_WEBKIT_BYTES = 192 * MIB;
+export const WASM_MEMORY_HIGH_WATER_HIGH_BYTES = 256 * MIB;
 
 /**
  * The linear memory above which a thread lets go of its cached instance of a WASM tool once a request on it
  * ends. WebAssembly memory never shrinks, so without this one large document's heap growth stays held for the
- * rest of the session. 256 MiB on a device that reports more than 4 GiB, 128 MiB otherwise: the performance
- * profile treats an unreported device as a low-memory one too.
+ * rest of the session.
+ *
+ * Differentiates explicit low memory (`deviceMemory <= 4`, mobile, or `<= 2` cores -> 128 MiB) from
+ * `deviceMemory === undefined` (Safari/Firefox intentionally omit `navigator.deviceMemory`): desktop Firefox
+ * uses 256 MiB like Chromium `> 4 GiB`, while desktop WebKit (and unknown desktop browsers omitting
+ * `deviceMemory`) uses 192 MiB to avoid constant WASM churn on 16+ GiB Macs while respecting WebKit's
+ * tighter per-tab WASM linear-memory ceiling.
  */
-export function wasmMemoryHighWaterBytes(
-    deviceMemory = (globalThis.navigator as (Navigator & {deviceMemory?: number}) | undefined)?.deviceMemory,
-) {
-    return (deviceMemory ?? 4) > 4 ? 256 * MIB : 128 * MIB;
+export function wasmMemoryHighWaterBytes(deviceMemory?: number, environment?: Omit<IBrowserMemoryEnvironment, 'deviceMemory'>) {
+    const nav = environment ? undefined : readNavigatorBrowserMemoryEnvironment();
+    const resolvedDeviceMemory = deviceMemory !== undefined ? deviceMemory : nav?.deviceMemory;
+    const userAgent = environment?.userAgent ?? nav?.userAgent;
+    const resolvedMaxTouchPoints = environment?.maxTouchPoints ?? nav?.maxTouchPoints;
+    const maxTouchPoints = resolvedMaxTouchPoints ?? 0;
+    const explicitMobile = environment?.mobile ?? nav?.mobile;
+    const mobile = explicitMobile ?? (environment?.userAgent !== undefined ? isMobileBrowserUserAgent(userAgent, maxTouchPoints) : false);
+    if (mobile) {
+        return WASM_MEMORY_HIGH_WATER_LOW_BYTES;
+    }
+    const hardwareConcurrency = environment?.hardwareConcurrency ?? nav?.hardwareConcurrency;
+    if (
+        typeof hardwareConcurrency === 'number' &&
+        Number.isFinite(hardwareConcurrency) &&
+        hardwareConcurrency > 0 &&
+        hardwareConcurrency <= HOST_TIER_LOW_CPU_MAX
+    ) {
+        return WASM_MEMORY_HIGH_WATER_LOW_BYTES;
+    }
+    if (typeof resolvedDeviceMemory === 'number' && Number.isFinite(resolvedDeviceMemory) && resolvedDeviceMemory > 0) {
+        return resolvedDeviceMemory > 4 ? WASM_MEMORY_HIGH_WATER_HIGH_BYTES : WASM_MEMORY_HIGH_WATER_LOW_BYTES;
+    }
+    const engine = detectBrowserEngine(userAgent);
+    if (engine === 'firefox') {
+        return WASM_MEMORY_HIGH_WATER_HIGH_BYTES;
+    }
+    // WebKit WorkerNavigator omits `maxTouchPoints`, so a Macintosh user agent in a
+    // worker cannot distinguish macOS Safari from desktop-UA iPadOS Safari; keep the
+    // conservative 128 MiB floor unless desktop WebKit is confirmed.
+    if (
+        engine === 'webkit' &&
+        userAgent !== undefined &&
+        /Macintosh/u.test(userAgent) &&
+        explicitMobile !== false &&
+        typeof resolvedMaxTouchPoints !== 'number'
+    ) {
+        return WASM_MEMORY_HIGH_WATER_LOW_BYTES;
+    }
+    return WASM_MEMORY_HIGH_WATER_WEBKIT_BYTES;
 }
 
 /** Whether an instance's memory grew past `wasmMemoryHighWaterBytes`, so its thread should load a fresh one. */

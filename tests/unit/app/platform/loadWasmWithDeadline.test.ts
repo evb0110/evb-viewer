@@ -283,10 +283,34 @@ describe('WASM memory high-water release', () => {
         vi.resetModules();
     });
 
-    it('is 256 MiB on a device that reports more than 4 GiB and 128 MiB otherwise', () => {
-        expect(wasmMemoryHighWaterBytes(8)).toBe(256 * 1024 * 1024);
-        expect(wasmMemoryHighWaterBytes(4)).toBe(128 * 1024 * 1024);
-        expect(wasmMemoryHighWaterBytes(undefined)).toBe(128 * 1024 * 1024);
+    it('differentiates deviceMemory === undefined (Firefox vs WebKit) from deviceMemory <= 4 and >= 8', () => {
+        const firefoxDesktopUa = 'Mozilla/5.0 (X11; Linux x86_64; rv:136.0) Gecko/20100101 Firefox/136.0';
+        const safariMacUa =
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15';
+        const safariIosUa =
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+        const chromeDesktopUa = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36';
+        const mib = 1024 * 1024;
+
+        // Explicit Chromium deviceMemory buckets.
+        expect(wasmMemoryHighWaterBytes(8, {userAgent: chromeDesktopUa, hardwareConcurrency: 8})).toBe(256 * mib);
+        expect(wasmMemoryHighWaterBytes(4, {userAgent: chromeDesktopUa, hardwareConcurrency: 8})).toBe(128 * mib);
+        expect(wasmMemoryHighWaterBytes(2, {userAgent: chromeDesktopUa, hardwareConcurrency: 8})).toBe(128 * mib);
+
+        // Safari / Firefox omit deviceMemory: Firefox desktop gets 256 MiB, confirmed desktop WebKit gets 192 MiB.
+        expect(wasmMemoryHighWaterBytes(undefined, {userAgent: firefoxDesktopUa, hardwareConcurrency: 16})).toBe(256 * mib);
+        expect(wasmMemoryHighWaterBytes(undefined, {userAgent: safariMacUa, maxTouchPoints: 0, hardwareConcurrency: 12})).toBe(192 * mib);
+        expect(wasmMemoryHighWaterBytes(undefined, {hardwareConcurrency: 8})).toBe(192 * mib);
+
+        // Unconfirmed Macintosh WebKit (e.g. desktop-UA iPadOS WorkerNavigator lacking maxTouchPoints) stays at 128 MiB.
+        expect(wasmMemoryHighWaterBytes(undefined, {userAgent: safariMacUa, hardwareConcurrency: 6})).toBe(128 * mib);
+        expect(wasmMemoryHighWaterBytes(undefined, {userAgent: safariMacUa, maxTouchPoints: 5, hardwareConcurrency: 8})).toBe(128 * mib);
+
+        // Mobile WebKit and low-CPU devices stay at the 128 MiB floor.
+        expect(wasmMemoryHighWaterBytes(undefined, {userAgent: safariIosUa, hardwareConcurrency: 6})).toBe(128 * mib);
+        expect(wasmMemoryHighWaterBytes(undefined, {userAgent: firefoxDesktopUa, hardwareConcurrency: 2})).toBe(128 * mib);
+        expect(wasmMemoryHighWaterBytes(8, {userAgent: chromeDesktopUa, hardwareConcurrency: 2})).toBe(128 * mib);
+        expect(wasmMemoryHighWaterBytes(8, {userAgent: chromeDesktopUa, mobile: true})).toBe(128 * mib);
     });
 
     it('loads a fresh native tool after a call grows one past the mark, and finishes the call admitted beside it', async () => {

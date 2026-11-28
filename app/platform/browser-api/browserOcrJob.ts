@@ -227,7 +227,10 @@ async function readVisibility(source: Blob, pageNumbers: number[], signal: Abort
                 pages: pageNumbers,
                 withEvbOcrText: false,
             },
-            {signal},
+            {
+                signal,
+                admissionPriority: 'batch',
+            },
         );
         if (isBrowserPageOpsWasmFailure(report)) {
             return {

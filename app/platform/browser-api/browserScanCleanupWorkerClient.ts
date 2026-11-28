@@ -11,6 +11,7 @@ import {
     canUseBrowserWorker,
     resolveBrowserPageLanes,
 } from '@app/platform/browser-api/browserWorkerClient';
+import {browserHeavyWorkerAdmission, type TBrowserHeavyWorkerPriority} from '@app/platform/browser-api/browserWorkerAdmission';
 import {settleBrowserWorkerResult, type IPendingBrowserWorkerRequest} from '@app/platform/browser-api/settleBrowserWorkerResult';
 import {
     BROWSER_SCAN_CLEANUP_THREADS_WASM_PATH,
@@ -19,11 +20,13 @@ import {
 } from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import {readScanCleanupEngineWorkerThreads} from '@app/platform/browser-api/scanCleanupEngineWorkerName';
 import {
+    MAX_LIVE_THREADED_SCAN_CLEANUP_ENGINES,
     observeScanCleanupEngineReply,
     registerScanCleanupEnginePool,
     runWithScanCleanupEngineFailover,
     scanCleanupEngineAdmission,
     threadedScanCleanupEngineBudget,
+    usesThreadedScanCleanupEngine,
 } from '@app/platform/browser-api/scanCleanupEngineVariant';
 import {getErrorMessage} from '@app/utils/error';
 
@@ -56,8 +59,17 @@ interface IPendingScanCleanupWorkerRequest extends IPendingBrowserWorkerRequest 
     onProgress?: ((progress: IScanCleanupWasmSubPageProgress) => void) | undefined;
 }
 
+const deferDrainSlotReleaseByClient = new WeakMap<BrowserWorkerClient<IPendingScanCleanupWorkerRequest>, (release: () => void) => void>();
+
 function createClient() {
-    return new BrowserWorkerClient<IPendingScanCleanupWorkerRequest>({
+    let pendingDrainSlotRelease: (() => void) | null = null;
+    const flushDrainSlotRelease = () => {
+        const release = pendingDrainSlotRelease;
+        pendingDrainSlotRelease = null;
+        release?.();
+    };
+
+    const client = new BrowserWorkerClient<IPendingScanCleanupWorkerRequest>({
         idleTtlMs: BROWSER_SCAN_CLEANUP_WORKER_IDLE_TTL_MS,
         requestTimeoutMs: BROWSER_SCAN_CLEANUP_REQUEST_TIMEOUT_MS,
         // The worker's name tells it which engine to run, on how many threads;
@@ -71,17 +83,30 @@ function createClient() {
         },
         createWorker: (name) => {
             try {
-                return new Worker(new URL('./browserScanCleanup.worker.ts', import.meta.url), {
+                const worker = new Worker(new URL('./browserScanCleanup.worker.ts', import.meta.url), {
                     type: 'module',
                     name: name ?? '',
                 });
+                const originalTerminate = worker.terminate.bind(worker);
+                try {
+                    worker.terminate = () => {
+                        flushDrainSlotRelease();
+                        return originalTerminate();
+                    };
+                } catch {
+                    // Non-writable terminate on a frozen test double; onDrainedMessage still fires.
+                }
+                return worker;
             } catch (error) {
                 throw new BrowserScanCleanupWorkerUnavailableError(getErrorMessage(error));
             }
         },
         createError: (event) =>
             new BrowserScanCleanupWorkerUnavailableError(event.error instanceof Error ? getErrorMessage(event.error) : event.message),
-        onDrainedMessage: observeScanCleanupEngineReply,
+        onDrainedMessage: (response) => {
+            flushDrainSlotRelease();
+            observeScanCleanupEngineReply(response);
+        },
         isProgressMessage: (response) => parseBrowserScanCleanupWorkerProgressEvent(response) !== null,
         handleMessage: (pendingRequests, response, onSettled) => {
             const progressEvent = parseBrowserScanCleanupWorkerProgressEvent(response);
@@ -97,6 +122,15 @@ function createClient() {
             settleBrowserWorkerResult(pendingRequests, response, onSettled);
         },
     });
+    deferDrainSlotReleaseByClient.set(client, (release) => {
+        if (!client.draining) {
+            release();
+            return;
+        }
+        flushDrainSlotRelease();
+        pendingDrainSlotRelease = release;
+    });
+    return client;
 }
 
 const ENGINE_BASE_WASM_BYTES = 32 * 1024 * 1024;
@@ -113,6 +147,7 @@ export function estimateBrowserScanCleanupEngineBytes(pixels: number, decodesCol
 }
 
 let owner: BrowserWorkerRequestOwner<IPendingScanCleanupWorkerRequest> | null = null;
+let ownerMaxSlots = 1;
 
 /**
  * A worker and engine instance per page lane, and one more so a preview never
@@ -122,8 +157,13 @@ let owner: BrowserWorkerRequestOwner<IPendingScanCleanupWorkerRequest> | null = 
 function getOwner() {
     if (owner === null) {
         const pageLanes = resolveBrowserPageLanes().producerConcurrency;
-        const engines = new BrowserWorkerRequestOwner(createClient, pageLanes === 1 ? 1 : pageLanes + 1, threadedScanCleanupEngineBudget);
-        registerScanCleanupEnginePool(() => engines.resetIdleWorkers());
+        ownerMaxSlots = pageLanes === 1 ? 1 : pageLanes + 1;
+        const engines = new BrowserWorkerRequestOwner(createClient, ownerMaxSlots, threadedScanCleanupEngineBudget);
+        registerScanCleanupEnginePool(() => {
+            engines.resetIdleWorkers();
+            browserHeavyWorkerAdmission.wake();
+        });
+        threadedScanCleanupEngineBudget.onRelease(() => browserHeavyWorkerAdmission.wake());
         owner = engines;
     }
     return owner;
@@ -197,54 +237,104 @@ function runOnWorker<K extends TBrowserScanCleanupWorkerRequestType>(
         return Promise.reject(abortError(signal));
     }
     const engines = getOwner();
-    const id = engines.createRequestId();
-    const abort = () => engines.cancel(id, abortError(signal));
-    signal.addEventListener('abort', abort, {once: true});
-    return engines
-        .run(
-            id,
-            (client, _isAdmitted, workerName) =>
-                new Promise<IBrowserScanCleanupWorkerResultMap[K]>((resolve, reject) => {
-                    const worker = client.getWorker(workerName);
-                    client.registerPendingRequest(
-                        id,
-                        {
-                            requestType: type,
-                            onEngineIdentity,
-                            onProgress,
-                            resolveData: (data) => {
-                                if (!isBrowserScanCleanupWorkerResult(type, data)) {
-                                    return false;
-                                }
-                                resolve(data);
-                                return true;
-                            },
-                            reject,
-                        },
-                        () => new BrowserScanCleanupWorkerUnavailableError('Scan cleanup worker request timed out'),
-                    );
-                    try {
-                        worker.postMessage(
+    // Final page conversion preempts retiring preview/detection workers immediately
+    // so it never waits out a 5-second drain window for an aggregate batch slot.
+    if (type === 'render-page') {
+        engines.resetDrainingWorkers();
+    }
+    const dispatch = (onRelease?: (client: BrowserWorkerClient<IPendingScanCleanupWorkerRequest> | null) => void) => {
+        const id = engines.createRequestId();
+        const abort = () => engines.cancel(id, abortError(signal));
+        signal.addEventListener('abort', abort, {once: true});
+        let assignedClient: BrowserWorkerClient<IPendingScanCleanupWorkerRequest> | null = null;
+        return engines
+            .run(
+                id,
+                (client, _isAdmitted, workerName) => {
+                    assignedClient = client;
+                    return new Promise<IBrowserScanCleanupWorkerResultMap[K]>((resolve, reject) => {
+                        const worker = client.getWorker(workerName);
+                        client.registerPendingRequest(
+                            id,
                             {
-                                id,
-                                type,
-                                payload,
+                                requestType: type,
+                                onEngineIdentity,
+                                onProgress,
+                                resolveData: (data) => {
+                                    if (!isBrowserScanCleanupWorkerResult(type, data)) {
+                                        return false;
+                                    }
+                                    resolve(data);
+                                    return true;
+                                },
+                                reject,
                             },
-                            [...transferablesOf(payload)],
+                            () => new BrowserScanCleanupWorkerUnavailableError('Scan cleanup worker request timed out'),
                         );
-                    } catch (error) {
-                        client.cancelPendingRequest(id, error instanceof Error ? error : new Error(String(error)));
-                    }
-                }),
-            {
-                ...(ENGINELESS_REQUESTS.has(type) ? {} : scanCleanupEngineAdmission(concurrency)),
-                // Keep the warm preview/detection worker pool alive across superseding cancels;
-                // only heavy final page renders tear down the worker on cancel and immediately
-                // preempt any retiring preview worker on the same threaded key.
-                keepWarmOnCancel: type !== 'render-page',
-                terminateDrainingSameKey: type === 'render-page',
-                terminateDrainingWhenFull: type === 'render-page' || type === 'assemble-raster',
-            },
-        )
-        .finally(() => signal.removeEventListener('abort', abort));
+                        try {
+                            worker.postMessage(
+                                {
+                                    id,
+                                    type,
+                                    payload,
+                                },
+                                [...transferablesOf(payload)],
+                            );
+                        } catch (error) {
+                            client.cancelPendingRequest(id, error instanceof Error ? error : new Error(String(error)));
+                        }
+                    });
+                },
+                {
+                    ...(ENGINELESS_REQUESTS.has(type) ? {} : scanCleanupEngineAdmission(concurrency)),
+                    // Keep the warm preview/detection worker pool alive across superseding cancels;
+                    // only heavy final page renders tear down the worker on cancel and immediately
+                    // preempt any retiring preview worker on the same threaded key.
+                    keepWarmOnCancel: type !== 'render-page',
+                    terminateDrainingSameKey: type === 'render-page',
+                    terminateDrainingWhenFull: type === 'render-page' || type === 'assemble-raster',
+                },
+            )
+            .finally(() => {
+                signal.removeEventListener('abort', abort);
+                onRelease?.(assignedClient);
+            });
+    };
+    if (ENGINELESS_REQUESTS.has(type)) {
+        return dispatch();
+    }
+    const admissionPriority: TBrowserHeavyWorkerPriority = type === 'render-preview' ? 'interactive' : 'batch';
+    const releaseSlotWhenSettled = (client: BrowserWorkerClient<IPendingScanCleanupWorkerRequest> | null, release: () => void) => {
+        if (client?.draining) {
+            const defer = deferDrainSlotReleaseByClient.get(client);
+            if (defer) {
+                defer(release);
+                return;
+            }
+        }
+        release();
+    };
+    const threadedKeepFree = admissionPriority === 'batch' && (concurrency ?? 1) > 1 ? 1 : 0;
+    const categoryLimit = () => {
+        if (!usesThreadedScanCleanupEngine()) {
+            return ownerMaxSlots;
+        }
+        const threadedLimit = MAX_LIVE_THREADED_SCAN_CLEANUP_ENGINES - threadedKeepFree;
+        const {activeByCategory} = browserHeavyWorkerAdmission.snapshot();
+        const threadedGranted = activeByCategory['scan-cleanup'] + activeByCategory['ocr-preprocess'];
+        if (!threadedScanCleanupEngineBudget.admits(threadedKeepFree) || threadedGranted >= threadedLimit) {
+            return 0;
+        }
+        return Math.min(ownerMaxSlots, threadedLimit);
+    };
+    return browserHeavyWorkerAdmission.runDeferred(
+        {
+            category: 'scan-cleanup',
+            priority: admissionPriority,
+            categoryLimit,
+            signal,
+            createAbortError: () => abortError(signal),
+        },
+        (release) => dispatch((client) => releaseSlotWhenSettled(client, release)),
+    );
 }

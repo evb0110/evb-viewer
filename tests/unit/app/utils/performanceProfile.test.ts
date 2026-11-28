@@ -16,6 +16,8 @@ import {
     PDF_THUMBNAIL_CONCURRENCY_DEFAULT,
     PDF_THUMBNAIL_CONCURRENCY_LOW_PROFILE,
     PDF_THUMBNAIL_CONCURRENCY_WORKSTATION,
+    detectBrowserEngine,
+    resolveBrowserEstimatedMemoryGiB,
     resolvePerformanceProfile,
 } from '@app/utils/performanceProfile';
 import {resolveOpenPathSecondaryPerformancePolicy} from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
@@ -125,6 +127,70 @@ describe('resolvePerformanceProfile', () => {
             mobile,
             tier: mobile ? 'low' : 'medium',
         });
+    });
+
+    it('differentiates deviceMemory === undefined (Firefox vs WebKit) from deviceMemory <= 4', () => {
+        const firefoxDesktopUa = 'Mozilla/5.0 (X11; Linux x86_64; rv:136.0) Gecko/20100101 Firefox/136.0';
+        const safariMacUa =
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15';
+        const safariIosUa =
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+        const chromeDesktopUa = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36';
+
+        expect(detectBrowserEngine(firefoxDesktopUa)).toBe('firefox');
+        expect(detectBrowserEngine(safariMacUa)).toBe('webkit');
+        expect(detectBrowserEngine(safariIosUa)).toBe('webkit');
+        expect(detectBrowserEngine(chromeDesktopUa)).toBe('chromium');
+        expect(detectBrowserEngine(undefined)).toBe('unknown');
+
+        // High-core Firefox desktop omits deviceMemory and scales to high tier (8 GiB estimate).
+        expect(
+            resolvePerformanceProfile({
+                hardwareConcurrency: 16,
+                userAgent: firefoxDesktopUa,
+            }),
+        ).toMatchObject({
+            tier: 'high',
+            mobile: false,
+            lowMemory: false,
+            lowCpu: false,
+            settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY,
+        });
+        // Explicit mobile Firefox user agent without an explicit mobile flag still resolves as mobile low tier.
+        expect(
+            resolvePerformanceProfile({
+                hardwareConcurrency: 8,
+                userAgent: 'Mozilla/5.0 (Android 15; Mobile; rv:136.0) Gecko/136.0 Firefox/136.0',
+            }),
+        ).toMatchObject({
+            tier: 'low',
+            mobile: true,
+        });
+        expect(resolveBrowserEstimatedMemoryGiB({hardwareConcurrency: 16, userAgent: firefoxDesktopUa})).toBe(8);
+        expect(resolveBrowserEstimatedMemoryGiB({hardwareConcurrency: 4, userAgent: firefoxDesktopUa})).toBe(6);
+
+        // High-core macOS Safari omits deviceMemory: avoids low tier (not throttled to 4 GiB / 1-render mode)
+        // while staying at medium tier (6 GiB estimate) to protect WebKit's tighter linear-memory/canvas ceiling.
+        expect(
+            resolvePerformanceProfile({
+                hardwareConcurrency: 16,
+                userAgent: safariMacUa,
+            }),
+        ).toMatchObject({
+            tier: 'medium',
+            lowMemory: false,
+            lowCpu: false,
+            concurrentPdfRenders: PDF_RENDER_CONCURRENCY_DEFAULT,
+            settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT,
+        });
+        expect(resolveBrowserEstimatedMemoryGiB({hardwareConcurrency: 16, userAgent: safariMacUa})).toBe(6);
+
+        // Mobile WebKit, low-CPU Firefox, and explicit deviceMemory <= 4 stay constrained.
+        expect(resolveBrowserEstimatedMemoryGiB({hardwareConcurrency: 6, userAgent: safariIosUa})).toBe(4);
+        expect(resolveBrowserEstimatedMemoryGiB({hardwareConcurrency: 2, userAgent: firefoxDesktopUa})).toBe(4);
+        expect(resolvePerformanceProfile({hardwareConcurrency: 2, userAgent: firefoxDesktopUa}).tier).toBe('low');
+        expect(resolveBrowserEstimatedMemoryGiB({deviceMemory: 4, hardwareConcurrency: 16, userAgent: chromeDesktopUa})).toBe(4);
+        expect(resolveBrowserEstimatedMemoryGiB({deviceMemory: 8, hardwareConcurrency: 16, userAgent: chromeDesktopUa})).toBe(8);
     });
 
     it('does not classify the server by its own CPUs while rendering without a document', () => {
