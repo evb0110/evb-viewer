@@ -368,6 +368,10 @@ impl<S: ByteSource> SourcePdf<S> {
         Ok(pdf)
     }
 
+    pub(crate) fn raw_source(&self) -> (&S, u64) {
+        (&self.bytes, self.len)
+    }
+
     /// The base of an incremental append. Plaintext objects appended to an
     /// encrypted file would be unreadable, so encryption, which the index
     /// shows, is refused before any object is read: the unlock flow rewrites

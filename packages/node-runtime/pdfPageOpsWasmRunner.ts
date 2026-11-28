@@ -61,6 +61,11 @@ const MAX_SIDECAR_BYTES = 256 * MIB;
 const MAX_PASSWORD_FILE_BYTES = 16 * 1024;
 const MAX_OPEN_EXTRA_SOURCE_FDS = 16;
 const MAX_U32 = 0xffff_ffff;
+const CONFORMANCE_FLAG_STRICT = 1 << 0;
+const CONFORMANCE_FLAG_WITH_MARKERS = 1 << 1;
+const CONFORMANCE_FLAG_MARKERS_ONLY = 1 << 2;
+export const HOST_SOURCE_READ_CACHE_BLOCK_BYTES = 128 * 1024;
+export const HOST_SOURCE_READ_CACHE_MAX_BLOCKS = 16;
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -100,13 +105,22 @@ interface IPdfPageOpsWasmExports {
 interface IHostSourceEntry {
     fd: number | null;
     len: number | null;
+    lenSinkGen?: number | undefined;
     fdIdentity?: string;
+    dev?: bigint | undefined;
+    ino?: bigint | undefined;
+    aliasCheckOpenGen?: number | undefined;
+    aliasesSink?: boolean | undefined;
     path: string;
 }
 
 interface IHostSinkState {
     fd: number | null;
     path: string;
+    dev?: bigint | undefined;
+    ino?: bigint | undefined;
+    openGeneration?: number | undefined;
+    mutationGeneration?: number | undefined;
     inPlace: boolean;
     originalLen: number;
     baseSourceLen: number;
@@ -115,7 +129,7 @@ interface IHostSinkState {
     maxLen: number;
 }
 
-interface IHostIoContext {
+export interface IHostIoContext {
     sources: IHostSourceEntry[];
     extraOpenOrder: number[];
     sink: IHostSinkState | null;
@@ -194,6 +208,215 @@ function readExactSync(fd: number, target: Uint8Array, offset: number): boolean 
         total += read;
     }
     return true;
+}
+
+interface IReadCacheEntry {
+    sourceIndex: number;
+    blockIndex: number;
+    blockStart: number;
+    validLen: number;
+    data: Uint8Array;
+}
+
+/**
+ * Command-local fixed-size LRU read block cache for positional `evb_host_source_read`
+ * calls. Created fresh per command execution and discarded in `finally` so cached
+ * bytes never leak across commands.
+ */
+export class HostSourceReadCache {
+    readonly blockBytes: number;
+    readonly maxBlocks: number;
+    private readonly entries = new Map<string, IReadCacheEntry>();
+    private readonly freeBuffers: Uint8Array[] = [];
+
+    constructor(blockBytes = HOST_SOURCE_READ_CACHE_BLOCK_BYTES, maxBlocks = HOST_SOURCE_READ_CACHE_MAX_BLOCKS) {
+        this.blockBytes = blockBytes;
+        this.maxBlocks = maxBlocks;
+    }
+
+    readExact(sourceIndex: number, fd: number, target: Uint8Array, offset: number): boolean {
+        const len = target.byteLength;
+        if (len === 0) {
+            return true;
+        }
+        if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(offset + len)) {
+            return false;
+        }
+        // Bypass for reads >= one block so large sequential scans and bulk reads
+        // avoid extra copies and do not evict hot small random-access blocks.
+        if (len >= this.blockBytes) {
+            return readExactSync(fd, target, offset);
+        }
+
+        let written = 0;
+        while (written < len) {
+            const pos = offset + written;
+            const blockIndex = Math.floor(pos / this.blockBytes);
+            const blockStart = blockIndex * this.blockBytes;
+            const offsetInBlock = pos - blockStart;
+            const sliceLen = Math.min(len - written, this.blockBytes - offsetInBlock);
+            const entry = this.getOrFillBlock(sourceIndex, fd, blockIndex, blockStart, offsetInBlock + sliceLen);
+            if (!entry || offsetInBlock + sliceLen > entry.validLen) {
+                return false;
+            }
+            target.set(entry.data.subarray(offsetInBlock, offsetInBlock + sliceLen), written);
+            written += sliceLen;
+        }
+        return true;
+    }
+
+    private getOrFillBlock(
+        sourceIndex: number,
+        fd: number,
+        blockIndex: number,
+        blockStart: number,
+        minRequiredLen: number,
+    ): IReadCacheEntry | null {
+        const key = `${sourceIndex}:${blockIndex}`;
+        const cached = this.entries.get(key);
+        if (cached) {
+            this.entries.delete(key);
+            this.entries.set(key, cached);
+            if (minRequiredLen <= cached.validLen) {
+                return cached;
+            }
+            try {
+                const refreshedLen = this.fillBufferFromFd(fd, cached.data, blockStart);
+                if (refreshedLen <= 0) {
+                    this.entries.delete(key);
+                    this.releaseBuffer(cached.data);
+                    return null;
+                }
+                cached.validLen = refreshedLen;
+                return cached;
+            } catch (error) {
+                this.entries.delete(key);
+                this.releaseBuffer(cached.data);
+                throw error;
+            }
+        }
+
+        const buffer = this.acquireBuffer();
+        let validLen: number;
+        try {
+            validLen = this.fillBufferFromFd(fd, buffer, blockStart);
+        } catch (error) {
+            this.releaseBuffer(buffer);
+            throw error;
+        }
+        if (validLen <= 0) {
+            this.releaseBuffer(buffer);
+            return null;
+        }
+        const entry: IReadCacheEntry = {
+            sourceIndex,
+            blockIndex,
+            blockStart,
+            validLen,
+            data: buffer,
+        };
+        this.entries.set(key, entry);
+        return entry;
+    }
+
+    private fillBufferFromFd(fd: number, buffer: Uint8Array, blockStart: number): number {
+        let total = 0;
+        while (total < this.blockBytes) {
+            const read = readSync(fd, buffer, total, this.blockBytes - total, blockStart + total);
+            if (read <= 0) {
+                break;
+            }
+            total += read;
+        }
+        return total;
+    }
+
+    private acquireBuffer(): Uint8Array {
+        while (this.entries.size >= this.maxBlocks) {
+            const oldestKey = this.entries.keys().next().value;
+            if (oldestKey === undefined) {
+                break;
+            }
+            const evicted = this.entries.get(oldestKey);
+            this.entries.delete(oldestKey);
+            if (evicted) {
+                this.releaseBuffer(evicted.data);
+            }
+        }
+        return this.freeBuffers.pop() ?? new Uint8Array(this.blockBytes);
+    }
+
+    private releaseBuffer(buffer: Uint8Array) {
+        if (this.freeBuffers.length < this.maxBlocks) {
+            this.freeBuffers.push(buffer);
+        }
+    }
+
+    /** Invalidates every cached block of `sourceIndex` overlapping `[start, end)`. */
+    invalidateRange(sourceIndex: number, start: number, end: number) {
+        if (end <= start || this.entries.size === 0) {
+            return;
+        }
+        for (const [key, entry] of this.entries) {
+            if (entry.sourceIndex !== sourceIndex) {
+                continue;
+            }
+            const blockEnd = entry.blockStart + this.blockBytes;
+            if (entry.blockStart < end && blockEnd > start) {
+                this.entries.delete(key);
+                this.releaseBuffer(entry.data);
+            }
+        }
+    }
+
+    /**
+     * Invalidates every cached block of `sourceIndex` covering bytes at or past
+     * `fromOffset` (used on truncation and file extension).
+     */
+    invalidateFrom(sourceIndex: number, fromOffset: number) {
+        if (this.entries.size === 0) {
+            return;
+        }
+        const cutoff = Math.max(0, fromOffset);
+        for (const [key, entry] of this.entries) {
+            if (entry.sourceIndex !== sourceIndex) {
+                continue;
+            }
+            if (entry.blockStart + this.blockBytes > cutoff) {
+                this.entries.delete(key);
+                this.releaseBuffer(entry.data);
+            }
+        }
+    }
+
+    invalidateSource(sourceIndex: number) {
+        if (this.entries.size === 0) {
+            return;
+        }
+        for (const [key, entry] of this.entries) {
+            if (entry.sourceIndex === sourceIndex) {
+                this.entries.delete(key);
+                this.releaseBuffer(entry.data);
+            }
+        }
+    }
+
+    cachedSourceIndices(): Set<number> {
+        const indices = new Set<number>();
+        for (const entry of this.entries.values()) {
+            indices.add(entry.sourceIndex);
+        }
+        return indices;
+    }
+
+    clear() {
+        this.entries.clear();
+        this.freeBuffers.length = 0;
+    }
+
+    get size(): number {
+        return this.entries.size;
+    }
 }
 
 function writeExactSync(fd: number, source: Uint8Array, offset: number): boolean {
@@ -517,27 +740,155 @@ function ensureSourceLenSync(io: IHostIoContext, index: number): number {
     if (!entry) {
         return -1;
     }
+    const sinkMutationGen = io.sink?.mutationGeneration ?? 0;
     if (entry.len !== null) {
-        return entry.len;
+        // Closed sources skip eager per-write alias checks so multi-source merges
+        // stay O(1); refresh their length lazily only if a sink mutation occurred.
+        if (entry.fd !== null || (entry.lenSinkGen ?? 0) === sinkMutationGen) {
+            return entry.len;
+        }
+        entry.len = null;
     }
     try {
-        const st = statSync(entry.path);
+        const st = entry.fd !== null ? fstatSync(entry.fd) : statSync(entry.path);
         if (!st.isFile()) {
             return -1;
         }
         entry.len = st.size;
+        entry.lenSinkGen = sinkMutationGen;
         return entry.len;
     } catch {
         return -1;
     }
 }
 
-function ensureSourceFdSync(io: IHostIoContext, index: number): number {
+function ensureSourceIdentitySync(entry: IHostSourceEntry) {
+    if (entry.fd === null || (entry.dev !== undefined && entry.ino !== undefined)) {
+        return;
+    }
+    try {
+        const st = fstatSync(entry.fd, {bigint: true});
+        entry.dev = st.dev;
+        entry.ino = st.ino;
+    } catch {
+        // Fall back to path-based alias comparison when fstat fails.
+    }
+}
+
+function ensureSinkIdentitySync(sink: IHostSinkState) {
+    if (sink.fd === null || (sink.dev !== undefined && sink.ino !== undefined)) {
+        return;
+    }
+    try {
+        const st = fstatSync(sink.fd, {bigint: true});
+        sink.dev = st.dev;
+        sink.ino = st.ino;
+    } catch {
+        // Fall back to path-based alias comparison when fstat fails.
+    }
+}
+
+function doesOpenSourceAliasSinkSync(source: IHostSourceEntry, sink: IHostSinkState): boolean {
+    if (sink.fd !== null && source.fd !== null && sink.fd === source.fd) {
+        return true;
+    }
+    const sinkOpenGen = sink.openGeneration ?? 0;
+    if (source.aliasCheckOpenGen === sinkOpenGen && source.aliasesSink !== undefined) {
+        return source.aliasesSink;
+    }
+    ensureSourceIdentitySync(source);
+    ensureSinkIdentitySync(sink);
+    let aliased: boolean;
+    if (
+        source.dev !== undefined &&
+        source.ino !== undefined &&
+        sink.dev !== undefined &&
+        sink.ino !== undefined &&
+        source.ino !== 0n &&
+        sink.ino !== 0n
+    ) {
+        aliased = source.dev === sink.dev && source.ino === sink.ino;
+    } else {
+        aliased = sameFileSync(source.path, sink.path);
+    }
+    source.aliasCheckOpenGen = sinkOpenGen;
+    source.aliasesSink = aliased;
+    return aliased;
+}
+
+function collectInvalidationCandidateSources(openSources: ReadonlySet<number>, readCache: HostSourceReadCache | null): Iterable<number> {
+    if (!readCache || readCache.size === 0) {
+        return openSources;
+    }
+    const candidates = new Set<number>(openSources);
+    for (const index of readCache.cachedSourceIndices()) {
+        candidates.add(index);
+    }
+    return candidates;
+}
+
+function invalidateAliasedSourcesFrom(
+    io: IHostIoContext,
+    openSources: ReadonlySet<number>,
+    readCache: HostSourceReadCache | null,
+    fromOffset: number,
+) {
+    const sink = io.sink;
+    if (!sink) {
+        return;
+    }
+    sink.mutationGeneration = (sink.mutationGeneration ?? 0) + 1;
+    ensureSinkIdentitySync(sink);
+    for (const i of collectInvalidationCandidateSources(openSources, readCache)) {
+        const source = io.sources[i];
+        if (!source || !doesOpenSourceAliasSinkSync(source, sink)) {
+            continue;
+        }
+        source.len = null;
+        readCache?.invalidateFrom(i, fromOffset);
+    }
+}
+
+function invalidateAliasedSourcesAfterSinkMutation(
+    io: IHostIoContext,
+    openSources: ReadonlySet<number>,
+    readCache: HostSourceReadCache | null,
+    prevSinkMaxLen: number,
+    writeStart: number,
+    writeEnd: number,
+) {
+    const sink = io.sink;
+    if (!sink) {
+        return;
+    }
+    sink.mutationGeneration = (sink.mutationGeneration ?? 0) + 1;
+    ensureSinkIdentitySync(sink);
+    for (const i of collectInvalidationCandidateSources(openSources, readCache)) {
+        const source = io.sources[i];
+        if (!source || !doesOpenSourceAliasSinkSync(source, sink)) {
+            continue;
+        }
+        const knownLen = source.len === null ? prevSinkMaxLen : Math.min(prevSinkMaxLen, source.len);
+        source.len = null;
+        if (!readCache) {
+            continue;
+        }
+        if (writeEnd > knownLen) {
+            readCache.invalidateFrom(i, Math.min(knownLen, writeStart));
+        } else if (writeEnd > writeStart) {
+            readCache.invalidateRange(i, writeStart, writeEnd);
+        }
+    }
+}
+
+function ensureSourceFdSync(io: IHostIoContext, index: number, openSources: Set<number>, readCache: HostSourceReadCache | null): number {
     const entry = io.sources[index];
     if (!entry) {
         return -1;
     }
     if (entry.fd !== null) {
+        ensureSourceIdentitySync(entry);
+        openSources.add(index);
         if (index > 0) {
             const pos = io.extraOpenOrder.indexOf(index);
             if (pos >= 0) {
@@ -559,18 +910,30 @@ function ensureSourceFdSync(io: IHostIoContext, index: number): number {
                         // Ignore close error on LRU eviction.
                     }
                     evicted.fd = null;
+                    evicted.dev = undefined;
+                    evicted.ino = undefined;
+                    evicted.aliasCheckOpenGen = undefined;
+                    evicted.aliasesSink = undefined;
+                    openSources.delete(evictIndex);
+                    readCache?.invalidateSource(evictIndex);
                 }
             }
         }
     }
     const fd = openSync(entry.path, 'r');
-    const st = fstatSync(fd);
+    const st = fstatSync(fd, {bigint: true});
     if (!st.isFile()) {
         closeSync(fd);
         return -1;
     }
     entry.fd = fd;
-    entry.len = st.size;
+    entry.len = Number(st.size);
+    entry.lenSinkGen = io.sink?.mutationGeneration ?? 0;
+    entry.dev = st.dev;
+    entry.ino = st.ino;
+    entry.aliasCheckOpenGen = undefined;
+    entry.aliasesSink = undefined;
+    openSources.add(index);
     if (index > 0) {
         io.extraOpenOrder.push(index);
     }
@@ -627,11 +990,22 @@ export interface IPdfPageOpsWasmRunner {
  * Reusable single-threaded runner over one compiled `evb-pdf-page-ops.wasm`
  * module with synchronous positional Node `fs` host imports (`evb_host`).
  */
-export function createPdfPageOpsWasmRunner(wasmModule: WebAssembly.Module, options: {highWaterBytes?: number} = {}): IPdfPageOpsWasmRunner {
+export function createPdfPageOpsWasmRunner(
+    wasmModule: WebAssembly.Module,
+    options: {
+        highWaterBytes?: number;
+        readCacheBlockBytes?: number;
+        readCacheMaxBlocks?: number;
+    } = {},
+): IPdfPageOpsWasmRunner {
     const highWaterBytes = options.highWaterBytes ?? defaultDesktopPageOpsWasmHighWaterBytes();
+    const readCacheBlockBytes = options.readCacheBlockBytes ?? HOST_SOURCE_READ_CACHE_BLOCK_BYTES;
+    const readCacheMaxBlocks = options.readCacheMaxBlocks ?? HOST_SOURCE_READ_CACHE_MAX_BLOCKS;
     const copyBuffer = new Uint8Array(COPY_CHUNK_BYTES);
     let tool: IPdfPageOpsWasmExports | null = null;
     let activeIo: IHostIoContext | null = null;
+    let activeOpenSources: Set<number> = new Set();
+    let activeReadCache: HostSourceReadCache | null = null;
 
     function ensureSinkOpen(io: IHostIoContext): IHostSinkState | null {
         const sink = io.sink;
@@ -639,7 +1013,18 @@ export function createPdfPageOpsWasmRunner(wasmModule: WebAssembly.Module, optio
             return null;
         }
         if (sink.fd === null) {
+            const truncatesExisting = !sink.inPlace;
             sink.fd = openSync(sink.path, sink.inPlace ? 'r+' : 'w+');
+            sink.dev = undefined;
+            sink.ino = undefined;
+            sink.openGeneration = (sink.openGeneration ?? 0) + 1;
+            ensureSinkIdentitySync(sink);
+            if (truncatesExisting) {
+                // Opening with `'w+'` truncates any aliased target to 0 bytes.
+                invalidateAliasedSourcesFrom(io, activeOpenSources, activeReadCache, 0);
+            }
+        } else {
+            ensureSinkIdentitySync(sink);
         }
         return sink;
     }
@@ -663,12 +1048,13 @@ export function createPdfPageOpsWasmRunner(wasmModule: WebAssembly.Module, optio
                     return 0;
                 }
                 try {
-                    const fd = ensureSourceFdSync(activeIo, index);
+                    const fd = ensureSourceFdSync(activeIo, index, activeOpenSources, activeReadCache);
                     if (fd < 0) {
                         return -1;
                     }
                     const view = getCheckedWasmMemoryView(activeIo.memory, pointer, len, 'evb_host_source_read');
-                    return readExactSync(fd, view, offset) ? 0 : -1;
+                    const ok = activeReadCache ? activeReadCache.readExact(index, fd, view, offset) : readExactSync(fd, view, offset);
+                    return ok ? 0 : -1;
                 } catch {
                     return -1;
                 }
@@ -684,7 +1070,7 @@ export function createPdfPageOpsWasmRunner(wasmModule: WebAssembly.Module, optio
                     return -1;
                 }
                 try {
-                    const srcFd = ensureSourceFdSync(activeIo, index);
+                    const srcFd = ensureSourceFdSync(activeIo, index, activeOpenSources, activeReadCache);
                     if (srcFd < 0) {
                         return -1;
                     }
@@ -692,7 +1078,25 @@ export function createPdfPageOpsWasmRunner(wasmModule: WebAssembly.Module, optio
                     if (!sink || sink.fd === null) {
                         return -1;
                     }
-                    if (len > 0 && !streamCopyFdRangeSync(srcFd, offset, len, sink.fd, at, copyBuffer)) {
+                    const prevMaxLen = sink.maxLen;
+                    let copied = true;
+                    try {
+                        if (len > 0) {
+                            copied = streamCopyFdRangeSync(srcFd, offset, len, sink.fd, at, copyBuffer);
+                        }
+                    } finally {
+                        if (len > 0) {
+                            invalidateAliasedSourcesAfterSinkMutation(
+                                activeIo,
+                                activeOpenSources,
+                                activeReadCache,
+                                prevMaxLen,
+                                at,
+                                at + len,
+                            );
+                        }
+                    }
+                    if (!copied) {
                         return -1;
                     }
                     sink.writtenAny = true;
@@ -720,15 +1124,28 @@ export function createPdfPageOpsWasmRunner(wasmModule: WebAssembly.Module, optio
                     // start at offset 0 and grow past `source0Len` never clobber their own prefix.
                     if (!sink.inPlace && !sink.baseCopied && !sink.writtenAny && sink.baseSourceLen > 0 && at >= sink.baseSourceLen) {
                         const source0 = activeIo.sources[0];
-                        const source0Fd = source0 ? ensureSourceFdSync(activeIo, 0) : -1;
+                        const source0Fd = source0 ? ensureSourceFdSync(activeIo, 0, activeOpenSources, activeReadCache) : -1;
                         if (!source0 || source0Fd < 0) {
+                            return -1;
+                        }
+                        // Refuse a separate staging target that aliases source 0 (e.g. via hardlink
+                        // or symlink) before opening or truncating it.
+                        if (sameFileSync(source0.path, sink.path)) {
                             return -1;
                         }
                         if (sink.fd !== null) {
                             closeSync(sink.fd);
                             sink.fd = null;
                         }
-                        sink.fd = copyBasePreservingSparseSync(source0.path, source0Fd, sink.baseSourceLen, sink.path, copyBuffer);
+                        try {
+                            sink.fd = copyBasePreservingSparseSync(source0.path, source0Fd, sink.baseSourceLen, sink.path, copyBuffer);
+                        } finally {
+                            sink.dev = undefined;
+                            sink.ino = undefined;
+                            sink.openGeneration = (sink.openGeneration ?? 0) + 1;
+                            ensureSinkIdentitySync(sink);
+                            invalidateAliasedSourcesFrom(activeIo, activeOpenSources, activeReadCache, 0);
+                        }
                         sink.baseCopied = true;
                         sink.maxLen = Math.max(sink.maxLen, sink.baseSourceLen);
                     } else if (sink.fd === null) {
@@ -737,9 +1154,23 @@ export function createPdfPageOpsWasmRunner(wasmModule: WebAssembly.Module, optio
                     if (sink.fd === null) {
                         return -1;
                     }
+                    const prevMaxLen = sink.maxLen;
                     if (len > 0) {
                         const view = getCheckedWasmMemoryView(activeIo.memory, pointer, len, 'evb_host_sink_write');
-                        if (!writeExactSync(sink.fd, view, at)) {
+                        let written = false;
+                        try {
+                            written = writeExactSync(sink.fd, view, at);
+                        } finally {
+                            invalidateAliasedSourcesAfterSinkMutation(
+                                activeIo,
+                                activeOpenSources,
+                                activeReadCache,
+                                prevMaxLen,
+                                at,
+                                at + len,
+                            );
+                        }
+                        if (!written) {
                             return -1;
                         }
                         sink.maxLen = Math.max(sink.maxLen, at + len);
@@ -751,6 +1182,8 @@ export function createPdfPageOpsWasmRunner(wasmModule: WebAssembly.Module, optio
                 }
             },
             evb_host_sink_read(offset: number, pointer: number, len: number): number {
+                // Post-write readback validation MUST always read real bytes directly
+                // from the OS descriptor, never from any cached source blocks.
                 if (!activeIo || !activeIo.memory) {
                     return -1;
                 }
@@ -817,6 +1250,15 @@ export function createPdfPageOpsWasmRunner(wasmModule: WebAssembly.Module, optio
             io.memory = active.memory;
         }
         activeIo = io;
+        activeOpenSources = new Set<number>();
+        if (io) {
+            for (let i = 0; i < io.sources.length; i += 1) {
+                if (io.sources[i]?.fd !== null) {
+                    activeOpenSources.add(i);
+                }
+            }
+        }
+        activeReadCache = io ? new HostSourceReadCache(readCacheBlockBytes, readCacheMaxBlocks) : null;
         let resultCode: number;
         try {
             getCheckedWasmMemoryView(active.memory, pointer, byteLength, 'evb-pdf-page-ops allocation').set(request);
@@ -828,6 +1270,9 @@ export function createPdfPageOpsWasmRunner(wasmModule: WebAssembly.Module, optio
                 error instanceof Error ? error.message : String(error),
             );
         } finally {
+            activeReadCache?.clear();
+            activeReadCache = null;
+            activeOpenSources.clear();
             activeIo = null;
         }
 
@@ -1113,6 +1558,8 @@ interface IParsedCliArgs {
     appendInPlace: boolean;
     metadataOnly: boolean;
     strict: boolean;
+    withMarkers: boolean;
+    markersOnly: boolean;
     withEvbOcrText: boolean;
     sessionId?: number;
     closeSession?: number;
@@ -1154,6 +1601,8 @@ function parseDesktopPageOpsCliArgs(args: readonly string[]): IParsedCliArgs {
     let appendInPlace = false;
     let metadataOnly = false;
     let strict = false;
+    let withMarkers = false;
+    let markersOnly = false;
     let withEvbOcrText = false;
     let sessionId: number | undefined;
     let closeSession: number | undefined;
@@ -1307,6 +1756,12 @@ function parseDesktopPageOpsCliArgs(args: readonly string[]): IParsedCliArgs {
             case '--strict':
                 strict = true;
                 break;
+            case '--with-markers':
+                withMarkers = true;
+                break;
+            case '--markers-only':
+                markersOnly = true;
+                break;
             case '--view-mode':
                 viewMode = nextValue(arg, i);
                 i += 1;
@@ -1325,6 +1780,15 @@ function parseDesktopPageOpsCliArgs(args: readonly string[]): IParsedCliArgs {
     }
     if (strict && command !== 'pdf-conformance' && command !== 'conformance') {
         throw new PdfPageOpsNativeError('invalid-request', '--strict is only valid for pdf-conformance');
+    }
+    if (withMarkers && command !== 'pdf-conformance' && command !== 'conformance') {
+        throw new PdfPageOpsNativeError('invalid-request', '--with-markers is only valid for pdf-conformance');
+    }
+    if (markersOnly && command !== 'pdf-conformance' && command !== 'conformance') {
+        throw new PdfPageOpsNativeError('invalid-request', '--markers-only is only valid for pdf-conformance');
+    }
+    if (markersOnly && (strict || withMarkers)) {
+        throw new PdfPageOpsNativeError('invalid-request', '--markers-only cannot be combined with --strict or --with-markers');
     }
     if (appendInPlace && (!append || command !== 'save-mutations')) {
         throw new PdfPageOpsNativeError('invalid-request', '--append-in-place requires --append on save-mutations');
@@ -1362,6 +1826,8 @@ function parseDesktopPageOpsCliArgs(args: readonly string[]): IParsedCliArgs {
         appendInPlace,
         metadataOnly,
         strict,
+        withMarkers,
+        markersOnly,
         withEvbOcrText,
         ...(sessionId === undefined ? {} : {sessionId}),
         ...(closeSession === undefined ? {} : {closeSession}),
@@ -1440,6 +1906,8 @@ function withHostFiles<T>(
                         fd,
                         len: Number(st.size),
                         fdIdentity: `${st.dev}:${st.ino}:${st.size}:${st.mtimeNs}:${st.ctimeNs}`,
+                        dev: st.dev,
+                        ino: st.ino,
                         path: sourcePath,
                     });
                 } catch (error) {
@@ -1471,6 +1939,8 @@ function withHostFiles<T>(
             sink = {
                 fd: inPlace ? openSync(targetPath, 'r+') : null,
                 path: targetPath,
+                openGeneration: inPlace ? 1 : 0,
+                mutationGeneration: 0,
                 inPlace,
                 originalLen: inPlace ? source0Len : 0,
                 baseSourceLen: options.lazyAppendBase ? source0Len : 0,
@@ -1478,6 +1948,9 @@ function withHostFiles<T>(
                 writtenAny: false,
                 maxLen: inPlace ? source0Len : 0,
             };
+            if (sink.fd !== null) {
+                ensureSinkIdentitySync(sink);
+            }
         }
 
         const io: IHostIoContext = {
@@ -2000,9 +2473,13 @@ function dispatchDesktopPageOpsCommand(
                 throw new PdfPageOpsNativeError('invalid-request', `${parsed.command} prints its result on stdout and takes no --output`);
             }
             return withHostFiles({sourcePaths: [parsed.inputPath]}, (io) => {
+                const flags =
+                    (parsed.strict ? CONFORMANCE_FLAG_STRICT : 0) |
+                    (parsed.withMarkers ? CONFORMANCE_FLAG_WITH_MARKERS : 0) |
+                    (parsed.markersOnly ? CONFORMANCE_FLAG_MARKERS_ONLY : 0);
                 const request = encodeFileRequest({
                     operation: OPERATION_CODES.conformance,
-                    afterPage: parsed.strict ? 1 : 0,
+                    afterPage: flags,
                     sourceCount: 1,
                 });
                 return {
