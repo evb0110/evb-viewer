@@ -21,11 +21,15 @@ crc32fast = "1.5.2"
 evb-raster-io = { version = "0.1.0", path = "../evb-raster-io" }
 evb-native-support = { version = "0.1.0", path = "../evb-native-support" }
 jbig2-codec = { version = "0.1.0", path = "../jbig2-codec" }
-rayon.workspace = true
 scan-primitives = { version = "0.1.0", path = "../scan-primitives" }
 serde.workspace = true
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 thiserror.workspace = true
+
+# Single-threaded browser WASM (`wasm32-unknown-unknown`) executes sequentially;
+# native targets and `wasm32-wasip1-threads` use Rayon.
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
+rayon.workspace = true
 
 # Publication names draw OS randomness; the browser engine publishes no files.
 [target.'cfg(not(target_family = "wasm"))'.dependencies]

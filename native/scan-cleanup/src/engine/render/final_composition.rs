@@ -158,7 +158,7 @@ fn compose_hard_mixed_planes(input: &HardCompositionInput<'_>) -> (GrayImage, Op
     let feather_radius = (dpi * 3.0 / 25.4).round().clamp(4.0, 48.0) as usize;
     let feather_distances = (!preserve_confirmed_photo_tones).then(|| {
         let picture_exterior = picture_mask.invert();
-        rayon::join(
+        scan_primitives::parallel::join(
             || squared_euclidean_distance(&picture_exterior),
             || squared_euclidean_distance(binary),
         )

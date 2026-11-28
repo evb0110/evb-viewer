@@ -169,7 +169,7 @@ where
         .into_iter()
         .enumerate()
         .map(|(worker, threads)| {
-            rayon::ThreadPoolBuilder::new()
+            scan_primitives::parallel::ThreadPoolBuilder::new()
                 .num_threads(threads)
                 .thread_name(move |index| format!("scan-cleanup-page-{worker}-{index}"))
                 .build()

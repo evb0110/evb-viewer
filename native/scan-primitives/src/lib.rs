@@ -8,6 +8,7 @@ pub mod distance;
 pub mod geometry;
 pub mod gray;
 pub mod morphology;
+pub mod parallel;
 pub mod rgb;
 pub mod source_raster;
 pub mod threshold;

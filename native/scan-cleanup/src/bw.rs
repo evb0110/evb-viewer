@@ -5,7 +5,7 @@ use crate::{
     thin_strokes::restored_thin_strokes,
     BinarizationMode, CleanupOptions, DespeckleLevel,
 };
-use rayon::prelude::*;
+use scan_primitives::parallel::{self, prelude::*};
 use scan_primitives::{
     distance::squared_euclidean_distance,
     morphology::{dilate, dilate_gray, erode_gray},
@@ -1520,7 +1520,7 @@ pub(crate) fn raw_gradient_radius(dpi: f64) -> usize {
 
 pub(crate) fn compute_raw_gradient_bounds(raw: &GrayImage, dpi: f64) -> RawGradientBounds {
     let radius = raw_gradient_radius(dpi);
-    let (raw_max, raw_min) = rayon::join(
+    let (raw_max, raw_min) = parallel::join(
         || erode_gray(raw, radius, radius),
         || dilate_gray(raw, radius, radius),
     );

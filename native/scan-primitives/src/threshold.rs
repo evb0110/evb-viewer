@@ -1,6 +1,6 @@
 use crate::morphology::dilate_gray;
+use crate::parallel::{self, prelude::*};
 use crate::{BinaryImage, GrayImage};
-use rayon::prelude::*;
 
 const INTEGRAL_ROW_BLOCK_SIZE: usize = 64;
 const DOCUMENTED_MAX_INTEGRAL_PIXELS: u64 = 1 << 32;
@@ -1052,7 +1052,7 @@ fn default_strip_rows(height: usize, max_halo_radius: usize) -> usize {
     const MINIMUM_STRIP_ROWS: usize = 32;
     let minimum_rows = MINIMUM_STRIP_ROWS.max(max_halo_radius.saturating_mul(2));
     height
-        .div_ceil(rayon::current_num_threads().saturating_mul(2).max(1))
+        .div_ceil(parallel::current_num_threads().saturating_mul(2).max(1))
         .max(minimum_rows)
 }
 

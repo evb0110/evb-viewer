@@ -9,7 +9,7 @@ use crate::io::png::RgbImage;
 use crate::protocol::manifest_v3::DocumentCanvas;
 use crate::{CleanupOptions, OrthogonalRotation};
 use evb_native_support::{NativeError, NativeErrorCode};
-use rayon::prelude::*;
+use scan_primitives::parallel::prelude::*;
 use scan_primitives::{BinaryImage, GrayImage};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};

@@ -1,5 +1,5 @@
 use crate::engine::prepare::build_analysis_level;
-use rayon::prelude::*;
+use scan_primitives::parallel::{self, prelude::*};
 use scan_primitives::{
     morphology::{open, reconstruct_binary},
     threshold::{otsu_threshold, threshold_global},
@@ -58,7 +58,7 @@ pub fn score_skew(binary: &BinaryImage) -> DeskewResult {
             })
         };
         let (minus_score, plus_score) =
-            rayon::join(|| score_candidate(minus), || score_candidate(plus));
+            parallel::join(|| score_candidate(minus), || score_candidate(plus));
         if let Some(score) = minus_score {
             if score > best_score {
                 best_angle = minus;

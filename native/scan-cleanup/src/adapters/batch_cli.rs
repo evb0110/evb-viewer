@@ -284,7 +284,7 @@ fn run_inner(
     recover_direct_publication(&output, &page.input_path)?;
     preflight_paths(&admission)?;
     let processing_threads = processing_worker_threads_with_limit(max_threads);
-    let direct_pool = rayon::ThreadPoolBuilder::new()
+    let direct_pool = scan_primitives::parallel::ThreadPoolBuilder::new()
         .num_threads(processing_threads)
         .thread_name(|index| format!("scan-cleanup-direct-{index}"))
         .build()
@@ -376,7 +376,7 @@ where
     if calibration_pages.is_empty() {
         return Ok(Vec::new());
     }
-    use rayon::prelude::*;
+    use scan_primitives::parallel::{self, prelude::*};
     type CalibrationSampleOutcome = Result<Option<DocumentInkSample>, NativeError>;
     let failure_observed = AtomicBool::new(false);
     let workers = worker_threads.clamp(1, calibration_pages.len());
@@ -384,7 +384,7 @@ where
     // workers == 1) so inner Rayon calls such as `BinaryImage::from_fn_parallel`
     // and erosion stay strictly inside the broker-admitted thread cap instead
     // of falling back to Rayon's global thread pool.
-    let calibration_pool = rayon::ThreadPoolBuilder::new()
+    let calibration_pool = parallel::ThreadPoolBuilder::new()
         .num_threads(workers)
         .build()
         .map_err(|error| {
@@ -397,7 +397,7 @@ where
         calibration_pages
             .par_iter()
             .map(|page| {
-                observe_pool_threads(rayon::current_num_threads());
+                observe_pool_threads(parallel::current_num_threads());
                 if failure_observed.load(std::sync::atomic::Ordering::Acquire)
                     || is_canceled.load(std::sync::atomic::Ordering::Acquire)
                 {
@@ -746,7 +746,7 @@ fn analyze_document(
     let mut timings = vec![PageStageTimings::default(); manifest.pages.len()];
     let mut analyses = Vec::<PageAnalysis>::new();
     let mut primary_pass = Some(primary_pass);
-    let mut secondary_pool: Option<rayon::ThreadPool> = None;
+    let mut secondary_pool: Option<scan_primitives::parallel::ThreadPool> = None;
     loop {
         let jobs = match next_analysis_step(&document, &analyses)? {
             AnalysisStep::Analyze(jobs) => jobs,
@@ -778,7 +778,7 @@ fn analyze_document(
         let pool = match &secondary_pool {
             Some(pool) => pool,
             None => secondary_pool.insert(
-                rayon::ThreadPoolBuilder::new()
+                scan_primitives::parallel::ThreadPoolBuilder::new()
                     .num_threads(processing_threads.max(1))
                     .thread_name(|index| format!("scan-cleanup-recheck-{index}"))
                     .build()
