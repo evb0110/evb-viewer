@@ -2599,4 +2599,171 @@ describe('workspace checkpoint owner lifecycle', () => {
         });
         ownerB.destroy();
     });
+
+    it('caches normalized store directories across hot lookups, keeps first pin readable after materialization, and invalidates on retarget or namespace switch', async () => {
+        const fsModule = await import('node:fs');
+        // Resolve OS temp aliases (macOS /var -> /private/var, Windows RUNNER~1) so the store root is canonical.
+        const canonicalTempRoot = fsModule.realpathSync.native(tempRoot);
+        await store.setDocumentStoreRootForTests(join(canonicalTempRoot, 'store'));
+        const {entry} = await openPdf(7);
+        const pinRef = await store.pinOpenDocumentRevision(entry.ref, store.documentRevisionToken(entry), 7);
+
+        // First read materializes the pin in a previously empty pinned-revisions directory; second read & release must still find it.
+        const firstPinBytes = await store.runWithWorkingCopyReadBacking(pinRef, (physicalPath) => readFile(physicalPath), {
+            ownerWebContentsId: 7,
+        });
+        expect(firstPinBytes).toEqual(Buffer.from(ORIGINAL));
+        const secondPinBytes = await store.runWithWorkingCopyReadBacking(pinRef, (physicalPath) => readFile(physicalPath), {
+            ownerWebContentsId: 7,
+        });
+        expect(secondPinBytes).toEqual(Buffer.from(ORIGINAL));
+        if (process.platform === 'win32') {
+            const upperPinBytes = await store.runWithWorkingCopyReadBacking(
+                pinRef.toUpperCase(),
+                (physicalPath) => readFile(physicalPath),
+                {
+                    ownerWebContentsId: 7,
+                },
+            );
+            expect(upperPinBytes).toEqual(Buffer.from(ORIGINAL));
+        }
+
+        // Warm caches once documents/ and pinned-revisions/ exist on disk.
+        expect(store.getWorkingCopyBackingEntry(entry.ref, 7)).toBe(entry);
+        await store.runWithWorkingCopyReadBacking(entry.ref, (physicalPath) => readFile(physicalPath), {ownerWebContentsId: 7});
+
+        const documentsDir = join(canonicalTempRoot, 'store', 'documents');
+        const pinnedDir = join(canonicalTempRoot, 'pinned-revisions');
+        const realpathSpy = vi.spyOn(fsModule.realpathSync, 'native');
+
+        for (let index = 0; index < 10; index += 1) {
+            expect(store.getOpenDocument(entry.ref, 7)).toBe(entry);
+            expect(store.getWorkingCopyBackingEntry(entry.ref, 7)).toBe(entry);
+            expect(store.isWorkingCopyDocumentPath(entry.ref)).toBe(true);
+            const bytes = await store.runWithWorkingCopyReadBacking(entry.ref, (physicalPath) => readFile(physicalPath), {
+                ownerWebContentsId: 7,
+            });
+            expect(bytes).toEqual(Buffer.from(ORIGINAL));
+            const loopPinBytes = await store.runWithWorkingCopyReadBacking(pinRef, (physicalPath) => readFile(physicalPath), {
+                ownerWebContentsId: 7,
+            });
+            expect(loopPinBytes).toEqual(Buffer.from(ORIGINAL));
+        }
+
+        const resolvedTargets = realpathSpy.mock.calls.map(([target]) => String(target).toLowerCase());
+        expect(resolvedTargets.filter((target) => target === documentsDir.toLowerCase())).toEqual([]);
+        // Each pin read resolves dirname(pinRef) once, while getNormalizedPinnedRevisionsDir() hits the cache (0 calls for entry.ref, 1 per pinRef).
+        expect(resolvedTargets.filter((target) => target === pinnedDir.toLowerCase())).toHaveLength(10);
+        realpathSpy.mockRestore();
+
+        // On case-sensitive POSIX filesystems, a differently-cased pin filename must NOT release the lowercase pin.
+        if (process.platform !== 'win32') {
+            const upperPinName = join(dirname(pinRef), basename(pinRef).toUpperCase());
+            expect(await store.releasePinnedDocumentRevision(upperPinName, 7)).toBe(false);
+            expect(store.getPinnedRevisionStateForTests(pinRef)).toBe('materialized');
+        }
+
+        // Release first pin cleanly after materialization.
+        expect(await store.releasePinnedDocumentRevision(pinRef, 7)).toBe(true);
+        expect(store.getPinnedRevisionStateForTests(pinRef)).toBeNull();
+
+        // Same-root symlink/junction retargeting of pinned-revisions must immediately invalidate the cached directory
+        // AND isolate any live materialized pin from replacement bytes placed under the new symlink target.
+        const retargetedDirA = join(tempRoot, 'retargeted-pins-a');
+        const retargetedDirB = join(tempRoot, 'retargeted-pins-b');
+        await mkdir(retargetedDirA, {recursive: true});
+        await mkdir(retargetedDirB, {recursive: true});
+        await rm(pinnedDir, {recursive: true, force: true});
+        await symlink(retargetedDirA, pinnedDir, process.platform === 'win32' ? 'junction' : 'dir');
+
+        const livePinRef = await store.pinOpenDocumentRevision(entry.ref, store.documentRevisionToken(entry), 7);
+        const livePinBytes = await store.runWithWorkingCopyReadBacking(livePinRef, (physicalPath) => readFile(physicalPath), {
+            ownerWebContentsId: 7,
+        });
+        expect(livePinBytes).toEqual(Buffer.from(ORIGINAL));
+
+        // Retarget pinned-revisions -> B and plant different bytes at the same UUID filename inside B.
+        await writeFile(join(retargetedDirB, basename(livePinRef)), EDITED);
+        await rm(pinnedDir, {recursive: true, force: true});
+        await symlink(retargetedDirB, pinnedDir, process.platform === 'win32' ? 'junction' : 'dir');
+
+        // A read through the retargeted lexical ref must refuse rather than reading B's replacement bytes.
+        await expect(
+            store.runWithWorkingCopyReadBacking(livePinRef, (physicalPath) => readFile(physicalPath), {ownerWebContentsId: 7}),
+        ).rejects.toThrow('Pinned document revision is missing or was released');
+
+        // New pins created under B resolve cleanly while releasing the old pin cleans up its file in A without touching B.
+        const pinUnderB = await store.pinOpenDocumentRevision(entry.ref, store.documentRevisionToken(entry), 7);
+        expect(
+            await store.runWithWorkingCopyReadBacking(pinUnderB, (physicalPath) => readFile(physicalPath), {ownerWebContentsId: 7}),
+        ).toEqual(Buffer.from(ORIGINAL));
+        expect(await store.releasePinnedDocumentRevision(pinUnderB, 7)).toBe(true);
+
+        // Warm the cache on a real (non-symlink) ancestor first, then move that ancestor and replace it
+        // with a symlink pointing to the moved tree; cached prefix must invalidate immediately.
+        const warmAncestor = join(canonicalTempRoot, 'warm-state-dir');
+        const movedAncestor = join(canonicalTempRoot, 'moved-state-dir');
+        await mkdir(warmAncestor, {recursive: true});
+        await store.setDocumentStoreRootForTests(join(warmAncestor, 'store'));
+        const warmPdf = await writeTemp('warm-ancestor.pdf', ORIGINAL);
+        const warmEntry = await store.openDocumentFromFile(warmPdf, {ownerWebContentsId: 10});
+        expect(store.getWorkingCopyBackingEntry(warmEntry.ref, 10)).toBe(warmEntry);
+
+        await rename(warmAncestor, movedAncestor);
+        await symlink(movedAncestor, warmAncestor, process.platform === 'win32' ? 'junction' : 'dir');
+        expect(store.getWorkingCopyBackingEntry(warmEntry.ref, 10)).toBe(warmEntry);
+
+        // Moving the backing tree behind a symlinked store root (preserving documents' dev/ino/birthtime) must invalidate the cached prefix.
+        const treeOne = join(tempRoot, 'backing-tree-1');
+        const treeTwo = join(tempRoot, 'backing-tree-2');
+        const stateLink = join(tempRoot, 'state-link');
+        await mkdir(treeOne, {recursive: true});
+        await symlink(treeOne, stateLink, process.platform === 'win32' ? 'junction' : 'dir');
+        await store.setDocumentStoreRootForTests(join(stateLink, 'store'));
+        const movedPdf = await writeTemp('moved-tree.pdf', ORIGINAL);
+        const movedEntry = await store.openDocumentFromFile(movedPdf, {ownerWebContentsId: 11});
+        expect(store.getWorkingCopyBackingEntry(movedEntry.ref, 11)).toBe(movedEntry);
+
+        await rename(treeOne, treeTwo);
+        await rm(stateLink, {recursive: true, force: true});
+        await symlink(treeTwo, stateLink, process.platform === 'win32' ? 'junction' : 'dir');
+        // Even if the former location A becomes a symlink pointing to B, prefix resolution must track B.
+        await symlink(treeTwo, treeOne, process.platform === 'win32' ? 'junction' : 'dir');
+        expect(store.getWorkingCopyBackingEntry(movedEntry.ref, 11)).toBe(movedEntry);
+
+        // On POSIX, a literal backslash inside a store root directory name must not break prefix containment.
+        if (process.platform !== 'win32') {
+            const backslashRoot = join(tempRoot, 'State\\Archive', 'store');
+            await store.setDocumentStoreRootForTests(backslashRoot);
+            const posixBackslashPdf = await writeTemp('backslash-state.pdf', ORIGINAL);
+            const posixBackslashEntry = await store.openDocumentFromFile(posixBackslashPdf, {ownerWebContentsId: 12});
+            expect(store.getWorkingCopyBackingEntry(posixBackslashEntry.ref, 12)).toBe(posixBackslashEntry);
+            expect(store.isWorkingCopyDocumentPath(posixBackslashEntry.ref)).toBe(true);
+        }
+
+        // Pointing the store at a different namespace (distinct documents AND distinct pinned-revisions parent) invalidates both caches.
+        const secondNamespace = join(tempRoot, 'namespace-two');
+        const secondRoot = join(secondNamespace, 'store');
+        await store.setDocumentStoreRootForTests(secondRoot);
+        expect(store.getOpenDocument(entry.ref, 7)).toBeNull();
+        expect(store.isWorkingCopyDocumentPath(entry.ref)).toBe(false);
+
+        const secondPdf = await writeTemp('second.pdf', EDITED);
+        const secondEntry = await store.openDocumentFromFile(secondPdf, {ownerWebContentsId: 8});
+        expect(store.getWorkingCopyBackingEntry(secondEntry.ref, 8)).toBe(secondEntry);
+        expect(store.isWorkingCopyDocumentPath(secondEntry.ref)).toBe(true);
+
+        const secondPinRef = await store.pinOpenDocumentRevision(secondEntry.ref, store.documentRevisionToken(secondEntry), 8);
+        expect(dirname(secondPinRef)).toBe(join(secondNamespace, 'pinned-revisions'));
+        const secondNamespacePinBytes = await store.runWithWorkingCopyReadBacking(secondPinRef, (physicalPath) => readFile(physicalPath), {
+            ownerWebContentsId: 8,
+        });
+        expect(secondNamespacePinBytes).toEqual(Buffer.from(EDITED));
+        expect(await store.releasePinnedDocumentRevision(secondPinRef, 8)).toBe(true);
+
+        if (process.platform === 'win32') {
+            expect(store.getWorkingCopyBackingEntry(secondEntry.ref.toUpperCase(), 8)).toBe(secondEntry);
+            expect(store.getWorkingCopyBackingEntry(`\\\\?\\${secondEntry.ref}`, 8)).toBe(secondEntry);
+        }
+    });
 });

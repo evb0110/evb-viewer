@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
-import {createReadStream, createWriteStream, statSync, type BigIntStats} from 'node:fs';
+import {createReadStream, createWriteStream, lstatSync, statSync, type BigIntStats} from 'node:fs';
 import {mkdir, open, rm, stat, truncate} from 'node:fs/promises';
-import {basename, dirname, extname, join, relative} from 'node:path';
+import {basename, dirname, extname, join} from 'node:path';
 import {pipeline} from 'node:stream/promises';
 import {collectDocuments} from '@document-store/collectDocuments';
 import {
@@ -105,15 +105,111 @@ export interface IOpenDocument {
 /** Every open document, by ref. The main process is the only owner of the store, so this is the registry. */
 export const openDocuments = new Map<string, IOpenDocument>();
 let nextRegistrationId = 1;
+interface ICachedStoreDirectory {
+    readonly rawPath: string;
+    readonly normalizedPath: string;
+    readonly dev: bigint;
+    readonly ino: bigint;
+    readonly birthtimeNs: bigint;
+}
+
+interface INormalizedStorePaths {
+    readonly root: string;
+    documentsDir: ICachedStoreDirectory | null;
+    pinnedRevisionsDir: ICachedStoreDirectory | null;
+}
+
 let storeRoot: string | null = null;
 let store: IDocumentStore | null = null;
 let collection: ReturnType<typeof collectDocuments> | null = null;
+let normalizedStorePaths: INormalizedStorePaths | null = null;
 /** Names a document's directory in its window's workspace checkpoint; the checkpoint store provides it. */
 let nameDirectory: (entry: IOpenDocument) => Promise<void> = () => Promise.resolve();
 const revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
 
 function getDocumentStoreRoot() {
     return storeRoot ?? join(getAppTempDirPath(), STORE_DIR);
+}
+
+function getNormalizedStorePathsForRoot(root: string): INormalizedStorePaths {
+    if (normalizedStorePaths?.root !== root) {
+        normalizedStorePaths = {
+            root,
+            documentsDir: null,
+            pinnedRevisionsDir: null,
+        };
+    }
+    return normalizedStorePaths;
+}
+
+function hasSymlinkAncestor(targetPath: string): boolean {
+    let current = dirname(targetPath);
+    while (current) {
+        try {
+            if (lstatSync(current, {bigint: true}).isSymbolicLink()) {
+                return true;
+            }
+        } catch {
+            return true;
+        }
+        const parent = dirname(current);
+        if (!parent || parent === current) {
+            break;
+        }
+        current = parent;
+    }
+    return false;
+}
+
+function resolveCachedStoreDirectory(slot: 'documentsDir' | 'pinnedRevisionsDir', rawPath: string, fallbackToRaw = false): string {
+    const cache = getNormalizedStorePathsForRoot(getDocumentStoreRoot());
+    const current = cache[slot];
+    let stats: BigIntStats | null = null;
+    try {
+        stats = lstatSync(rawPath, {bigint: true});
+    } catch {
+        cache[slot] = null;
+        return normalizePathForLookup(rawPath) || (fallbackToRaw ? rawPath : '');
+    }
+
+    // Revalidate directory identity and confirm neither the directory nor any ancestor became a
+    // symlink/junction, so moving an ancestor tree and introducing a symlink at its former path
+    // invalidates the cached prefix immediately.
+    const hasIdentity = stats.ino !== 0n || stats.birthtimeNs !== 0n;
+    if (
+        !stats.isSymbolicLink() &&
+        hasIdentity &&
+        current !== null &&
+        current.rawPath === rawPath &&
+        current.normalizedPath === rawPath &&
+        current.dev === stats.dev &&
+        current.ino === stats.ino &&
+        current.birthtimeNs === stats.birthtimeNs &&
+        !hasSymlinkAncestor(rawPath)
+    ) {
+        return current.normalizedPath;
+    }
+
+    const normalizedPath = normalizePathForLookup(rawPath) || (fallbackToRaw ? rawPath : '');
+    cache[slot] =
+        !stats.isSymbolicLink() && hasIdentity && normalizedPath.length > 0 && normalizedPath === rawPath && !hasSymlinkAncestor(rawPath)
+            ? {
+                  rawPath,
+                  normalizedPath,
+                  dev: stats.dev,
+                  ino: stats.ino,
+                  birthtimeNs: stats.birthtimeNs,
+              }
+            : null;
+    return normalizedPath;
+}
+
+function getNormalizedDocumentsDir() {
+    return resolveCachedStoreDirectory('documentsDir', join(getDocumentStoreRoot(), DOCUMENTS_DIR));
+}
+
+function getNormalizedPinnedRevisionsDir() {
+    return resolveCachedStoreDirectory('pinnedRevisionsDir', join(getDocumentStoreRoot(), '..', PINNED_REVISIONS_DIR_NAME), true);
 }
 
 /** Closes every document and points the store at another root, such as a test's temporary directory. */
@@ -124,6 +220,7 @@ export async function setDocumentStoreRootForTests(root: string | null) {
     storeRoot = root;
     store = null;
     collection = null;
+    normalizedStorePaths = null;
 }
 
 /**
@@ -152,8 +249,22 @@ function refFor(doc: DocumentDirectory) {
 
 /** The directory id and entry name a path inside the store's documents names, or `null`. */
 function parseStorePath(path: string) {
-    const documents = normalizePathForLookup(join(getDocumentStoreRoot(), DOCUMENTS_DIR));
-    const [id, name, ...rest] = relative(documents, normalizePathForLookup(path)).split(/[\\/]/u);
+    const normalizedPath = normalizePathForLookup(path);
+    if (!normalizedPath) {
+        return null;
+    }
+    const documents = getNormalizedDocumentsDir();
+    if (!documents) {
+        return null;
+    }
+    const isWindows = /^[a-zA-Z]:\\/u.test(documents) || documents.startsWith('\\\\');
+    const separator = isWindows ? '\\' : '/';
+    const prefix = documents.endsWith(separator) ? documents : `${documents}${separator}`;
+    // Exact normalized-prefix containment (unlike win32.relative, which folds case-sensitive parents).
+    if (!normalizedPath.startsWith(prefix)) {
+        return null;
+    }
+    const [id, name, ...rest] = normalizedPath.slice(prefix.length).split(isWindows ? /[\\/]/u : '/');
     return id && name && rest.length === 0 && STORE_ID_PATTERN.test(id) ? {id, name} : null;
 }
 
@@ -172,6 +283,9 @@ function findByDirectory(id: string) {
 
 /** The open document a ref, or a file inside its directory such as a staged revision, belongs to. */
 export function getOpenDocument(path: string, senderId?: number) {
+    if (openDocuments.size === 0) {
+        return null;
+    }
     const parsed = typeof path === 'string' ? parseStorePath(path) : null;
     const entry = parsed ? findByDirectory(parsed.id) : null;
     return entry && canUse(entry, senderId) ? entry : null;
@@ -187,8 +301,12 @@ export function requireOpenDocument(path: string, senderId?: number) {
 
 /** The open document `path` is the ref of; files inside its directory do not count. */
 export function getWorkingCopyBackingEntry(path: string, senderId?: number) {
-    const entry = getOpenDocument(path, senderId);
-    return entry && parseStorePath(path)?.name === basename(entry.ref) ? entry : null;
+    if (openDocuments.size === 0) {
+        return null;
+    }
+    const parsed = typeof path === 'string' ? parseStorePath(path) : null;
+    const entry = parsed ? findByDirectory(parsed.id) : null;
+    return entry && canUse(entry, senderId) && parsed?.name === basename(entry.ref) ? entry : null;
 }
 
 /** Whether `path` names an open document or a file inside its directory that `senderId` may use. */
@@ -516,8 +634,9 @@ export async function runWithWorkingCopyReadBacking<TResult>(
     operation: (physicalReadPath: string, assertOriginalUnchanged: () => Promise<void>) => Promise<TResult>,
     options: {ownerWebContentsId?: number} = {},
 ) {
-    if (isPinnedRevisionPath(ref)) {
-        return readPinnedRevision(ref, operation, options.ownerWebContentsId);
+    const pinnedKey = parsePinnedRevisionKey(ref);
+    if (pinnedKey !== null) {
+        return readPinnedRevision(pinnedKey, operation, options.ownerWebContentsId);
     }
     const entry = getWorkingCopyBackingEntry(ref, options.ownerWebContentsId);
     if (!entry) {
@@ -800,7 +919,9 @@ type TPinBacking =
     | {readonly kind: 'revision'; readonly file: string; readonly length: number};
 
 interface IPinnedRevision {
-    /** The path its reader is given once the bytes are copied there. */
+    /** Canonical directory + app-issued lowercase filename key (`<canonicalDir>\0<uuid>.<ext>`), binding the pin to its directory. */
+    readonly key: string;
+    /** Canonical physical file path where the pin's bytes are materialized, isolated from later symlink/junction retargeting. */
     readonly ref: string;
     readonly entry: IOpenDocument;
     readonly ownerWebContentsId: number | undefined;
@@ -813,7 +934,7 @@ interface IPinnedRevision {
     readers: number;
 }
 
-/** Every pin, by its normalized ref. Pins live in memory only: the startup collection removes what an earlier run left. */
+/** Every pin, by its canonical directory + app-issued filename key. Pins live in memory only: startup collection removes leftovers. */
 const pinnedRevisions = new Map<string, IPinnedRevision>();
 
 /** Where pinned revisions are kept once copied: beside the store, in the folder no generic path check admits. */
@@ -821,12 +942,23 @@ function pinnedRevisionsDirectory() {
     return join(getDocumentStoreRoot(), '..', PINNED_REVISIONS_DIR_NAME);
 }
 
-function pinKey(ref: string) {
-    return normalizePathForLookup(ref) || ref;
+function makePinnedRevisionKey(canonicalDirectory: string, fileName: string) {
+    return `${canonicalDirectory}\0${fileName}`;
 }
 
-function isPinnedRevisionPath(path: string) {
-    return typeof path === 'string' && pinKey(dirname(path)) === pinKey(pinnedRevisionsDirectory());
+function parsePinnedRevisionKey(ref: string): string | null {
+    if (typeof ref !== 'string' || ref.trim().length === 0) {
+        return null;
+    }
+    const normalizedParent = normalizePathForLookup(dirname(ref));
+    if (normalizedParent.length === 0 || normalizedParent !== getNormalizedPinnedRevisionsDir()) {
+        return null;
+    }
+    // Preserve exact filename casing on POSIX and case-sensitive Windows volumes while resolving
+    // case-insensitive Windows spellings through normalizePathForLookup.
+    const normalizedRef = normalizePathForLookup(ref);
+    const name = basename(normalizedRef || ref);
+    return name.length > 0 ? makePinnedRevisionKey(normalizedParent, name) : null;
 }
 
 async function preparePinDirectory() {
@@ -882,9 +1014,14 @@ export async function pinOpenDocumentRevision(workingPath: string, expectedRevis
             } else {
                 throw sourceChangedError();
             }
-            const ref = join(directory, `${randomUUID()}.${entry.doc.snapshot().ext}`);
-            pinnedRevisions.set(pinKey(ref), {
-                ref,
+            const canonicalDirectory = normalizePathForLookup(directory) || directory;
+            const fileName = `${randomUUID()}.${entry.doc.snapshot().ext}`.toLowerCase();
+            const key = makePinnedRevisionKey(canonicalDirectory, fileName);
+            const ref = join(directory, fileName);
+            const storagePath = join(canonicalDirectory, fileName);
+            pinnedRevisions.set(key, {
+                key,
+                ref: storagePath,
                 entry,
                 ownerWebContentsId: senderId,
                 revisionToken: expectedRevisionToken,
@@ -982,8 +1119,8 @@ async function preservePinnedRevisions(entry: IOpenDocument) {
     await Promise.all([...pinnedRevisions.values()].filter((pin) => pin.entry === entry && pin.state === 'pinned').map(materializePin));
 }
 
-function requirePinnedRevision(ref: string, senderId: number | undefined) {
-    const pin = pinnedRevisions.get(pinKey(ref));
+function requirePinnedRevisionByKey(key: string, senderId: number | undefined) {
+    const pin = pinnedRevisions.get(key);
     if (!pin) {
         throw new WorkingCopyMissingError('Pinned document revision is missing or was released');
     }
@@ -1004,11 +1141,11 @@ const isReleased = (pin: IPinnedRevision) => pin.state === 'released';
 
 /** Reads a pin from its own copy, never from the file a native tool may be appending to. */
 async function readPinnedRevision<TResult>(
-    ref: string,
+    key: string,
     operation: (physicalReadPath: string, assertOriginalUnchanged: () => Promise<void>) => Promise<TResult>,
     senderId: number | undefined,
 ) {
-    const pin = requirePinnedRevision(ref, senderId);
+    const pin = requirePinnedRevisionByKey(key, senderId);
     await materializePin(pin);
     if (pin.state === 'released') {
         throw new WorkingCopyMissingError('Pinned document revision is missing or was released');
@@ -1043,8 +1180,8 @@ async function removePinFile(pin: IPinnedRevision) {
 }
 
 function endPin(pin: IPinnedRevision) {
-    if (pinnedRevisions.get(pinKey(pin.ref)) === pin) {
-        pinnedRevisions.delete(pinKey(pin.ref));
+    if (pinnedRevisions.get(pin.key) === pin) {
+        pinnedRevisions.delete(pin.key);
     }
     pin.state = 'released';
     return pin.readers === 0 ? removePinFile(pin) : Promise.resolve();
@@ -1056,7 +1193,8 @@ async function endPins(matches: (pin: IPinnedRevision) => boolean) {
 
 /** Ends a pin `senderId` made; `false` for a pin that is gone or another window's. */
 export async function releasePinnedDocumentRevision(ref: string, senderId?: number) {
-    const pin = typeof ref === 'string' ? pinnedRevisions.get(pinKey(ref)) : undefined;
+    const key = typeof ref === 'string' ? parsePinnedRevisionKey(ref) : null;
+    const pin = key === null ? undefined : pinnedRevisions.get(key);
     if (!pin || (senderId !== undefined && pin.ownerWebContentsId !== senderId)) {
         return false;
     }
@@ -1071,7 +1209,8 @@ export function releasePinnedDocumentRevisionsForSender(senderId: number) {
 
 /** What a test can observe of a pin without reading its bytes. */
 export function getPinnedRevisionStateForTests(ref: string) {
-    return pinnedRevisions.get(pinKey(ref))?.state ?? null;
+    const key = parsePinnedRevisionKey(ref);
+    return (key === null ? undefined : pinnedRevisions.get(key)?.state) ?? null;
 }
 
 async function removeDirectory(doc: DocumentDirectory) {
@@ -1177,6 +1316,9 @@ function collected() {
         await rm(pinnedRevisionsDirectory(), {recursive: true, force: true}).catch((error: unknown) =>
             log.warn(`Kept pinned revisions an earlier run left: ${getErrorMessage(error)}`),
         );
+        if (normalizedStorePaths) {
+            normalizedStorePaths.pinnedRevisionsDir = null;
+        }
         const docStore = getDocumentStore();
         for (const id of await docStore.port.list(DOCUMENTS_DIR)) {
             if (!STORE_ID_PATTERN.test(id)) {
@@ -1245,6 +1387,9 @@ export function getWorkingCopyOriginalPath(ref: string, senderId?: number) {
 
 /** The newest current document opened from `originalPath` that `senderId` may use. */
 export function findWorkingCopyPathByOriginalPath(originalPath: string, senderId?: number): TDocumentRef | null {
+    if (openDocuments.size === 0) {
+        return null;
+    }
     const key = normalizePathForLookup(originalPath);
     let found: IOpenDocument | null = null;
     for (const entry of openDocuments.values()) {
