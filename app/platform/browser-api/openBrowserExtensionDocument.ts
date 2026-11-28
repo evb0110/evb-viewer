@@ -25,10 +25,16 @@ interface ILaunchResponse {
     url: string;
 }
 
+export interface IBrowserExtensionPrefetchedLaunch {
+    url: string;
+    controller?: AbortController;
+    response: Promise<Response>;
+}
+
 // The page's history entry remembers the document it opened, so a reload or a
 // return to the entry shows it again without fetching it. A window the
 // workspace opens starts a new history and does not inherit it.
-const LAUNCHED_DOCUMENT_STATE_KEY = 'evbExtensionDocument';
+export const LAUNCHED_DOCUMENT_STATE_KEY = 'evbExtensionDocument';
 const FILE_EXTENSION: Record<TLaunchDocumentKind, string> = {
     pdf: '.pdf',
     djvu: '.djvu',
@@ -154,11 +160,26 @@ function readLocalFile(url: string) {
     });
 }
 
-async function readLaunchDocument(url: string): Promise<ILaunchResponse> {
+function cancelPrefetchedLaunch(prefetched: IBrowserExtensionPrefetchedLaunch | undefined) {
+    if (!prefetched) {
+        return;
+    }
+    prefetched.controller?.abort();
+    void prefetched.response.then((response) => response.body?.cancel()).catch(() => undefined);
+}
+
+async function readLaunchDocument(url: string, prefetched?: IBrowserExtensionPrefetchedLaunch): Promise<ILaunchResponse> {
     if (new URL(url).protocol === 'file:') {
+        cancelPrefetchedLaunch(prefetched);
         return readLocalFile(url);
     }
-    const response = await fetch(url, {credentials: 'include'});
+    const usePrefetched = prefetched?.url === url;
+    if (!usePrefetched) {
+        cancelPrefetchedLaunch(prefetched);
+    }
+    const response = usePrefetched
+        ? await prefetched.response.catch(() => fetch(url, {credentials: 'include'}))
+        : await fetch(url, {credentials: 'include'});
     // An error page is not the document, nor is a range of it: storing that would keep, and reopen, a truncated
     // copy. A refused response's body is cancelled, so its connection does not go on downloading it.
     const refusal = !response.ok
@@ -206,8 +227,8 @@ function rememberLaunchedDocument(ref: TDocumentRef) {
     );
 }
 
-async function fetchLaunchDocument(documentUrl: string) {
-    const response = await readLaunchDocument(documentUrl);
+async function fetchLaunchDocument(documentUrl: string, prefetched?: IBrowserExtensionPrefetchedLaunch) {
+    const response = await readLaunchDocument(documentUrl, prefetched);
     const {header, size, stream} = await peekDocumentHeader(response.body);
     const kind = detectDocumentKind(header, size);
     if (!kind) {
@@ -247,12 +268,14 @@ async function readLaunchedDocument() {
  * in the URL, so the address bar shows the document's source and a bookmark
  * opens it again; a reload reuses the copy this history entry stored.
  */
-export async function openBrowserExtensionDocument() {
+export async function openBrowserExtensionDocument(prefetched?: IBrowserExtensionPrefetchedLaunch) {
     if (!isBrowserExtensionPage()) {
+        cancelPrefetchedLaunch(prefetched);
         return;
     }
     const launched = await readLaunchedDocument();
     if (launched) {
+        cancelPrefetchedLaunch(prefetched);
         if (!(await hasWindowRecovery())) {
             openBrowserExternalPaths([launched]);
         }
@@ -260,10 +283,11 @@ export async function openBrowserExtensionDocument() {
     }
     const documentUrl = readBrowserExtensionDocumentUrl(location.href);
     if (!documentUrl) {
+        cancelPrefetchedLaunch(prefetched);
         return;
     }
     try {
-        const ref = await fetchLaunchDocument(documentUrl);
+        const ref = await fetchLaunchDocument(documentUrl, prefetched);
         rememberLaunchedDocument(ref);
         openBrowserExternalPaths([ref]);
     } catch (error) {

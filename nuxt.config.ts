@@ -239,13 +239,13 @@ export default defineNuxtConfig({
                     sizes: '180x180',
                     href: '/apple-touch-icon.png',
                 },
-                // The UI font swaps in when it arrives; fetched with the page,
-                // it is there for the first paint and the text does not reflow.
+                // The UI font swaps in when it arrives; preloading the Latin subset
+                // keeps initial transfer small while avoiding first-paint text reflow.
                 {
                     rel: 'preload',
                     as: 'font',
                     type: 'font/woff2',
-                    href: '/fonts/noto-sans/noto-sans-variable.woff2',
+                    href: '/fonts/noto-sans/noto-sans-latin-variable.woff2',
                     crossorigin: 'anonymous',
                 },
             ],
@@ -289,7 +289,12 @@ export default defineNuxtConfig({
         },
     ],
 
-    css: ['~/assets/css/app-shell-critical.scss', '~/assets/css/main.css', '~/assets/css/annotation-fonts.scss'],
+    css: [
+        '~/assets/css/app-shell-critical.scss',
+        '~/assets/css/main.css',
+        '~/assets/css/toolbar-menu.scss',
+        '~/assets/css/annotation-fonts.scss',
+    ],
 
     // Keep Nuxt's server renderer available for prerender/build-time output and
     // Nitro endpoints. Personalized browser state is client-seeded, not
@@ -673,10 +678,6 @@ export default defineNuxtConfig({
                                 includeDependenciesRecursively: false,
                             },
                             {
-                                name: 'vendor-pdf-lib',
-                                test: /node_modules[\\/]pdf-lib[\\/]/,
-                            },
-                            {
                                 name: 'vendor-vueuse',
                                 test: /node_modules[\\/]@vueuse[\\/](?:core|math)[\\/]/,
                             },
@@ -705,7 +706,6 @@ export default defineNuxtConfig({
                 'marked',
                 'unhead',
                 'scule',
-                'pdf-lib',
                 'utif',
             ],
             exclude: ['pdfjs-dist'],

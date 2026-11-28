@@ -68,7 +68,7 @@ describe('compileAppStylesheet', () => {
         // A browser test builds its page with `setContent`, where a root-relative
         // font URL resolves against nothing and text silently falls back to a
         // system face that measures differently.
-        expect(css).not.toContain("url('/fonts/noto-sans/noto-sans-variable.woff2')");
+        expect(css).not.toContain("url('/fonts/noto-sans/");
         expect(css).toContain('url("data:font/woff2;base64,');
         // Only fonts: inlining every root-relative asset would drag images into
         // the stylesheet as base64 for no measurement benefit.

@@ -149,13 +149,23 @@ describe('browser OCR capability', {timeout: 20_000}, () => {
     });
 
     it(
-        'wires the browser platform to the browser OCR capability',
+        'wires the browser platform to the browser OCR capability lazily',
         async () => {
             vi.spyOn(console, 'error').mockImplementation(() => undefined);
-            const {browserPlatformApi} = await import('@app/platform/browserPlatformApi');
-            const {browserOcrCapability} = await import('@app/platform/browser-api/browserOcrCapability');
+            vi.stubGlobal('Worker', function Worker() {});
+            vi.stubGlobal('caches', {open: () => Promise.resolve({match: () => Promise.resolve(undefined)})});
+            try {
+                const {browserPlatformApi} = await import('@app/platform/browserPlatformApi');
+                const {browserOcrCapability} = await import('@app/platform/browser-api/browserOcrCapability');
 
-            expect(browserPlatformApi.ocr).toBe(browserOcrCapability);
+                await expect(browserPlatformApi.ocr.getLanguages()).resolves.toEqual(await browserOcrCapability.getLanguages());
+                await expect(browserPlatformApi.ocr.cancel(requireRequestId('request-wired-1'))).resolves.toEqual({
+                    canceled: false,
+                    reason: 'not-found',
+                });
+            } finally {
+                vi.unstubAllGlobals();
+            }
         },
         browserPlatformWiringTimeoutMs,
     );
