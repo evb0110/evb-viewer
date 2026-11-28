@@ -9,7 +9,7 @@ import {
 } from '@document-store/documentDirectory';
 import {createRevisionTokenCodec, OpenDocument, type TOpenMutationResult} from '@document-store/openDocument';
 import type {TSaveResult} from '@document-store/saveDocument';
-import type {IStoreFile, TExternalSource} from '@document-store/storePort';
+import type {IStoreFile} from '@document-store/storePort';
 import {BROWSER_DOCUMENT_CHUNK_SIZE, BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
 import {browserDocumentRefId, createBrowserDocumentRef, getBrowserDocumentFileName} from '@app/platform/browser/browserDocumentRefs';
 import {canceledWrite, pushRevisionStream, streamWriter} from '@app/platform/browser/browserRevisionStream';
@@ -27,7 +27,7 @@ import {
 } from '@app/platform/browser/browserPublication';
 import {BrowserRecentFilesStore} from '@app/platform/browser/browserRecentFilesStore';
 import {createMemoryStorePort, isOpfsStorePort, openBrowserStorePort, storeFileBlob} from '@app/platform/browser/browserStorePort';
-import {holdBrowserLock} from '@app/platform/browser/runBrowserLock';
+import {holdBrowserLock, runBrowserLock} from '@app/platform/browser/runBrowserLock';
 import {createMissingRevisionError, createStaleRevisionError} from '@contracts/documentMutationErrors';
 import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
 import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
@@ -42,20 +42,16 @@ import type {IRecentReadingView} from '@contracts/recentReadingView';
 import {createEpochMs} from '@contracts/timestamps';
 
 const DOCUMENT_LOCK_PREFIX = 'evb-document:';
-/** How long a window waits for another to let go of a document it hands over, such as a moved tab's. */
 const DOCUMENT_LOCK_WAIT_MS = 10_000;
 const BROWSER_REVISION_CODEC = createRevisionTokenCodec('browser');
-
 export const browserDocumentLockName = (id: string) => `${DOCUMENT_LOCK_PREFIX}${id}`;
 
 type TEntryKind = 'source' | 'working' | 'output';
 type TRetention = 'durable' | 'transient';
 type TSaveKind = 'pdf' | 'docx' | 'generic';
+type TExpectedToken = TDocumentRevisionToken | null | undefined;
+type TRevisionOptions = {strict?: boolean; expectedByteRevision?: number; expectedInstance?: symbol; allowStagedBase?: boolean};
 
-/**
- * One document this window has open. Its bytes are a store directory (`doc`), or, for a picked file that has
- * no bytes of its own, that file (`file`, read through `saveHandle` when it has one).
- */
 export interface IBrowserDocumentEntry {
     ref: TDocumentRef;
     fileName: string;
@@ -64,10 +60,8 @@ export interface IBrowserDocumentEntry {
     retention: TRetention;
     saveKind: TSaveKind;
     saveName: string;
-    /** The file a save or an output writes; for a handle-backed source, the file itself. */
     saveHandle: FileSystemFileHandle | null;
     sourceRef?: TDocumentRef;
-    /** The browser refused storage: the document works without surviving a reload. */
     memoryOnly: boolean;
     fileSize: number;
     updatedAt: number;
@@ -77,15 +71,15 @@ export interface IBrowserDocumentEntry {
     file: File | null;
     release: (() => void) | null;
     instance: symbol;
+    byteRevisionOffset?: number;
+    retainedRevisions?: readonly TDocumentRevisionToken[];
     closed?: boolean;
-    /** Aborts the open `writeStream`, which holds the document until it ends. */
     endStream?: (reason: unknown) => Promise<void>;
 }
 
 type TEntryMeta = {[K in keyof IBrowserDocumentEntry]?: IBrowserDocumentEntry[K] | undefined};
 
-export interface IRegisterFileOptions {
-    ref?: TDocumentRef;
+interface IEntryOptions {
     kind?: TEntryKind;
     retention?: TRetention;
     saveKind?: TSaveKind;
@@ -93,21 +87,18 @@ export interface IRegisterFileOptions {
     saveHandle?: FileSystemFileHandle | null;
 }
 
-export interface ICreateStoredDocumentOptions {
+export interface IRegisterFileOptions extends IEntryOptions {
+    ref?: TDocumentRef;
+}
+
+export interface ICreateStoredDocumentOptions extends IEntryOptions {
     ref?: TDocumentRef | undefined;
     mimeType: string;
-    saveKind?: TSaveKind;
-    kind?: TEntryKind;
-    retention?: TRetention;
-    sourceRef?: string;
-    saveHandle?: FileSystemFileHandle | null;
-    /** `handle`: the bytes are the file `saveHandle` names, written by the caller. */
     storageMode?: 'handle';
 }
 
 interface IWriteOptions {
     expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
-    /** Bytes an open made: not an edit, and without a file to save to the document's baseline in the same commit. */
     opened?: boolean;
     strictRevisionToken?: boolean;
     expectedByteRevision?: number | undefined;
@@ -121,70 +112,230 @@ export class BrowserDocumentSourceChangedError extends Error {
     }
 }
 
-function bytesBlob(data: Uint8Array | ArrayBuffer | Blob) {
-    if (data instanceof Blob) {
-        return data;
-    }
-    return new Blob([data instanceof Uint8Array ? (data as Uint8Array<ArrayBuffer>) : new Uint8Array(data)]);
-}
-
-function isQuotaError(error: unknown) {
-    return error instanceof Error && error.name === 'QuotaExceededError';
-}
+const bytesBlob = (data: Uint8Array | ArrayBuffer | Blob) =>
+    data instanceof Blob ? data : new Blob([data instanceof Uint8Array ? (data as Uint8Array<ArrayBuffer>) : new Uint8Array(data)]);
+const isErrorName = (error: unknown, name: string) => error instanceof Error && error.name === name;
+const entryMeta = (options: IEntryOptions, extra: TEntryMeta = {}): TEntryMeta => {
+    const kind = options.kind ?? 'source';
+    return {
+        kind,
+        retention: options.retention ?? (kind === 'working' ? 'transient' : 'durable'),
+        ...(options.saveKind ? {saveKind: options.saveKind} : {}),
+        ...(options.sourceRef ? {sourceRef: parseDocumentRef(options.sourceRef) ?? undefined} : {}),
+        ...extra,
+    };
+};
 
 async function assertReadPermission(handle: FileSystemFileHandle, prompt: boolean) {
-    const permissions = handle as FileSystemFileHandle & {
+    const {queryPermission, requestPermission} = handle as FileSystemFileHandle & {
         queryPermission?: (descriptor: {mode: 'read'}) => Promise<PermissionState>;
         requestPermission?: (descriptor: {mode: 'read'}) => Promise<PermissionState>;
     };
-    if (!permissions.queryPermission || (await permissions.queryPermission({mode: 'read'})) === 'granted') {
-        return;
-    }
-    if (prompt && (await permissions.requestPermission?.({mode: 'read'})) === 'granted') {
+    if (
+        !queryPermission ||
+        (await queryPermission.call(handle, {mode: 'read'})) === 'granted' ||
+        (prompt && (await requestPermission?.call(handle, {mode: 'read'})) === 'granted')
+    ) {
         return;
     }
     throw new DOMException('Open the file again to restore read permission.', 'NotAllowedError');
 }
 
-/**
- * The browser's documents: one store directory per document with its bytes and unsaved state, locked by the
- * window that has it open, saved through the publication port. Picked files without bytes of their own are
- * read through their handles.
- */
 export class BrowserDocumentStore {
     private readonly entries = new Map<string, IBrowserDocumentEntry>();
     private readonly hydrating = new Map<string, Promise<IBrowserDocumentEntry | null>>();
     private readonly fileRefs = new WeakMap<File, TDocumentRef>();
-    /** The sources of working copies another window or a crashed session made, named before they are opened here. */
     private readonly namedSources = new Map<string, TDocumentRef>();
     private readonly revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
     private readonly removalListeners = new Set<(ref: string) => void>();
     private storesPromise: Promise<{durable: IDocumentStore | null; memory: IDocumentStore}> | null = null;
+    private memoryStore: IDocumentStore | null = null;
+    private hadDurable = false;
+    private reopening: Promise<void> | null = null;
     private readonly recentFiles = new BrowserRecentFilesStore();
-    /** Awaited before the first non-open edit so the window names the directory for recovery (`false` if not persisted). */
     public onDirectoryEdited: (id: string) => Promise<boolean | void> = async () => false;
 
-    /** The durable store (the origin private file system) when the browser offers one, and the memory store. */
-    public stores() {
-        this.storesPromise ??= (async () => {
-            const store = (port: IDocumentStore['port']): IDocumentStore => ({port, publication: browserPublication});
-            const opened = await openBrowserStorePort();
-            return {
-                durable: opened.durable ? store(opened.port) : null,
-                memory: store(opened.durable ? createMemoryStorePort() : opened.port),
-            };
-        })();
-        return this.storesPromise;
+    public constructor(private readonly createStoreWorker?: () => Worker) {}
+
+    private async openDurableStore(onFault: () => void) {
+        const opened = await openBrowserStorePort(this.createStoreWorker, onFault);
+        return {opened, durable: opened.durable ? ({port: opened.port, publication: browserPublication} satisfies IDocumentStore) : null};
     }
 
-    /** A ref for a file before it is registered; the file is read in place until something needs it stored. */
+    public async stores() {
+        await this.reopening;
+        const loading = (this.storesPromise ??= (async () => {
+            let durable: IDocumentStore | null = null;
+            const {opened, durable: d} = await this.openDurableStore(() => durable && void this.reopenDurableStore(durable));
+            durable = d;
+            this.hadDurable ||= durable !== null;
+            this.memoryStore ??= {port: opened.durable ? createMemoryStorePort() : opened.port, publication: browserPublication};
+            return {durable, memory: this.memoryStore};
+        })());
+        const res = await loading;
+        if (!res.durable && this.hadDurable && this.storesPromise === loading) {
+            this.storesPromise = null;
+        }
+        return res;
+    }
+
+    private durableEntries() {
+        return [...this.entries.values()].filter((e) => e.doc && !e.memoryOnly && !e.closed);
+    }
+
+    private reopenDurableStore(failed?: IDocumentStore): Promise<void> {
+        if (this.reopening) {
+            return this.reopening
+                .catch(() => undefined)
+                .then(async () => {
+                    const cur = (await this.storesPromise?.catch(() => null))?.durable ?? null;
+                    if (failed ? cur === failed : cur !== null && this.durableEntries().some((e) => e.store !== cur)) {
+                        await this.reopenDurableStore(failed);
+                    }
+                });
+        }
+        const pending = runBrowserLock('evb-viewer:browser-store-reopen', async () => {
+            const current = await this.storesPromise?.catch(() => null);
+            const durable = current?.durable ?? null;
+            if (failed ? durable !== failed : !durable) {
+                return;
+            }
+            const affected = this.durableEntries().filter((entry) => Boolean(failed) || entry.store !== durable);
+            for (const entry of affected) {
+                void entry.endStream?.(canceledWrite()).catch(() => undefined);
+                await entry.doc?.close().catch(() => undefined);
+            }
+            if (!failed) {
+                for (const entry of affected) {
+                    const opened = await this.openReboundEntry(entry, durable!);
+                    if (opened) {
+                        this.installReopened(entry, opened.doc, opened.session, durable!);
+                    }
+                }
+                return;
+            }
+            this.storesPromise = null;
+            for (let attempt = 0; attempt < 3; attempt += 1) {
+                let freshFaulted = false;
+                let published: IDocumentStore | null = null;
+                const {durable: candidate} = await this.openDurableStore(() => {
+                    freshFaulted = true;
+                    void (published && this.reopenDurableStore(published));
+                });
+                if (freshFaulted) {
+                    continue;
+                }
+                if (!candidate) {
+                    return;
+                }
+                const reopened: Array<{entry: IBrowserDocumentEntry; doc: DocumentDirectory; session: OpenDocument}> = [];
+                for (const entry of affected) {
+                    try {
+                        const opened = await this.openReboundEntry(entry, candidate, () => freshFaulted);
+                        if (opened) {
+                            reopened.push({entry, ...opened});
+                        }
+                    } catch {
+                        if (freshFaulted) {
+                            break;
+                        }
+                    }
+                }
+                if (freshFaulted) {
+                    await Promise.all(reopened.map(({doc}) => doc.close().catch(() => undefined)));
+                    continue;
+                }
+                published = candidate;
+                this.storesPromise = Promise.resolve({durable: candidate, memory: current!.memory});
+                for (const {entry, doc, session} of reopened) {
+                    this.installReopened(entry, doc, session, candidate);
+                }
+                return;
+            }
+        }).finally(() => void (this.reopening === pending && (this.reopening = null)));
+        return (this.reopening = pending);
+    }
+
+    private async openReboundEntry(entry: IBrowserDocumentEntry, store: IDocumentStore, isFaulted = () => false) {
+        for (let retry = 0; retry < 3 && !isFaulted() && this.isActiveEntry(entry) && entry.doc; retry += 1) {
+            let doc: DocumentDirectory | null = null;
+            try {
+                doc = await openDocument(store, entry.doc.id);
+                const session = this.createSession(entry, doc);
+                if (entry.retainedRevisions) {
+                    await doc.retain([
+                        ...entry.retainedRevisions.map((t) => session.parseRevisionId(t)),
+                        ...doc.state().history.map((r) => r.id),
+                    ]);
+                }
+                return {doc, session};
+            } catch (error) {
+                await doc?.close().catch(() => undefined);
+                if (isFaulted() || isErrorName(error, 'NotFoundError')) {
+                    return null;
+                }
+                if (retry === 2) {
+                    throw error;
+                }
+                await Promise.resolve();
+            }
+        }
+        return null;
+    }
+
+    private installReopened(entry: IBrowserDocumentEntry, doc: DocumentDirectory, session: OpenDocument, store: IDocumentStore) {
+        if (!this.isActiveEntry(entry)) {
+            void doc.close().catch(() => undefined);
+            return;
+        }
+        const previous = this.tokenOf(entry);
+        const prev = entry.doc!.state();
+        const next = doc.state();
+        const prevEpoch = this.byteRevisionOf(entry) ?? 0;
+        const sameBytes =
+            session.token() === previous &&
+            next.current?.file === prev.current?.file &&
+            next.current?.length === prev.current?.length &&
+            next.baseline === prev.baseline;
+        Object.assign(entry, {doc, session, store, byteRevisionOffset: sameBytes ? prevEpoch : prevEpoch + 1});
+        this.commitEntry(entry, next.current?.length ?? 0, previous, sameBytes ? undefined : 'write');
+    }
+
+    private async syncDurableStore(entry: IBrowserDocumentEntry) {
+        const durable = entry.doc && !entry.memoryOnly && !entry.closed ? (await this.stores()).durable : null;
+        if (durable && entry.store !== durable) {
+            await this.reopenDurableStore();
+        }
+    }
+
+    private byteRevisionOf(entry: IBrowserDocumentEntry) {
+        return entry.doc ? (entry.byteRevisionOffset ?? 0) + entry.doc.state().byteRevision : undefined;
+    }
+
+    private localByteRevision(entry: IBrowserDocumentEntry, epoch: number | undefined) {
+        return epoch === undefined ? undefined : epoch - (entry.byteRevisionOffset ?? 0);
+    }
+
+    private withReopen<T>(task: Promise<T>): Promise<T> {
+        return task.catch(async (error: unknown) => {
+            await this.reopening?.catch(() => undefined);
+            throw error;
+        });
+    }
+
     public getRefForFile(file: File): TDocumentRef {
         const known = this.fileRefs.get(file);
         if (known && this.entries.has(known)) {
             return known;
         }
         const ref = createBrowserDocumentRef(file.name);
-        this.attach(this.fileEntry(ref, file, {retention: 'transient'}));
+        this.attach(
+            this.baseEntry(
+                ref,
+                {fileName: file.name, mimeType: file.type || undefined, retention: 'transient'},
+                {file, fileSize: file.size},
+            ),
+        );
         this.fileRefs.set(file, ref);
         return ref;
     }
@@ -193,33 +344,21 @@ export class BrowserDocumentStore {
         return (await this.registerFileWithOwnership(file, options)).ref;
     }
 
-    /**
-     * A picked or dropped file. With a handle it is read and saved through that handle. Without one, a
-     * document kept for Recent Files gets its own stored copy (imported, so it starts clean); a transient
-     * input is read in place.
-     */
     public async registerFileWithOwnership(file: File, options: IRegisterFileOptions = {}) {
         const known = this.fileRefs.get(file);
         const knownEntry = known ? this.entries.get(known) : undefined;
-        const kind = options.kind ?? 'source';
-        const retention = options.retention ?? (kind === 'working' ? 'transient' : 'durable');
-        // A file registered again is the same document, unless it now needs a handle or stored bytes it lacks.
+        const meta = entryMeta(options);
         const needsMore =
-            (options.saveHandle && !knownEntry?.saveHandle) || (retention === 'durable' && !knownEntry?.doc && !knownEntry?.saveHandle);
+            (options.saveHandle && !knownEntry?.saveHandle) ||
+            (meta.retention === 'durable' && !knownEntry?.doc && !knownEntry?.saveHandle);
         if (known && knownEntry && !needsMore) {
             return {ref: known, created: false};
         }
         const ref = options.ref ?? known ?? createBrowserDocumentRef(file.name);
-        const meta = {
-            kind,
-            retention,
-            ...(options.saveKind ? {saveKind: options.saveKind} : {}),
-            ...(options.sourceRef ? {sourceRef: parseDocumentRef(options.sourceRef) ?? undefined} : {}),
-        };
         if (options.saveHandle) {
             await this.attachHandleSource(ref, options.saveHandle, file, meta);
-        } else if (retention === 'transient') {
-            this.attach(this.fileEntry(ref, file, meta));
+        } else if (meta.retention === 'transient') {
+            this.attach(this.baseEntry(ref, {...meta, fileName: file.name, mimeType: file.type || undefined}, {file, fileSize: file.size}));
         } else {
             await this.createEntry(
                 ref,
@@ -231,38 +370,23 @@ export class BrowserDocumentStore {
         return {ref, created: true};
     }
 
-    /** A new stored document of `data`; a stream is written as it arrives (see `streamWriter`). */
     public async createStoredDocument(
         fileName: string,
         data: Uint8Array | ArrayBuffer | Blob | ReadableStream<Uint8Array>,
         options: ICreateStoredDocumentOptions,
     ): Promise<TDocumentRef> {
         const ref = options.ref ?? createBrowserDocumentRef(fileName);
-        const kind = options.kind ?? 'source';
-        const meta = {
-            kind,
-            retention: options.retention ?? (kind === 'working' ? 'transient' : 'durable'),
-            mimeType: options.mimeType,
-            fileName,
-            ...(options.saveKind ? {saveKind: options.saveKind} : {}),
-            ...(options.sourceRef ? {sourceRef: parseDocumentRef(options.sourceRef) ?? undefined} : {}),
-        } as const;
+        const meta = entryMeta(options, {mimeType: options.mimeType, fileName});
         if (options.storageMode === 'handle' && options.saveHandle) {
             await this.attachHandleSource(ref, options.saveHandle, null, meta);
             return ref;
         }
         const source = data instanceof ReadableStream ? streamWriter(data) : bytesBlob(data);
-        // Bytes the app made for a document to be edited are unsaved until saved; outputs start clean.
-        const entry = await this.createEntry(ref, {source, imported: kind !== 'working'}, meta);
+        const entry = await this.createEntry(ref, {source, imported: meta.kind !== 'working'}, meta);
         entry.saveHandle = options.saveHandle ?? null;
         return ref;
     }
 
-    /**
-     * A working copy of `sourceRef`. A picked file stays its destination: Save writes that file, checked
-     * against the bytes read now, and the copy reads them until its first edit. A store document without a
-     * file is forked. `data`, when given, is the copy's first edit, such as a transferred document's state.
-     */
     public async cloneAsWorkingCopy(sourceRef: string, fileName?: string, ref?: TDocumentRef, data?: Uint8Array | Blob) {
         const source = await this.requireEntry(sourceRef);
         const name = fileName ?? source.fileName;
@@ -291,12 +415,12 @@ export class BrowserDocumentStore {
                 entry = await this.hold(forked);
             } catch (error) {
                 release();
-                if (!isQuotaError(error)) {
+                if (!isErrorName(error, 'QuotaExceededError')) {
                     throw error;
                 }
                 // No room: copy into memory.
                 await store.port.remove(`documents/${id}`).catch(() => undefined);
-                entry = await this.createEntry(workingRef, {source: await this.externalSource(source.ref), imported: true}, meta);
+                entry = await this.createEntry(workingRef, {source: await this.readableBlob(source.ref), imported: true}, meta);
             }
             entry.file = source.doc.state().current ? null : source.file;
         } else {
@@ -309,8 +433,10 @@ export class BrowserDocumentStore {
     }
 
     public async ensureEntry(ref: string): Promise<IBrowserDocumentEntry | null> {
+        await this.reopening;
         const known = this.entries.get(ref);
         if (known) {
+            await this.syncDurableStore(known);
             return known;
         }
         let hydration = this.hydrating.get(ref);
@@ -362,15 +488,10 @@ export class BrowserDocumentStore {
         return {size, modifiedAt};
     }
 
-    /** Size and revision describe one state; a picked file is looked at again first. */
     public async getContentSnapshot(ref: string): Promise<{size: number; modifiedAt: number; contentSignature: string}> {
         const entry = await this.requireEntry(ref);
         await this.refreshPickedFile(entry);
-        return {
-            size: await this.sizeOf(entry),
-            modifiedAt: entry.updatedAt,
-            contentSignature: this.tokenOf(entry),
-        };
+        return {size: await this.sizeOf(entry), modifiedAt: entry.updatedAt, contentSignature: this.tokenOf(entry)};
     }
 
     public async getDocumentRevision(ref: string): Promise<IDocumentRevisionInfo> {
@@ -379,13 +500,7 @@ export class BrowserDocumentStore {
         return this.revisionInfo(entry);
     }
 
-    public async assertDocumentRevisionCurrent(
-        ref: string,
-        expected: TDocumentRevisionToken | null | undefined,
-        options: {strict?: boolean; expectedByteRevision?: number; expectedInstance?: symbol; allowStagedBase?: boolean} = {},
-    ) {
-        const entry = await this.requireEntry(ref);
-        await this.refreshPickedFile(entry);
+    private verifyEntryRevision(entry: IBrowserDocumentEntry, expected: TExpectedToken, options: TRevisionOptions = {}) {
         if (options.expectedInstance !== undefined && !this.isActiveEntry(entry, entry.doc, options.expectedInstance)) {
             this.throwStale(entry, expected);
         }
@@ -396,8 +511,8 @@ export class BrowserDocumentStore {
                 entry.session.checkRevision(expected, {
                     requireToken: entry.kind === 'working',
                     strict: options.strict ?? false,
-                    allowStagedBase: options.allowStagedBase ?? entry.session.hasPendingAppend(),
-                    expectedByteRevision: options.expectedByteRevision,
+                    allowStagedBase: options.allowStagedBase ?? false,
+                    expectedByteRevision: this.localByteRevision(entry, options.expectedByteRevision),
                 }),
             );
             return;
@@ -409,33 +524,33 @@ export class BrowserDocumentStore {
             if (options.strict) {
                 this.throwStale(entry, expected);
             }
-            return;
-        }
-        if (!this.isActiveEntry(entry, entry.doc, options.expectedInstance) || expected !== this.tokenOf(entry)) {
+        } else if (!this.isActiveEntry(entry, entry.doc) || expected !== this.tokenOf(entry)) {
             this.throwStale(entry, expected);
         }
     }
 
+    public async assertDocumentRevisionCurrent(ref: string, expected: TExpectedToken, options: TRevisionOptions = {}) {
+        const entry = await this.requireEntry(ref);
+        await this.refreshPickedFile(entry);
+        this.verifyEntryRevision(entry, expected, {
+            ...options,
+            allowStagedBase: options.allowStagedBase ?? entry.session?.hasPendingAppend() ?? false,
+        });
+    }
+
     public onDocumentRevisionChanged(listener: (event: IDocumentRevisionChangedEvent) => void) {
         this.revisionListeners.add(listener);
-        return () => {
-            this.revisionListeners.delete(listener);
-        };
+        return () => void this.revisionListeners.delete(listener);
     }
 
-    /** Calls `listener` with each document that leaves this window's store. */
     public onDocumentRecordRemoved(listener: (ref: string) => void) {
         this.removalListeners.add(listener);
-        return () => {
-            this.removalListeners.delete(listener);
-        };
+        return () => void this.removalListeners.delete(listener);
     }
 
-    /** Replaces the bytes. Unsaved drafts described the old bytes, so they go with them. */
     public async write(ref: string, data: Uint8Array | ArrayBuffer, options: IWriteOptions = {}) {
         const entry = await this.requireEntry(ref);
         const imported = options.opened === true && !entry.doc?.state().destination;
-        const openOnly = options.opened === true && !imported;
         await this.mutate(
             entry,
             options.expectedDocumentRevisionToken,
@@ -443,8 +558,7 @@ export class BrowserDocumentStore {
                 kind: 'rewrite',
                 source: bytesBlob(data),
                 drafts: 'clear',
-                ...(imported ? {imported: true} : {}),
-                ...(openOnly ? {openOnly: true} : {}),
+                ...(imported ? {imported: true} : options.opened ? {openOnly: true} : {}),
             },
             options.opened ? 'open' : 'write',
             true,
@@ -453,17 +567,9 @@ export class BrowserDocumentStore {
         return true;
     }
 
-    /**
-     * Commits a revision that `write` makes from `source`, the document's present bytes read in place: it writes
-     * the new revision file at the store path `output`, or returns the bytes when the document's store is not
-     * the origin private file system (`output` null), such as a window's memory store. As on desktop, a document without bytes of its own is read from its file, which must
-     * still hold the bytes the person saw when the revision commits; no copy of it is made first. `imported`:
-     * the new bytes are the document's baseline in the same commit, as for bytes the person supplied, so it stays
-     * clean; a document with a file keeps its file's.
-     */
     public async rewrite(
         ref: string,
-        token: TDocumentRevisionToken | null | undefined,
+        token: TExpectedToken,
         write: (source: Blob, output: string | null) => Promise<Uint8Array | undefined>,
         {imported = false} = {},
     ) {
@@ -475,6 +581,8 @@ export class BrowserDocumentStore {
         const pre = this.unwrapRevisionCheck(entry, token, session.checkRevision(token, {requireToken: entry.kind === 'working'}));
         const previous = requireDocumentRevisionToken(pre.currentToken);
         const capturedByteRevision = session.byteRevision();
+        const capturedEpoch = this.byteRevisionOf(entry);
+        const capturedInstance = entry.instance;
         const source = await this.readableBlob(ref);
         if (!session.isActive() || session.token() !== previous || session.byteRevision() !== capturedByteRevision) {
             this.throwStale(entry, token);
@@ -485,24 +593,19 @@ export class BrowserDocumentStore {
                 throw new Error('The rewrite returned no bytes');
             }
             return this.mutate(entry, token, {kind: 'rewrite', source: bytesBlob(bytes), drafts: 'clear', imported}, 'write', true, {
-                expectedByteRevision: capturedByteRevision,
-                expectedInstance: entry.instance,
+                expectedByteRevision: capturedEpoch,
+                expectedInstance: capturedInstance,
             });
         }
-        const outcome = await session.rewritePrepared(
-            token,
-            previous,
-            capturedByteRevision,
-            (output) => write(source, output).then(() => undefined),
-            {imported},
+        const outcome = await this.withReopen(
+            session.rewritePrepared(token, previous, capturedByteRevision, (output) => write(source, output).then(() => undefined), {
+                imported,
+            }),
         );
         return this.settleOutcome(entry, token, outcome, 'write');
     }
 
-    /**
-     * The document's present bytes as a Blob read in place, for a worker that reads them by range: its current
-     * revision's file, or its file before it has bytes of its own. Valid until the document next changes.
-     */
+    /** The document's present bytes as a range-readable Blob until it next changes. */
     public async readableBlob(ref: string): Promise<Blob> {
         const entry = await this.requireEntry(ref);
         const current = entry.doc?.state().current;
@@ -512,50 +615,25 @@ export class BrowserDocumentStore {
         return (await storeFileBlob(entry.store!.port, entry.doc.path(current.file))).slice(0, current.length);
     }
 
-    /**
-     * `readableBlob` with the revision token that names its bytes. A change made while the Blob is prepared, even
-     * one undone again, refuses as stale, so the pair never joins one revision's token to another's bytes. With
-     * `expected`, they are that revision's or the call refuses, as `assertDocumentRevisionCurrent` does.
-     */
-    public async readableRevision(ref: string, expected?: {token: TDocumentRevisionToken | null | undefined}) {
+    /** Pairs `readableBlob` with its revision token, refusing as stale if the bytes changed meanwhile. */
+    public async readableRevision(ref: string, expected?: {token: TExpectedToken}) {
         const entry = await this.requireEntry(ref);
         const instance = entry.instance;
         await this.refreshPickedFile(entry);
         if (expected) {
-            if (entry.session) {
-                this.unwrapRevisionCheck(
-                    entry,
-                    expected.token,
-                    entry.session.checkRevision(expected.token, {requireToken: entry.kind === 'working'}),
-                );
-            } else if (!expected.token) {
-                if (entry.kind === 'working') {
-                    throw createMissingRevisionError({documentRef: entry.ref});
-                }
-            } else if (expected.token !== this.tokenOf(entry)) {
-                this.throwStale(entry, expected.token);
-            }
+            this.verifyEntryRevision(entry, expected.token);
         }
         const token = this.tokenOf(entry);
-        // Revision ids come back on undo; the directory's epoch moves on every change of its bytes.
-        const epoch = entry.doc?.state().byteRevision;
+        const epoch = this.byteRevisionOf(entry);
         const blob = await this.readableBlob(ref);
-        if (!this.isActiveEntry(entry, entry.doc, instance) || this.tokenOf(entry) !== token || entry.doc?.state().byteRevision !== epoch) {
+        if (!this.isActiveEntry(entry, entry.doc, instance) || this.tokenOf(entry) !== token || this.byteRevisionOf(entry) !== epoch) {
             this.throwStale(entry, token);
         }
         return {blob, token, byteRevision: epoch, instance};
     }
 
-    /**
-     * Bytes the app makes, such as a converted or exported document, written as they come. When `close` resolves
-     * they are the document's and its baseline, as an import's are: it starts clean and names no work of the
-     * person's, so a window that goes away later offers none for recovery. Until then, and after `abort` or a
-     * failed write, the document keeps the bytes it had (see `pushRevisionStream`). The stream holds the document
-     * until it ends, so closing the entry aborts it, and a new stream ends the one before.
-     */
     public async writeStream(ref: string) {
         const entry = await this.requireEntry(ref);
-        // Calls that start together each wait for the stream before theirs to end, so none is left holding the document.
         while (entry.endStream) {
             await entry.endStream(canceledWrite());
         }
@@ -563,16 +641,11 @@ export class BrowserDocumentStore {
             this.mutate(entry, this.tokenOf(entry), {kind: 'rewrite', source, drafts: 'clear', imported: true}, 'write'),
         );
         entry.endStream = stream.abort;
-        const ended = () => {
-            if (entry.endStream === stream.abort) {
-                delete entry.endStream;
-            }
-        };
+        const ended = () => void (entry.endStream === stream.abort && delete entry.endStream);
         void stream.written.then(ended, ended);
         return stream;
     }
 
-    /** The caller wrote the document's bytes to `saveHandle`: from now on they are that file's. */
     public async replaceWithHandleBackedDocument(
         ref: string,
         options: {fileSize: number; saveHandle?: FileSystemFileHandle | null; saveName?: string},
@@ -593,21 +666,15 @@ export class BrowserDocumentStore {
             updatedAt: Date.now(),
             closed: false,
             instance: Symbol('browser-document-entry'),
+            ...(options.saveName ? {saveName: options.saveName, fileName: options.saveName} : {}),
         });
-        if (options.saveName) {
-            entry.saveName = entry.fileName = options.saveName;
-        }
         await this.persistHandle(entry);
         this.attach(entry);
         this.emitRevision(entry, previous, 'replace-working-copy');
     }
 
-    /**
-     * Imports `fromRef`'s bytes anew as `ref`'s, the file as it was last saved: one commit makes them current and
-     * the baseline, with no history, so the document starts clean; the old bytes go once no manifest names them.
-     */
     public async replaceContent(ref: string, fromRef: string) {
-        const source = await this.externalSource(fromRef);
+        const source = await this.readableBlob(fromRef);
         const entry = await this.requireEntry(ref);
         await this.mutate(entry, this.tokenOf(entry), {kind: 'rewrite', source, drafts: 'clear', imported: true}, 'write');
     }
@@ -622,21 +689,11 @@ export class BrowserDocumentStore {
     }
 
     public async getSaveTarget(ref: string) {
-        const entry = await this.requireEntry(ref);
-        return {saveName: entry.saveName, saveKind: entry.saveKind, saveHandle: entry.saveHandle};
+        const {saveName, saveKind, saveHandle} = await this.requireEntry(ref);
+        return {saveName, saveKind, saveHandle};
     }
 
-    /**
-     * Save, or Save As with `saveAs`: commit `commit` into the bytes, check the destination against the
-     * baseline, publish. The caller asked for write permission before; the document's lock is held. Every window
-     * learns of a revision the Save committed whatever happens after the commit: the edits are in the working
-     * copy, unsaved until a Save publishes them, so a retry or Save As writes them once.
-     */
-    public async save(
-        ref: string,
-        token: TDocumentRevisionToken | null | undefined,
-        options: {commit?: string; saveAs?: string} = {},
-    ): Promise<TSaveResult> {
+    public async save(ref: string, token: TExpectedToken, options: {commit?: string; saveAs?: string} = {}): Promise<TSaveResult> {
         const entry = await this.requireEntry(ref);
         const session = this.requireSession(entry);
         const previous = this.tokenOf(entry);
@@ -644,33 +701,31 @@ export class BrowserDocumentStore {
             const checked = this.unwrapRevisionCheck(
                 entry,
                 token,
-                await session.save(token, {
-                    requireToken: entry.kind === 'working',
-                    ...(options.commit !== undefined ? {commitLease: options.commit} : {}),
-                    ...(options.saveAs !== undefined ? {saveAs: options.saveAs} : {}),
-                }),
+                await this.withReopen(
+                    session.save(token, {
+                        requireToken: entry.kind === 'working',
+                        ...(options.commit !== undefined ? {commitLease: options.commit} : {}),
+                        ...(options.saveAs !== undefined ? {saveAs: options.saveAs} : {}),
+                    }),
+                ),
             );
             if (checked.result.status === 'stale-revision') {
                 this.throwStale(entry, token);
             }
             return checked.result;
         } finally {
-            if (this.tokenOf(entry) !== previous) {
-                entry.file = null;
-                entry.fileSize = session.doc.state().current?.length ?? entry.fileSize;
-                entry.updatedAt = Date.now();
-                this.emitRevision(entry, previous, 'save-sync');
+            if (entry.session === session && this.tokenOf(entry) !== previous) {
+                this.commitEntry(entry, session.doc.state().current?.length ?? entry.fileSize, previous, 'save-sync');
             }
         }
     }
 
-    /** Undo or redo: makes `revision`, which the document keeps for its undo history, current again. Nothing is copied. */
-    public async restoreRevision(ref: string, revision: TDocumentRevisionToken, token: TDocumentRevisionToken | null | undefined) {
+    public async restoreRevision(ref: string, revision: TDocumentRevisionToken, token: TExpectedToken) {
         const entry = await this.requireEntry(ref);
         const outcome = this.unwrapRevisionCheck(
             entry,
             token,
-            await this.requireSession(entry).restore(token, revision, {requireToken: entry.kind === 'working'}),
+            await this.withReopen(this.requireSession(entry).restore(token, revision, {requireToken: entry.kind === 'working'})),
         );
         if (outcome.status === 'conflict') {
             if (outcome.sourceBackingUnavailable) {
@@ -681,58 +736,50 @@ export class BrowserDocumentStore {
             }
             throw new BrowserDocumentSourceChangedError(entry.ref);
         }
-        entry.file = null;
-        entry.fileSize = await this.sizeOf(entry);
-        entry.updatedAt = Date.now();
-        this.emitRevision(entry, requireDocumentRevisionToken(outcome.previousToken), 'write');
+        this.commitEntry(entry, await this.sizeOf(entry), requireDocumentRevisionToken(outcome.previousToken), 'write');
         return this.revisionInfo(entry);
     }
 
-    /** Keeps exactly the revisions `revisions` names for undo and redo; the files no revision names any more go. */
     public async retainRevisions(ref: string, revisions: readonly TDocumentRevisionToken[]) {
-        await this.requireSession(await this.requireEntry(ref)).retain(revisions);
+        const entry = await this.requireEntry(ref);
+        entry.retainedRevisions = [...revisions];
+        await this.withReopen(this.requireSession(entry).retain(revisions));
     }
 
-    /**
-     * Stages an uncommitted append past `token`; materializes from destination only against baseline unless
-     * `allowForeignBase` is true (Save As rescue).
-     */
     public async stageAppend(
         ref: string,
-        token: TDocumentRevisionToken | null | undefined,
+        token: TExpectedToken,
         append: (file: IStoreFile, base: number) => Promise<number | null>,
         {allowForeignBase = false}: {allowForeignBase?: boolean} = {},
     ) {
         const entry = await this.requireEntry(ref);
-        const outcome = await this.requireSession(entry).stageAppend(token, append, {
-            allowForeignBase,
-            requireToken: entry.kind === 'working',
-        });
-        if (outcome.status === 'missing-revision') {
-            throw createMissingRevisionError({documentRef: entry.ref});
-        }
-        if (outcome.status === 'stale-revision') {
-            this.throwStale(entry, token);
-        }
+        const outcome = this.unwrapRevisionCheck(
+            entry,
+            token,
+            await this.withReopen(
+                this.requireSession(entry).stageAppend(token, append, {allowForeignBase, requireToken: entry.kind === 'working'}),
+            ),
+        );
         if (outcome.status === 'conflict') {
             throw new BrowserDocumentSourceChangedError(entry.ref);
         }
         return outcome.status === 'staged' ? outcome.lease : null;
     }
 
-    /** Commits the pending append `lease` names as the document's next revision; drafts described the bytes before it. */
-    public async commitAppend(ref: string, token: TDocumentRevisionToken | null | undefined, lease: string) {
+    public async commitAppend(ref: string, token: TExpectedToken, lease: string) {
         const entry = await this.requireEntry(ref);
-        const outcome = await this.requireSession(entry).commitAppend(token, lease, {requireToken: entry.kind === 'working'});
-        return this.settleOutcome(entry, token, outcome, 'write');
+        return this.settleOutcome(
+            entry,
+            token,
+            await this.withReopen(this.requireSession(entry).commitAppend(token, lease, {requireToken: entry.kind === 'working'})),
+            'write',
+        );
     }
 
-    /** Cuts the pending append `lease` names; nothing when another append or revision followed it. */
     public async discardAppend(ref: string, lease: string) {
         await this.entries.get(ref)?.session?.discardAppend(lease);
     }
 
-    /** The document's bytes with the pending append `lease` names, read in place; valid while the lease lasts. */
     public async appendedContent(ref: string, lease: string): Promise<Blob> {
         const entry = await this.requireEntry(ref);
         return this.requireSession(entry).withPendingAppend(lease, async (path, length) =>
@@ -740,17 +787,14 @@ export class BrowserDocumentStore {
         );
     }
 
-    /** Lets go of a document this window keeps no view of; its bytes stay in the store. */
     public unload(ref: string) {
         const entry = this.entries.get(ref);
-        if (!entry?.doc || entry.memoryOnly) {
-            return;
+        if (entry?.doc && !entry.memoryOnly) {
+            this.entries.delete(ref);
+            void this.closeEntry(entry);
         }
-        this.entries.delete(ref);
-        void this.closeEntry(entry);
     }
 
-    /** Removes the document and its bytes. A handle-backed file is only forgotten. */
     public async remove(ref: string) {
         const entry = this.entries.get(ref);
         if (entry) {
@@ -763,31 +807,26 @@ export class BrowserDocumentStore {
         await this.removeRecentFile(ref);
     }
 
-    /** Removes a closed document unless Recent Files keeps it. */
     public async cleanupDetachedDocument(ref: string) {
         const entry = this.entries.get(ref);
-        if (!entry) {
-            return false;
-        }
-        if (entry.retention === 'durable' && entry.kind !== 'working') {
-            this.unload(ref);
+        if (!entry || (entry.retention === 'durable' && entry.kind !== 'working')) {
+            if (entry) {
+                this.unload(ref);
+            }
             return false;
         }
         await this.remove(ref);
         return true;
     }
 
-    /** Hands a document to another window: closes it here and releases its lock, keeping its bytes. */
     public async release(ref: string) {
         const entry = this.entries.get(ref);
-        if (!entry) {
-            return;
+        if (entry) {
+            this.entries.delete(ref);
+            await this.closeEntry(entry);
         }
-        this.entries.delete(ref);
-        await this.closeEntry(entry);
     }
 
-    /** Names the source of a working copy this window opens later: a moved tab's or a recovered one's. */
     public nameSource(ref: string, sourceRef: TDocumentRef) {
         const entry = this.entries.get(ref);
         if (!entry) {
@@ -797,10 +836,8 @@ export class BrowserDocumentStore {
         }
     }
 
-    /** The store document behind `ref`, for the window's recovery writer. */
     public async documentOf(ref: string) {
-        const entry = await this.ensureEntry(ref).catch(() => null);
-        return entry?.doc ?? null;
+        return (await this.ensureEntry(ref).catch(() => null))?.doc ?? null;
     }
 
     public openEntries() {
@@ -811,20 +848,18 @@ export class BrowserDocumentStore {
         const entry = await this.requireEntry(ref);
         if (entry.retention === 'transient' || entry.memoryOnly) {
             await this.recentFiles.remove(ref);
-            return;
+        } else {
+            await this.recentFiles.touch(entry.ref, entry.saveName || entry.fileName, await this.sizeOf(entry).catch(() => entry.fileSize));
         }
-        // A file whose handle refuses reading now is still the person's Recent file, at its last known size.
-        await this.recentFiles.touch(entry.ref, entry.saveName || entry.fileName, await this.sizeOf(entry).catch(() => entry.fileSize));
     }
 
-    /** Whether `ref` still has its file handle or its stored copy, without opening it. */
+    private async hasStoredDoc(store: IDocumentStore | null, id: string) {
+        return store !== null && (await store.port.list('documents')).includes(id);
+    }
+
     public async isStored(ref: string) {
         const id = browserDocumentRefId(ref);
-        if (this.entries.has(ref) || (await fileHandleStore.get(id))) {
-            return true;
-        }
-        const {durable} = await this.stores();
-        return durable !== null && (await durable.port.list('documents')).includes(id);
+        return this.entries.has(ref) || Boolean(await fileHandleStore.get(id)) || this.hasStoredDoc((await this.stores()).durable, id);
     }
 
     public getRecentFiles() {
@@ -839,7 +874,6 @@ export class BrowserDocumentStore {
         await this.recentFiles.clear();
     }
 
-    /** Remembers the view with the Recent entry of the source `workingCopy` was opened from. */
     public async rememberRecentReadingView(workingCopy: string, view: IRecentReadingView) {
         const source = await this.admittedSource(workingCopy);
         if (source) {
@@ -847,13 +881,11 @@ export class BrowserDocumentStore {
         }
     }
 
-    /** The view a reader left the source of `workingCopy` at, if that source still has the bytes it was left on. */
     public async readRecentReadingView(workingCopy: string) {
         const source = await this.admittedSource(workingCopy);
         return source ? this.recentFiles.readReadingView(source.sourceRef, source.witness) : null;
     }
 
-    /** The source a reading view belongs to, with the witness of the file it was opened on. */
     private async admittedSource(ref: string) {
         const entry = await this.ensureEntry(ref).catch(() => null);
         if (!entry) {
@@ -861,10 +893,9 @@ export class BrowserDocumentStore {
         }
         const sourceRef = entry.kind === 'working' ? entry.sourceRef : entry.ref;
         if (entry.doc) {
-            const baseline = entry.doc.state().baseline;
+            const {baseline} = entry.doc.state();
             return sourceRef && baseline ? {sourceRef, witness: baseline} : null;
         }
-        // A picked file read in place, as a DjVu is, is its own source: its present bytes decide.
         await this.refreshPickedFile(entry).catch(() => undefined);
         return {sourceRef: entry.ref, witness: fileFact(await this.fileOf(entry))};
     }
@@ -874,85 +905,86 @@ export class BrowserDocumentStore {
         return entry;
     }
 
-    /** Has this window name `entry`'s directory for recovery: before a change that is not part of opening it, as desktop does. */
     public async nameEdited(entry: IBrowserDocumentEntry): Promise<boolean> {
-        if (!entry.doc || entry.memoryOnly) {
-            return false;
-        }
-        return (await this.onDirectoryEdited(entry.doc.id)) !== false;
+        return Boolean(entry.doc && !entry.memoryOnly && (await this.onDirectoryEdited(entry.doc.id)) !== false);
     }
 
-    /** A directory this window takes with unsaved work in it (recovered, handed over, made from unsaved bytes) is named at once. */
     private async hold(entry: IBrowserDocumentEntry) {
-        if (entry.doc?.state().dirty) {
-            await this.nameEdited(entry);
+        this.attach(entry);
+        try {
+            if (entry.doc?.state().dirty) {
+                await this.nameEdited(entry);
+            }
+            await this.syncDurableStore(entry);
+            return entry;
+        } catch (error) {
+            if (this.entries.get(entry.ref) === entry) {
+                this.entries.delete(entry.ref);
+            }
+            await entry.doc?.close().catch(() => undefined);
+            throw error;
         }
-        return this.attach(entry);
     }
 
-    private baseEntry(ref: TDocumentRef, meta: TEntryMeta): IBrowserDocumentEntry {
+    private baseEntry(ref: TDocumentRef, meta: TEntryMeta, extra?: Partial<IBrowserDocumentEntry>): IBrowserDocumentEntry {
         const fileName = meta.fileName ?? getBrowserDocumentFileName(ref);
-        return {
-            ref,
-            fileName,
-            mimeType: meta.mimeType ?? (/\.pdf$/iu.test(fileName) ? 'application/pdf' : 'application/octet-stream'),
-            kind: meta.kind ?? 'source',
-            retention: meta.retention ?? 'durable',
-            saveKind: meta.saveKind ?? (/\.docx$/iu.test(fileName) ? 'docx' : /\.pdf$/iu.test(fileName) ? 'pdf' : 'generic'),
-            saveName: fileName,
-            saveHandle: null,
-            ...(meta.sourceRef ? {sourceRef: meta.sourceRef} : {}),
-            memoryOnly: false,
-            fileSize: 0,
-            updatedAt: Date.now(),
-            doc: null,
-            session: null,
-            store: null,
-            file: null,
-            release: null,
-            instance: Symbol('browser-document-entry'),
-        };
+        return Object.assign(
+            {
+                ref,
+                fileName,
+                mimeType: meta.mimeType ?? (/\.pdf$/iu.test(fileName) ? 'application/pdf' : 'application/octet-stream'),
+                kind: meta.kind ?? 'source',
+                retention: meta.retention ?? 'durable',
+                saveKind: meta.saveKind ?? (/\.docx$/iu.test(fileName) ? 'docx' : /\.pdf$/iu.test(fileName) ? 'pdf' : 'generic'),
+                saveName: fileName,
+                saveHandle: null,
+                ...(meta.sourceRef ? {sourceRef: meta.sourceRef} : {}),
+                memoryOnly: false,
+                fileSize: 0,
+                updatedAt: Date.now(),
+                doc: null,
+                session: null,
+                store: null,
+                file: null,
+                release: null,
+                instance: Symbol('browser-document-entry'),
+            },
+            extra,
+        );
     }
 
-    private fileEntry(ref: TDocumentRef, file: File, meta: TEntryMeta) {
-        return Object.assign(this.baseEntry(ref, {fileName: file.name, mimeType: file.type || undefined, ...meta}), {
-            file,
-            fileSize: file.size,
-        });
-    }
-
-    private docEntry(ref: TDocumentRef, doc: DocumentDirectory, store: IDocumentStore, release: () => void, meta: TEntryMeta) {
-        const entry = this.baseEntry(ref, meta);
+    private createSession(entry: IBrowserDocumentEntry, doc: DocumentDirectory) {
         const instance = entry.instance;
-        const session = new OpenDocument(doc, {
+        return new OpenDocument(doc, {
             codec: BROWSER_REVISION_CODEC,
             isActive: () => this.isActiveEntry(entry, doc, instance),
             beforeEdit: () => this.nameEdited(entry),
         });
-        return Object.assign(entry, {doc, session, store, release, fileSize: doc.state().current?.length ?? 0});
+    }
+
+    private docEntry(ref: TDocumentRef, doc: DocumentDirectory, store: IDocumentStore, release: () => void, meta: TEntryMeta) {
+        const entry = this.baseEntry(ref, meta, {doc, store, release, fileSize: doc.state().current?.length ?? 0});
+        entry.session = this.createSession(entry, doc);
+        return entry;
     }
 
     private async attachHandleSource(ref: TDocumentRef, handle: FileSystemFileHandle, file: File | null, meta: TEntryMeta) {
-        const entry = this.baseEntry(ref, {fileName: handle.name, ...meta});
-        entry.saveHandle = handle;
-        entry.saveName = handle.name;
-        entry.file = file ?? (await handle.getFile().catch(() => null));
-        entry.fileSize = entry.file?.size ?? 0;
-        this.attach(entry);
+        const current = file ?? (await handle.getFile().catch(() => null));
+        const entry = this.attach(
+            this.baseEntry(
+                ref,
+                {fileName: handle.name, ...meta},
+                {saveHandle: handle, saveName: handle.name, file: current, fileSize: current?.size ?? 0},
+            ),
+        );
         await this.persistHandle(entry);
         return entry;
     }
 
-    /** Recent Files and documents saved to the file reopen it after a reload through the stored handle. */
     private async persistHandle(entry: IBrowserDocumentEntry) {
-        if (!entry.saveHandle) {
-            return;
-        }
-        const key = browserDocumentRefId(entry.ref);
-        if (entry.retention === 'durable') {
-            await storeFileHandle(key, entry.saveHandle);
-        } else {
-            rememberFileHandle(key, entry.saveHandle);
+        if (entry.saveHandle) {
+            const key = browserDocumentRefId(entry.ref);
+            await (entry.retention === 'durable' ? storeFileHandle : rememberFileHandle)(key, entry.saveHandle);
         }
     }
 
@@ -964,12 +996,6 @@ export class BrowserDocumentStore {
         return release;
     }
 
-    /**
-     * Creates a store document under its lock, taken before the directory exists so that no other window's
-     * startup collection can take it for an abandoned one. A store that refuses the bytes (full, unavailable)
-     * leaves the document in memory, which is said once. A creation that fails for any other reason, such as a
-     * download that breaks part way, removes what it wrote before letting go of the lock.
-     */
     private async createEntry(ref: TDocumentRef, init: Omit<TDocumentInit, 'ext' | 'id'>, meta: TEntryMeta) {
         const {durable, memory} = await this.stores();
         const id = browserDocumentRefId(ref);
@@ -978,19 +1004,18 @@ export class BrowserDocumentStore {
         const documentInit = {...init, id, name: fileName} as TDocumentInit;
         let store = durable ?? memory;
         let doc: DocumentDirectory | null = null;
-        let existedInStore = (await store.port.list('documents').catch((): string[] => [])).includes(id);
+        let existedInStore = await this.hasStoredDoc(store, id).catch(() => false);
+        const cleanNew = () => (!existedInStore ? store.port.remove(`documents/${id}`).catch(() => undefined) : undefined);
         try {
             try {
                 doc = await createDocument(store, documentInit);
             } catch (error) {
-                if (!durable || !isQuotaError(error)) {
+                if (!durable || !isErrorName(error, 'QuotaExceededError')) {
                     throw error;
                 }
-                if (!existedInStore) {
-                    await store.port.remove(`documents/${id}`).catch(() => undefined);
-                }
+                await cleanNew();
                 store = memory;
-                existedInStore = (await store.port.list('documents').catch((): string[] => [])).includes(id);
+                existedInStore = await this.hasStoredDoc(store, id).catch(() => false);
                 doc = await createDocument(store, documentInit);
             }
             const entry = this.docEntry(ref, doc, store, release, {...meta, fileName});
@@ -1001,22 +1026,19 @@ export class BrowserDocumentStore {
             return await this.hold(entry);
         } catch (error) {
             await doc?.close().catch(() => undefined);
-            if (!existedInStore) {
-                await store.port.remove(`documents/${id}`).catch(() => undefined);
-            }
+            await cleanNew();
             release();
             throw error;
         }
     }
 
-    /** A ref this window did not open: a stored handle, or a store directory another window let go of. */
     private async hydrate(ref: string): Promise<IBrowserDocumentEntry | null> {
         const parsed = parseDocumentRef(ref);
-        if (!parsed) {
-            return null;
-        }
         let id: string;
         try {
+            if (!parsed) {
+                return null;
+            }
             id = browserDocumentRefId(parsed);
         } catch {
             return null;
@@ -1027,31 +1049,22 @@ export class BrowserDocumentStore {
             return this.attachHandleSource(parsed, stored.handle, null, {saveKind: /\.pdf$/iu.test(stored.name) ? 'pdf' : 'generic'});
         }
         const {durable} = await this.stores();
-        if (!durable || !(await durable.port.list('documents')).includes(id)) {
+        if (!durable || !(await this.hasStoredDoc(durable, id))) {
             return null;
         }
         const release = await this.lock(id, DOCUMENT_LOCK_WAIT_MS);
         try {
-            const store = durable;
-            const doc = await openDocument(store, id);
+            const doc = await openDocument(durable, id);
             const sourceRef = this.namedSources.get(parsed);
-            // A named directory is a working copy; one opened from Recent Files is a stored source.
-            const entry = await this.hold(
-                this.docEntry(
-                    parsed,
-                    doc,
-                    store,
-                    release,
-                    sourceRef ? {kind: 'working', retention: 'transient', ...(sourceRef === parsed ? {} : {sourceRef})} : {},
-                ),
-            );
-            const key = handleKeyOf(doc.state().destination);
-            if (key !== null && !doc.state().current) {
-                const handle = await resolveFileHandle(key);
-                if (handle) {
-                    await assertReadPermission(handle, true);
-                    entry.file = await handle.getFile();
-                }
+            const meta: TEntryMeta = sourceRef
+                ? {kind: 'working', retention: 'transient', ...(sourceRef === parsed ? {} : {sourceRef})}
+                : {};
+            const entry = await this.hold(this.docEntry(parsed, doc, durable, release, meta));
+            const key = handleKeyOf(entry.doc?.state().destination ?? null);
+            const handle = key !== null && !entry.doc?.state().current ? await resolveFileHandle(key) : null;
+            if (handle) {
+                await assertReadPermission(handle, true);
+                entry.file = await handle.getFile();
             }
             return entry;
         } catch (error) {
@@ -1065,11 +1078,12 @@ export class BrowserDocumentStore {
         try {
             await entry.endStream?.(canceledWrite());
             await entry.doc?.close();
-            if (removeBytes && entry.doc && entry.store) {
-                await entry.store.port.remove(`documents/${entry.doc.id}`);
-            }
-            if (removeBytes && entry.saveHandle && !entry.doc && entry.kind !== 'working') {
-                await fileHandleStore.delete(browserDocumentRefId(entry.ref)).catch(() => undefined);
+            if (removeBytes) {
+                if (entry.doc && entry.store) {
+                    await entry.store.port.remove(`documents/${entry.doc.id}`);
+                } else if (entry.saveHandle && entry.kind !== 'working') {
+                    await fileHandleStore.delete(browserDocumentRefId(entry.ref)).catch(() => undefined);
+                }
             }
         } finally {
             entry.release?.();
@@ -1084,20 +1098,6 @@ export class BrowserDocumentStore {
         return entry.session;
     }
 
-    /** What a new document copied from `ref` reads: a store path within one store, otherwise a Blob. */
-    private async externalSource(ref: string): Promise<TExternalSource> {
-        const entry = await this.requireEntry(ref);
-        const current = entry.doc?.state().current;
-        if (entry.doc && current) {
-            const parts: Blob[] = [];
-            for (let offset = 0; offset < current.length; offset += BROWSER_DOCUMENT_CHUNK_SIZE) {
-                parts.push(bytesBlob(await entry.doc.read(offset, Math.min(BROWSER_DOCUMENT_CHUNK_SIZE, current.length - offset))));
-            }
-            return new Blob(parts);
-        }
-        return this.fileOf(entry);
-    }
-
     private async fileOf(entry: IBrowserDocumentEntry) {
         if (entry.file) {
             return entry.file;
@@ -1110,43 +1110,34 @@ export class BrowserDocumentStore {
         return (entry.file = await handle.getFile());
     }
 
-    /** A picked file read in place is looked at again; a store document never changes behind its manifest. */
     private async refreshPickedFile(entry: IBrowserDocumentEntry) {
-        if (entry.doc || !entry.saveHandle) {
-            return;
-        }
-        const previous = this.tokenOf(entry);
-        entry.file = await entry.saveHandle.getFile();
-        entry.fileSize = entry.file.size;
-        if (this.tokenOf(entry) !== previous) {
-            entry.updatedAt = Date.now();
-            this.emitRevision(entry, previous, 'browser-handle-refresh');
+        if (!entry.doc && entry.saveHandle) {
+            const previous = this.tokenOf(entry);
+            entry.file = await entry.saveHandle.getFile();
+            entry.fileSize = entry.file.size;
+            if (this.tokenOf(entry) !== previous) {
+                entry.updatedAt = Date.now();
+                this.emitRevision(entry, previous, 'browser-handle-refresh');
+            }
         }
     }
 
     private async sizeOf(entry: IBrowserDocumentEntry) {
-        const current = entry.doc?.state().current;
-        if (current) {
-            return current.length;
-        }
-        return (await this.fileOf(entry)).size;
+        return entry.doc?.state().current?.length ?? (await this.fileOf(entry)).size;
     }
 
     private async readEntryRange(entry: IBrowserDocumentEntry, offset: number, length: number) {
         if (entry.doc?.state().current) {
             return entry.doc.read(offset, length);
         }
-        const file = await this.fileOf(entry);
-        return new Uint8Array(await file.slice(offset, offset + length).arrayBuffer());
+        return new Uint8Array(await (await this.fileOf(entry)).slice(offset, offset + length).arrayBuffer());
     }
 
-    /** A store document's revision is its directory and the revision its manifest names; 1 is its destination's bytes. */
     public tokenOf(entry: IBrowserDocumentEntry) {
-        if (entry.session) {
-            return requireDocumentRevisionToken(entry.session.token());
-        }
         return requireDocumentRevisionToken(
-            `drt1:browser:${browserDocumentRefId(entry.ref)}:f${entry.file?.lastModified ?? 0}-${entry.file?.size ?? 0}`,
+            entry.session
+                ? entry.session.token()
+                : `drt1:browser:${browserDocumentRefId(entry.ref)}:f${entry.file?.lastModified ?? 0}-${entry.file?.size ?? 0}`,
         );
     }
 
@@ -1161,7 +1152,7 @@ export class BrowserDocumentStore {
         };
     }
 
-    private throwStale(entry: IBrowserDocumentEntry, expected: TDocumentRevisionToken | null | undefined): never {
+    private throwStale(entry: IBrowserDocumentEntry, expected: TExpectedToken): never {
         throw createStaleRevisionError({
             documentRef: entry.ref,
             expectedRevision: requireDocumentRevisionToken(expected ?? 'none'),
@@ -1180,7 +1171,7 @@ export class BrowserDocumentStore {
 
     private unwrapRevisionCheck<T extends {status: string}>(
         entry: IBrowserDocumentEntry,
-        expected: TDocumentRevisionToken | null | undefined,
+        expected: TExpectedToken,
         result: T,
     ): Exclude<T, {status: 'missing-revision' | 'stale-revision'}> {
         if (result.status === 'missing-revision') {
@@ -1194,32 +1185,39 @@ export class BrowserDocumentStore {
 
     private async mutate(
         entry: IBrowserDocumentEntry,
-        token: TDocumentRevisionToken | null | undefined,
+        token: TExpectedToken,
         mutation: TMutation,
         reason: TDocumentRevisionChangeReason,
         announce = true,
-        options: {
-            strictRevisionToken?: boolean | undefined;
-            expectedByteRevision?: number | undefined;
-            expectedInstance?: symbol | undefined;
-        } = {},
+        options: Pick<IWriteOptions, 'strictRevisionToken' | 'expectedByteRevision' | 'expectedInstance'> = {},
     ) {
         const session = this.requireSession(entry);
         if (options.expectedInstance !== undefined && !this.isActiveEntry(entry, entry.doc, options.expectedInstance)) {
             this.throwStale(entry, token);
         }
-        const outcome = await session.mutate(token, mutation, {
-            requireToken: entry.kind === 'working',
-            strict: options.strictRevisionToken ?? false,
-            openOnly: reason === 'open',
-            expectedByteRevision: options.expectedByteRevision,
-        });
+        const outcome = await this.withReopen(
+            session.mutate(token, mutation, {
+                requireToken: entry.kind === 'working',
+                strict: options.strictRevisionToken ?? false,
+                openOnly: reason === 'open',
+                expectedByteRevision: this.localByteRevision(entry, options.expectedByteRevision),
+            }),
+        );
         return this.settleOutcome(entry, token, outcome, reason, announce);
+    }
+
+    private commitEntry(entry: IBrowserDocumentEntry, size: number, prev?: TDocumentRevisionToken, reason?: TDocumentRevisionChangeReason) {
+        entry.file = null;
+        entry.fileSize = size;
+        entry.updatedAt = Date.now();
+        if (reason) {
+            this.emitRevision(entry, prev, reason);
+        }
     }
 
     private settleOutcome(
         entry: IBrowserDocumentEntry,
-        token: TDocumentRevisionToken | null | undefined,
+        token: TExpectedToken,
         outcome: TOpenMutationResult,
         reason: TDocumentRevisionChangeReason,
         announce = true,
@@ -1228,12 +1226,8 @@ export class BrowserDocumentStore {
         if (checked.status === 'conflict') {
             throw new BrowserDocumentSourceChangedError(entry.ref);
         }
-        entry.file = null;
-        entry.fileSize = checked.revision.length;
-        entry.updatedAt = Date.now();
-        if (announce) {
-            this.emitRevision(entry, requireDocumentRevisionToken(checked.previousToken), reason);
-        }
+        const prev = requireDocumentRevisionToken(checked.previousToken);
+        this.commitEntry(entry, checked.revision.length, prev, announce ? reason : undefined);
         return this.revisionInfo(entry);
     }
 

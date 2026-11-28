@@ -2,7 +2,7 @@ use crate::{
     calibration::PageCalibration, edge_artifacts::is_scanner_border_shadow, CleanupOptions,
     NormalizedZonePolygon, PictureZoneLayer,
 };
-use rayon::prelude::*;
+use scan_primitives::parallel::prelude::*;
 use scan_primitives::{
     distance::squared_euclidean_distance,
     morphology::{

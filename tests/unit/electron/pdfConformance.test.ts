@@ -96,9 +96,9 @@ vi.mock('@electron/resources/jobBroker', async (importOriginal) => {
 beforeEach(async () => {
     const {JobBroker} = await vi.importActual<typeof TJobBrokerModule>('@electron/resources/jobBroker');
     mocks.broker.current = new JobBroker({
-        cpuTokens: 2,
+        cpuTokens: 1,
         estimatedResidentBytes: 512 * 1024 * 1024,
-        nativeProcesses: 2,
+        nativeProcesses: 1,
         ioWeight: 1,
     });
 });
@@ -182,8 +182,11 @@ function createNativeStructuralFacts(
         tagged?: boolean;
         acroForm?: boolean;
         xfa?: boolean;
+        pdfaLevel?: string | null;
+        includePdfaLevel?: boolean;
     } = {},
 ) {
+    const includePdfaLevel = options.includePdfaLevel ?? options.pdfaLevel !== undefined;
     return Buffer.from(
         JSON.stringify({
             isSigned: options.signed ?? false,
@@ -191,6 +194,7 @@ function createNativeStructuralFacts(
             isTagged: options.tagged ?? false,
             hasAcroForm: options.acroForm ?? false,
             hasXfa: options.xfa ?? false,
+            ...(includePdfaLevel ? {pdfaLevel: options.pdfaLevel ?? null} : {}),
         }),
         'utf8',
     );
@@ -209,7 +213,7 @@ describe('analyzePdfConformanceFile', () => {
             isFile: () => true,
             size: 9,
         });
-        mocks.setFactsBytes(createNativeStructuralFacts());
+        mocks.setFactsBytes(createNativeStructuralFacts({includePdfaLevel: true}));
     });
 
     it('runs conformance analysis directly in main under a job-broker lease', async () => {
@@ -227,7 +231,7 @@ describe('analyzePdfConformanceFile', () => {
         });
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/mock/page-ops',
-            ['pdf-conformance', '--input', '/tmp/input.pdf'],
+            ['pdf-conformance', '--input', '/tmp/input.pdf', '--with-markers'],
             expect.objectContaining({
                 brokerRun: expect.objectContaining({
                     lease: expect.objectContaining({token: expect.any(String)}),
@@ -235,6 +239,8 @@ describe('analyzePdfConformanceFile', () => {
                 }),
             }),
         );
+        expect(mocks.open).not.toHaveBeenCalled();
+        expect(mocks.rangeRead).not.toHaveBeenCalled();
         expect(mocks.loggerWarn).not.toHaveBeenCalled();
     });
 
@@ -254,6 +260,45 @@ describe('analyzePdfConformanceFile', () => {
 
         expect(mocks.loggerWarn).not.toHaveBeenCalled();
     });
+
+    it('admits conformance analysis on a 2-core 4 GiB low-tier broker capacity', async () => {
+        const {JobBroker, resolveMainJobBrokerCapacity} = await vi.importActual<typeof TJobBrokerModule>('@electron/resources/jobBroker');
+        mocks.broker.current = new JobBroker(
+            resolveMainJobBrokerCapacity({
+                logicalCpus: 2,
+                totalRamBytes: 4 * 1024 ** 3,
+                safeMode: false,
+                detectedTier: 'low',
+                performanceMode: 'auto',
+                tier: 'low',
+            }),
+        );
+
+        const result = await analyzePdfConformanceFile('/tmp/low-tier.pdf');
+        expect(result.canIncrementalSave).toBe(true);
+    });
+
+    it('bounds broker admission wait with timeoutMs so conformance preflight cannot stall indefinitely', async () => {
+        const blocker = await mocks.broker.current!.acquire({
+            ownerId: 'occupant',
+            kind: 'occupant',
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 512 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        });
+        try {
+            await expect(analyzePdfConformanceFile('/tmp/blocked.pdf', {timeoutMs: 25})).rejects.toThrow(
+                'PDF conformance analysis timed out after 25ms',
+            );
+            expect(mocks.broker.current!.getSnapshot().queued).toBe(0);
+        } finally {
+            blocker.release();
+        }
+    });
 });
 
 describe('analyzePdfConformanceFileDirect', () => {
@@ -264,7 +309,7 @@ describe('analyzePdfConformanceFileDirect', () => {
             stderr: '',
             exitCode: 0,
         });
-        mocks.setFactsBytes(createNativeStructuralFacts());
+        mocks.setFactsBytes(createNativeStructuralFacts({includePdfaLevel: true}));
         mocks.setRangeBytes(Buffer.from('%PDF-1.7\n', 'latin1'));
         mocks.stat.mockResolvedValue({
             isFile: () => true,
@@ -272,24 +317,8 @@ describe('analyzePdfConformanceFileDirect', () => {
         });
     });
 
-    it('uses native qpdf structure and bounded marker reads without a whole-file read', async () => {
-        mocks.setRangeBytes(
-            Buffer.from(
-                `
-            %PDF-1.7
-            <pdfaid:part>2</pdfaid:part>
-            <pdfaid:conformance>b</pdfaid:conformance>
-            /ByteRange [0 10 20 30]
-            /Encrypt 42 0 R
-        `,
-                'latin1',
-            ),
-        );
-        mocks.stat.mockResolvedValueOnce({
-            isFile: () => true,
-            size: 160,
-        });
-        mocks.setFactsBytes(createNativeStructuralFacts({encrypted: true}));
+    it('delegates full-marker scanning to Rust evb-pdf-page-ops without main-process file reads', async () => {
+        mocks.setFactsBytes(createNativeStructuralFacts({encrypted: true, pdfaLevel: 'PDF/A-2B'}));
 
         const result = await analyzePdfConformanceFileDirect('/tmp/partial.pdf');
 
@@ -299,34 +328,46 @@ describe('analyzePdfConformanceFileDirect', () => {
             pdfaLevel: 'PDF/A-2B',
             canIncrementalSave: false,
         });
-        expect(mocks.open).toHaveBeenCalledWith('/tmp/partial.pdf', 'r');
-        expect(mocks.rangeRead).toHaveBeenCalledWith(expect.any(Buffer), 0, 160, 0n);
-        expect(mocks.rangeRead.mock.calls[0]?.[2]).toBeLessThanOrEqual(4 * 1024 * 1024);
-        expect(mocks.close).toHaveBeenCalledTimes(1);
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/mock/page-ops',
+            ['pdf-conformance', '--input', '/tmp/partial.pdf', '--with-markers'],
+            expect.objectContaining({
+                maxStdoutBytes: 64 * 1024,
+                rejectOnStdoutTruncation: true,
+            }),
+        );
+        expect(mocks.open).not.toHaveBeenCalled();
+        expect(mocks.rangeRead).not.toHaveBeenCalled();
     });
 
-    it('scans conformance markers across bounded windows without decoding the whole PDF', async () => {
-        const scanBoundary = 4 * 1024 * 1024;
-        const data = Buffer.alloc(scanBoundary + 256, 0x20);
-        data.write('/ByteRange [0 10 20 30]', scanBoundary - 12, 'latin1');
-        data.write('/Encrypt 42 0 R', scanBoundary + 32, 'latin1');
-        data.write('<pdfaid:part>3</pdfaid:part><pdfaid:conformance>u</pdfaid:conformance>', scanBoundary + 64, 'latin1');
-        mocks.setRangeBytes(data);
-        mocks.stat.mockResolvedValueOnce({
-            isFile: () => true,
-            size: data.length,
-        });
-        mocks.setFactsBytes(createNativeStructuralFacts({encrypted: true}));
+    it('omits --with-markers when markerEvidence is structural-only', async () => {
+        mocks.setFactsBytes(createNativeStructuralFacts({encrypted: false}));
 
-        const result = await analyzePdfConformanceFileDirect('/tmp/large-partial.pdf');
+        const result = await analyzePdfConformanceFileDirect('/tmp/structural-only.pdf', {
+            markerEvidence: 'structural-only',
+        });
 
         expect(result).toMatchObject({
             isSigned: false,
-            isEncrypted: true,
-            pdfaLevel: 'PDF/A-3U',
-            canIncrementalSave: false,
+            isEncrypted: false,
+            pdfaLevel: null,
+            canIncrementalSave: true,
         });
-        expect(mocks.rangeRead.mock.calls.every((call) => call[2] <= 4 * 1024 * 1024)).toBe(true);
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/mock/page-ops',
+            ['pdf-conformance', '--input', '/tmp/structural-only.pdf'],
+            expect.any(Object),
+        );
+        expect(mocks.open).not.toHaveBeenCalled();
+    });
+
+    it('fails closed if full-marker native output omits pdfaLevel', async () => {
+        mocks.setFactsBytes(createNativeStructuralFacts({includePdfaLevel: false}));
+
+        await expect(analyzePdfConformanceFileDirect('/tmp/missing-pdfa-field.pdf')).rejects.toMatchObject({
+            name: 'PdfConformanceCapabilityError',
+            code: 'native-failure',
+        });
     });
 
     it('retains tagged, AcroForm, XFA, and save restriction semantics', async () => {
@@ -335,6 +376,7 @@ describe('analyzePdfConformanceFileDirect', () => {
                 tagged: true,
                 acroForm: true,
                 xfa: true,
+                pdfaLevel: null,
             }),
         );
 
@@ -356,54 +398,24 @@ describe('analyzePdfConformanceFileDirect', () => {
         });
     });
 
-    it('analyzes a sparse multi-gigabyte path without an encoded-size refusal', async () => {
-        mocks.stat.mockResolvedValueOnce({
-            isFile: () => true,
-            size: 2 * 1024 * 1024 * 1024 + 1,
-        });
-        mocks.setFactsBytes(createNativeStructuralFacts());
-        // The sparse fixture contains a PDF header and zero-filled holes.
-        // Marker parsing is covered with real cross-window bytes above; here
-        // use its known result while exercising every large-file range read.
-        const reads: Array<{
-            length: number;
-            position: number | bigint | null;
-        }> = [];
-        const normalRead = mocks.rangeRead.getMockImplementation()!;
-        mocks.rangeRead.mockImplementation(async (buffer, offset, length, position) => {
-            reads.push({
-                length,
-                position,
-            });
-            // Recording the buffer argument would retain two GiB of mock
-            // history. Keep the observable ranges and release each buffer.
-            mocks.rangeRead.mockClear();
-            buffer.fill(0, offset, offset + length);
-            return {bytesRead: length};
-        });
-        mocks.sparseMarkerResults = true;
-        try {
-            const result = await analyzePdfConformanceFileDirect('/tmp/sparse-2gib.pdf');
+    it('analyzes a large path in Rust without main-process JS range reads', async () => {
+        mocks.setFactsBytes(createNativeStructuralFacts({pdfaLevel: 'PDF/A-3U'}));
 
-            expect(result.canIncrementalSave).toBe(true);
-            expect(mocks.open).toHaveBeenCalledTimes(1);
-            expect(reads.length).toBeGreaterThan(500);
-            expect(reads.every((read) => read.length <= 4 * 1024 * 1024)).toBe(true);
-            expect(reads.at(-1)?.position).toBe(2n * 1024n * 1024n * 1024n);
-            expect(mocks.close).toHaveBeenCalledTimes(1);
-            expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
-                '/mock/page-ops',
-                ['pdf-conformance', '--input', '/tmp/sparse-2gib.pdf'],
-                expect.objectContaining({
-                    maxStdoutBytes: 64 * 1024,
-                    rejectOnStdoutTruncation: true,
-                }),
-            );
-        } finally {
-            mocks.sparseMarkerResults = false;
-            mocks.rangeRead.mockImplementation(normalRead);
-        }
-    }, 15_000);
+        const result = await analyzePdfConformanceFileDirect('/tmp/sparse-2gib.pdf');
+
+        expect(result.canIncrementalSave).toBe(true);
+        expect(result.pdfaLevel).toBe('PDF/A-3U');
+        expect(mocks.open).not.toHaveBeenCalled();
+        expect(mocks.rangeRead).not.toHaveBeenCalled();
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/mock/page-ops',
+            ['pdf-conformance', '--input', '/tmp/sparse-2gib.pdf', '--with-markers'],
+            expect.objectContaining({
+                maxStdoutBytes: 64 * 1024,
+                rejectOnStdoutTruncation: true,
+            }),
+        );
+    });
 
     it('fails with a typed capability error when qpdf structure is unavailable', async () => {
         mocks.runNativeToolCommand.mockRejectedValueOnce(new Error('qpdf unavailable'));
@@ -438,6 +450,36 @@ describe('analyzePdfConformanceFileDirect', () => {
                 }),
             }),
         );
+    });
+
+    it('scans marker evidence from the original file via --markers-only after qpdf corrupt-xref repair', async () => {
+        const corruptXrefError = Object.assign(new Error('corrupt xref table'), {code: 'corrupt-xref'});
+        mocks.runNativeToolCommand
+            .mockRejectedValueOnce(corruptXrefError)
+            .mockResolvedValueOnce({stdout: '', stderr: '', exitCode: 0})
+            .mockResolvedValueOnce({stdout: '', stderr: '', exitCode: 0})
+            .mockResolvedValueOnce({stdout: '', stderr: '', exitCode: 0});
+        // The mock wrapper returns `mocks.readFacts()` for every `pdf-conformance` call;
+        // provide full-shape JSON that satisfies both structural and markers-only schemas.
+        mocks.setFactsBytes(createNativeStructuralFacts({signed: false, encrypted: true, pdfaLevel: 'PDF/A-2B'}));
+
+        const result = await analyzePdfConformanceFileDirect('/tmp/corrupt-with-comment-markers.pdf');
+
+        expect(result.isEncrypted).toBe(true);
+        expect(result.pdfaLevel).toBe('PDF/A-2B');
+        expect(mocks.runNativeToolCommand).toHaveBeenNthCalledWith(
+            3,
+            '/mock/page-ops',
+            ['pdf-conformance', '--input', expect.stringContaining('repaired.pdf')],
+            expect.any(Object),
+        );
+        expect(mocks.runNativeToolCommand).toHaveBeenNthCalledWith(
+            4,
+            '/mock/page-ops',
+            ['pdf-conformance', '--input', '/tmp/corrupt-with-comment-markers.pdf', '--markers-only'],
+            expect.any(Object),
+        );
+        expect(mocks.open).not.toHaveBeenCalled();
     });
 });
 
@@ -727,9 +769,9 @@ describe('conformance admission through the main handler', () => {
         const {tmpdir} = await import('node:os');
         const {JobBroker} = await vi.importActual<typeof TJobBrokerModule>('@electron/resources/jobBroker');
         const resources = {
-            cpuTokens: 2,
+            cpuTokens: 1,
             estimatedResidentBytes: 512 * 1024 * 1024,
-            nativeProcesses: 2,
+            nativeProcesses: 1,
             ioWeight: 1,
         };
         const broker = new JobBroker(resources);
@@ -822,6 +864,7 @@ describe('conformance admission through the main handler', () => {
             isTagged: false,
             hasAcroForm: false,
             hasXfa: false,
+            pdfaLevel: null,
         });
         return {
             broker,

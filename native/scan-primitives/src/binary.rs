@@ -1,4 +1,4 @@
-use rayon::prelude::*;
+use crate::parallel::prelude::*;
 
 const PARALLEL_PIXELS: usize = 65_536;
 

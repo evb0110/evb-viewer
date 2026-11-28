@@ -195,6 +195,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             }
             annotationLayer.replaceChildren();
         }
+        annotationLayerRenderer.releasePageLinks(pageNumber);
         if (container) {
             delete container.dataset.pageLayerReadiness;
             textLayerRenderer.clearOcrDebug(container);

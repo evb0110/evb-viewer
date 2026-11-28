@@ -69,7 +69,7 @@ use crate::{
     },
     CleanupOptions, OrthogonalRotation, OutputMode, ResolvedOutputMode,
 };
-use rayon::prelude::*;
+use scan_primitives::parallel::prelude::*;
 use scan_primitives::{
     distance::squared_euclidean_distance,
     morphology::{dilate, erode, erode_gray},

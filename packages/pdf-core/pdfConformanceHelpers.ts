@@ -1,7 +1,7 @@
 import type {IPdfConformanceProfile, TPdfConformanceProfileBase, TPdfaLevel} from '@contracts/pdfConformance';
 
-const PDFA_PART_PATTERN = /<pdfaid:part>\s*([^<\s]+)\s*<\/pdfaid:part>/iu;
-const PDFA_CONFORMANCE_PATTERN = /<pdfaid:conformance>\s*([^<\s]+)\s*<\/pdfaid:conformance>/iu;
+const PDFA_PART_PATTERN = /<pdfaid:part>\s*([^<\s]{1,256})\s*<\/pdfaid:part>/iu;
+const PDFA_CONFORMANCE_PATTERN = /<pdfaid:conformance>\s*([^<\s]{1,256})\s*<\/pdfaid:conformance>/iu;
 const PDF_ENCRYPT_PATTERN = /\/Encrypt\b/u;
 export const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
 const pdfBinaryDecoder = new TextDecoder('latin1');
@@ -120,22 +120,142 @@ export function getPdfLosslessOptimizationSkipReason(profile: IPdfConformancePro
     return null;
 }
 
-/** Bounded text windows, including markers crossing a window boundary. */
-export function scanPdfMarkerEvidence(data: Uint8Array): TPdfConformanceMarkerEvidence {
-    let isEncrypted = false;
-    let pdfaLevel: TPdfaLevel | null = null;
-    for (let offset = 0; offset < data.byteLength;) {
-        const end = Math.min(data.byteLength, offset + PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES);
-        const text = pdfBinaryDecoder.decode(data.subarray(offset, end));
-        isEncrypted ||= hasPdfEncryptMarkersInPdfText(text);
-        pdfaLevel ??= detectPdfaLevelFromPdfText(text);
-        if (end === data.byteLength) {
-            break;
-        }
-        offset = Math.max(offset + 1, end - PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES);
+const MAX_PDFA_MARKER_TOKEN_BYTES = 256;
+const PDFA_PART_OPEN_BYTES = new TextEncoder().encode('<pdfaid:part>');
+const PDFA_PART_CLOSE_BYTES = new TextEncoder().encode('</pdfaid:part>');
+const PDFA_CONFORMANCE_OPEN_BYTES = new TextEncoder().encode('<pdfaid:conformance>');
+const PDFA_CONFORMANCE_CLOSE_BYTES = new TextEncoder().encode('</pdfaid:conformance>');
+const MIN_ENCRYPT_MARKER_BYTES = 8; // "/Encrypt"
+const MIN_PDFA_PART_TAG_BYTES = PDFA_PART_OPEN_BYTES.byteLength + 1 + PDFA_PART_CLOSE_BYTES.byteLength;
+
+function isLatin1JsWhitespaceByte(byte: number): boolean {
+    return byte === 0x20 || (byte >= 0x09 && byte <= 0x0d) || byte === 0xa0;
+}
+
+function isLatin1JsWordByte(byte: number): boolean {
+    return (byte >= 0x30 && byte <= 0x39) || (byte >= 0x41 && byte <= 0x5a) || (byte >= 0x61 && byte <= 0x7a) || byte === 0x5f;
+}
+
+function asciiBytesEqualIgnoreCase(a: number, b: number): boolean {
+    if (a === b) {
+        return true;
     }
+    const lowerA = a >= 0x41 && a <= 0x5a ? a | 0x20 : a;
+    const lowerB = b >= 0x41 && b <= 0x5a ? b | 0x20 : b;
+    return lowerA === lowerB;
+}
+
+function matchXmlTagAtOffset(
+    data: Uint8Array,
+    start: number,
+    openBytes: Uint8Array,
+    closeBytes: Uint8Array,
+    uppercase: boolean,
+): string | null {
+    const len = data.byteLength;
+    const openLen = openBytes.byteLength;
+    if (start + openLen >= len) {
+        return null;
+    }
+    for (let j = 8; j < openLen; j += 1) {
+        if (!asciiBytesEqualIgnoreCase(data[start + j]!, openBytes[j]!)) {
+            return null;
+        }
+    }
+    let pos = start + openLen;
+    while (pos < len && isLatin1JsWhitespaceByte(data[pos]!)) {
+        pos += 1;
+    }
+    const tokenStart = pos;
+    while (pos < len && data[pos]! !== 0x3c && !isLatin1JsWhitespaceByte(data[pos]!)) {
+        pos += 1;
+        if (pos - tokenStart > MAX_PDFA_MARKER_TOKEN_BYTES) {
+            return null;
+        }
+    }
+    const tokenEnd = pos;
+    if (tokenEnd === tokenStart) {
+        return null;
+    }
+    while (pos < len && isLatin1JsWhitespaceByte(data[pos]!)) {
+        pos += 1;
+    }
+    const closeLen = closeBytes.byteLength;
+    if (pos + closeLen > len) {
+        return null;
+    }
+    for (let j = 0; j < closeLen; j += 1) {
+        if (!asciiBytesEqualIgnoreCase(data[pos + j]!, closeBytes[j]!)) {
+            return null;
+        }
+    }
+    const decoded = pdfBinaryDecoder.decode(data.subarray(tokenStart, tokenEnd));
+    return uppercase ? decoded.toUpperCase() : decoded;
+}
+
+/**
+ * Scans raw PDF bytes for `/Encrypt\b` and XMP PDF/A tags without allocating
+ * latin1 chunk strings or breaking across internal chunk boundaries, even with
+ * arbitrary whitespace inside `<pdfaid:*>` elements.
+ */
+export function scanPdfMarkerEvidence(data: Uint8Array): TPdfConformanceMarkerEvidence {
+    const len = data.byteLength;
+    let isEncrypted = false;
+    let pdfaPart: string | null = null;
+    let pdfaConformance: string | null = null;
+
+    // Anchor on rare bytes ('y' = 0x79 inside "/Encrypt", ':' = 0x3a inside
+    // "<pdfaid:") so PDFs dense with '/' names or '<...>' hex-encoded text
+    // operands fly through native TypedArray.prototype.indexOf without stalling.
+    if (len >= MIN_ENCRYPT_MARKER_BYTES) {
+        const maxEncryptYPos = len - 3;
+        for (let yPos = data.indexOf(0x79, 5); yPos !== -1 && yPos <= maxEncryptYPos; yPos = data.indexOf(0x79, yPos + 1)) {
+            if (
+                data[yPos - 5] === 0x2f &&
+                data[yPos - 4] === 0x45 &&
+                data[yPos - 3] === 0x6e &&
+                data[yPos - 2] === 0x63 &&
+                data[yPos - 1] === 0x72 &&
+                data[yPos + 1] === 0x70 &&
+                data[yPos + 2] === 0x74
+            ) {
+                const after = yPos + 3;
+                if (after === len || !isLatin1JsWordByte(data[after]!)) {
+                    isEncrypted = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (len >= MIN_PDFA_PART_TAG_BYTES) {
+        for (let colonPos = data.indexOf(0x3a, 7); colonPos !== -1; colonPos = data.indexOf(0x3a, colonPos + 1)) {
+            if (
+                data[colonPos - 7] !== 0x3c ||
+                (data[colonPos - 6]! | 0x20) !== 0x70 ||
+                (data[colonPos - 5]! | 0x20) !== 0x64 ||
+                (data[colonPos - 4]! | 0x20) !== 0x66 ||
+                (data[colonPos - 3]! | 0x20) !== 0x61 ||
+                (data[colonPos - 2]! | 0x20) !== 0x69 ||
+                (data[colonPos - 1]! | 0x20) !== 0x64
+            ) {
+                continue;
+            }
+            const start = colonPos - 7;
+            if (pdfaPart === null) {
+                pdfaPart = matchXmlTagAtOffset(data, start, PDFA_PART_OPEN_BYTES, PDFA_PART_CLOSE_BYTES, false);
+            }
+            if (pdfaConformance === null) {
+                pdfaConformance = matchXmlTagAtOffset(data, start, PDFA_CONFORMANCE_OPEN_BYTES, PDFA_CONFORMANCE_CLOSE_BYTES, true);
+            }
+            if (pdfaPart !== null && pdfaConformance !== null) {
+                break;
+            }
+        }
+    }
+
     return {
         isEncrypted,
-        pdfaLevel,
+        pdfaLevel: pdfaPart === null ? null : `PDF/A-${pdfaPart}${pdfaConformance ?? ''}`,
     };
 }

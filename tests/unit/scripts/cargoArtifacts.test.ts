@@ -710,9 +710,10 @@ describe('browser WASM bulk memory lowering', () => {
             });
             const end = 65536;
             const cases: Array<['copy' | 'fill', number, number, number]> = [];
-            for (let length = 0; length <= 65; length += 1) {
-                for (const base of [0, 3, 1000, end - length]) {
-                    for (const delta of [-40, -9, -8, -7, -1, 0, 1, 7, 8, 9, 40]) {
+            const lengths = [...Array.from({length: 136}, (_, index) => index), 191, 192, 193, 255, 256, 257];
+            for (const length of lengths) {
+                for (const base of [0, 1, 3, 15, 16, 1000, end - length]) {
+                    for (const delta of [-65, -64, -63, -40, -17, -16, -15, -9, -8, -7, -1, 0, 1, 7, 8, 9, 15, 16, 17, 40, 63, 64, 65]) {
                         const source = base + delta;
                         if (source >= 0 && source + length <= end) {
                             cases.push(['copy', base, source, length]);
@@ -733,7 +734,7 @@ describe('browser WASM bulk memory lowering', () => {
                 });
                 expect(Buffer.compare(results[0]!, results[1]!), `${kind}(${destination}, ${sourceOrValue}, ${length})`).toBe(0);
             }
-            expect(cases.length).toBeGreaterThan(3000);
+            expect(cases.length).toBeGreaterThan(20_000);
         });
     }
 
@@ -949,7 +950,11 @@ describe('browser WASM bulk memory lowering', () => {
         const exports = instantiate(lowerWasmBulkMemory(bulkMemoryModule(false)).bytes, {env: {memory}});
         const before = new Uint8Array(memory.buffer).slice();
         expect(() => exports.copy!(0, 0xffffffff, 2)).toThrow(/unreachable/u);
+        expect(() => exports.copy!(0xfffffff0, 0, 17)).toThrow(/unreachable/u);
+        expect(() => exports.copy!(0, 0xffffffc0, 65)).toThrow(/unreachable/u);
+        expect(() => exports.copy!(0xffffffc0, 0xffffffc0, 65)).toThrow(/unreachable/u);
         expect(() => exports.fill!(0xfffffff8, 0xaa, 16)).toThrow(/unreachable/u);
+        expect(() => exports.fill!(0xffffffc0, 0xaa, 65)).toThrow(/unreachable/u);
         expect(Buffer.compare(new Uint8Array(memory.buffer), before)).toBe(0);
     });
 

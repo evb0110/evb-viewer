@@ -1,5 +1,5 @@
+use crate::parallel::{self, prelude::*};
 use crate::{BinaryImage, GrayImage};
-use rayon::prelude::*;
 use std::collections::VecDeque;
 
 /// Rectangular grayscale erosion (the local maximum) with black outside.
@@ -44,7 +44,7 @@ fn rectangular_gray(
     let radius_y = radius_y.min(height - 1);
     let band_rows = if parallel {
         height
-            .div_ceil(rayon::current_num_threads().saturating_mul(2))
+            .div_ceil(parallel::current_num_threads().saturating_mul(2))
             // Each band re-reads `2 * radius_y` halo rows; at least four
             // radii of own rows keep that overhead at or below half.
             .max(radius_y.saturating_mul(4))
@@ -433,7 +433,7 @@ fn vertical_binary_words(horizontal: &BinaryImage, radius_y: usize, any: bool) -
     // guarantee `block_len = 2 * radius_y + 1` fits without overflow.
     let block_len = radius_y * 2 + 1;
     let band_rows = height
-        .div_ceil(rayon::current_num_threads().saturating_mul(2).max(1))
+        .div_ceil(parallel::current_num_threads().saturating_mul(2).max(1))
         .max(block_len.saturating_mul(2))
         .max(MINIMUM_BAND_ROWS)
         .min(height);

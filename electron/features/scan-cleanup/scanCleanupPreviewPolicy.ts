@@ -9,7 +9,7 @@ import type {
 import {SCAN_CLEANUP_ERROR_CODES, SCAN_CLEANUP_SCRATCH_SHORTFALL_SCHEMA} from '@contracts/scan-cleanup/ipc';
 import {isRecord} from '@contracts/runtimeGuards';
 import * as v from 'valibot';
-import type {IJobResourceVector} from '@electron/resources/jobBroker';
+import type {IJobBrokerRequest, IJobResourceVector} from '@electron/resources/jobBroker';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 import {resolveNativeToolPath} from '@electron/native-tools/resolveNativeToolPath';
 import {runtimeConfig} from '@electron/runtimeConfig';
@@ -130,6 +130,35 @@ export function resolveScanCleanupPreviewRasterMaxPixels(options?: TScanCleanupR
  */
 export function resolveScanCleanupPreviewRasterSlotResidentBytes(options?: TScanCleanupRasterBudgetOptions, rasterMaxPixels?: number) {
     return (rasterMaxPixels ?? resolveScanCleanupPreviewRasterMaxPixels(options)) * SCAN_CLEANUP_PREVIEW_RASTER_BYTES_PER_PIXEL;
+}
+
+/**
+ * Builds the broker request for a Scan Cleanup preview. Visible previews use
+ * `admissionClass: 'interactive'` so they can burst 1 CPU token and 1 native
+ * process from the broker's interactive reserve on 2-core / 4 GiB hosts (where
+ * bulk capacity is 1 CPU token / 1 native process) while still staying bounded
+ * by static and live OS memory headroom. Background prefetches remain bulk.
+ */
+export function createScanCleanupPreviewBrokerRequest(input: {
+    ownerId: string;
+    visibility: 'visible' | 'detail' | 'prefetch';
+    estimatedResidentBytes: number;
+    signal: AbortSignal;
+}): IJobBrokerRequest {
+    const isPrefetch = input.visibility === 'prefetch';
+    return {
+        ownerId: input.ownerId,
+        kind: 'scan-cleanup-preview',
+        priority: isPrefetch ? 'background' : 'visible',
+        ...(isPrefetch ? {} : {admissionClass: 'interactive' as const}),
+        resources: {
+            cpuTokens: 1,
+            estimatedResidentBytes: input.estimatedResidentBytes,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        },
+        signal: input.signal,
+    };
 }
 
 export interface IScanCleanupRasterAdmissionPolicy {

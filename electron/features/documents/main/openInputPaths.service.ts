@@ -162,14 +162,23 @@ async function openSinglePdfInputPath(
     const admitNative = async (kind: string, resources: IJobResourceVector) => {
         openLease?.release();
         openLease = null;
-        openLease = await mainJobBroker.acquire({
-            ownerId: `pdf-open:${ownerWebContentsId ?? 'main'}`,
-            kind,
-            priority: 'foreground',
-            perOwnerLimit: 1,
-            signal,
-            resources,
-        });
+        const timeoutController = new AbortController();
+        const timeoutTimer = setTimeout(() => {
+            timeoutController.abort(new Error(`PDF open admission for ${kind} timed out after ${PDF_OPEN_ADMISSION_TIMEOUT_MS}ms`));
+        }, PDF_OPEN_ADMISSION_TIMEOUT_MS);
+        timeoutTimer.unref?.();
+        try {
+            openLease = await mainJobBroker.acquire({
+                ownerId: `pdf-open:${ownerWebContentsId ?? 'main'}`,
+                kind,
+                priority: 'foreground',
+                perOwnerLimit: 1,
+                signal: AbortSignal.any([signal, timeoutController.signal]),
+                resources,
+            });
+        } finally {
+            clearTimeout(timeoutTimer);
+        }
     };
     // A canceled copy must finish before this owner disposes of it.
     let unclaimedPath: string | null = null;
@@ -213,25 +222,32 @@ async function openSinglePdfInputPath(
             unclaimedPath = entry.ref;
             throwIfAborted(signal);
             if (inputBytes > MAX_DOCUMENT_ALLOCATION_BYTES) {
-                await admitNative('pdf-opening-geometry', {
-                    cpuTokens: 2,
-                    estimatedResidentBytes: 256 * 1024 * 1024,
-                    nativeProcesses: 1,
-                    ioWeight: 2,
-                });
-                geometry.read = runWithWorkingCopyReadBacking(entry.ref, (path) =>
-                    readExactPageGeometry(path, signal, geometryGroup),
-                ).catch((error) => {
-                    if (
-                        signal.aborted ||
-                        error instanceof NativeToolBuildMismatchError ||
-                        getUnprovenNativeTerminationDetail(error) !== undefined
-                    ) {
+                try {
+                    await admitNative('pdf-opening-geometry', {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 256 * 1024 * 1024,
+                        nativeProcesses: 1,
+                        ioWeight: 2,
+                    });
+                    geometry.read = runWithWorkingCopyReadBacking(entry.ref, (path) =>
+                        readExactPageGeometry(path, signal, geometryGroup),
+                    ).catch((error) => {
+                        if (
+                            signal.aborted ||
+                            error instanceof NativeToolBuildMismatchError ||
+                            getUnprovenNativeTerminationDetail(error) !== undefined
+                        ) {
+                            throw error;
+                        }
+                        logger.warn('Opening geometry unavailable', {error: getErrorMessage(error)});
+                        return null;
+                    });
+                } catch (error) {
+                    if (signal.aborted) {
                         throw error;
                     }
-                    logger.warn('Opening geometry unavailable', {error: getErrorMessage(error)});
-                    return null;
-                });
+                    logger.warn('Opening geometry admission unavailable', {error: getErrorMessage(error)});
+                }
             }
             const revisionToken = documentRevisionToken(entry);
             const pages = await geometry.read;

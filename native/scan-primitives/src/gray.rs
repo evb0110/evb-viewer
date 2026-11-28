@@ -1,4 +1,4 @@
-use rayon::prelude::*;
+use crate::parallel::prelude::*;
 use std::{borrow::Cow, ops::Range};
 
 /// Owned 8-bit grayscale image with an explicit byte stride.

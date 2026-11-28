@@ -5,9 +5,17 @@ import {afterEach, describe, expect, it, vi} from 'vitest';
 import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
 import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requireRequestId} from '@contracts/shared';
-import {JobBroker, resolveMainJobBrokerCapacity, type IJobBrokerLease, type IJobBrokerRunContext} from '@electron/resources/jobBroker';
+import {
+    JobBroker,
+    MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+    MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+    resolveMainJobBrokerCapacity,
+    type IJobBrokerLease,
+    type IJobBrokerRunContext,
+} from '@electron/resources/jobBroker';
 import {resolvePdfImageCombineThreads} from '@electron/native-tools/pdfImageCombineBudget';
 import {
+    createScanCleanupPreviewBrokerRequest,
     resolveScanCleanupPreviewRasterAdmissionPolicy,
     resolveScanCleanupPreviewRasterSlotResidentBytes,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
@@ -839,7 +847,10 @@ describe('O-10: preview PPM retention, sourceDpiCandidate reuse, and no-op qpdf 
         ];
         for (const profile of profiles) {
             const capacity = resolveMainJobBrokerCapacity(profile);
-            const broker = new JobBroker(capacity);
+            const broker = new JobBroker(capacity, {
+                maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+                interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+            });
             const policy = resolveScanCleanupPreviewRasterAdmissionPolicy(capacity, baseCleanupOptions, profile.logicalCpus, {
                 overlapSidecarProcess: true,
             });
@@ -849,23 +860,29 @@ describe('O-10: preview PPM retention, sourceDpiCandidate reuse, and no-op qpdf 
                 expect(policy.nativeProcesses).toBe(policy.rasterConcurrency + 1);
             }
             const assertVisiblePreviewAdmitted = async (phaseLabel: string) => {
+                const beforeSnapshot = broker.getSnapshot();
+                // Memory and I/O must fit within bulk capacity on every profile;
+                // hosts with >1 bulk CPU/process slot must also preserve bulk CPU/process headroom.
+                expect(beforeSnapshot.usedBulk.estimatedResidentBytes + slotBytes).toBeLessThanOrEqual(capacity.estimatedResidentBytes);
+                expect(beforeSnapshot.usedBulk.ioWeight + 1).toBeLessThanOrEqual(capacity.ioWeight);
+                if (capacity.cpuTokens > 1 && capacity.nativeProcesses > 1) {
+                    expect(beforeSnapshot.usedBulk.cpuTokens + 1).toBeLessThanOrEqual(capacity.cpuTokens);
+                    expect(beforeSnapshot.usedBulk.nativeProcesses + 1).toBeLessThanOrEqual(capacity.nativeProcesses);
+                }
                 let previewAdmitted = false;
                 const previewAbort = new AbortController();
                 const previewPromise = broker.run(
-                    {
+                    createScanCleanupPreviewBrokerRequest({
                         ownerId: 'scan-cleanup:2:preview',
-                        kind: 'scan-cleanup-preview',
-                        priority: 'visible',
-                        resources: {
-                            cpuTokens: 1,
-                            estimatedResidentBytes: slotBytes,
-                            nativeProcesses: 1,
-                            ioWeight: 1,
-                        },
+                        visibility: 'visible',
+                        estimatedResidentBytes: slotBytes,
                         signal: previewAbort.signal,
-                    },
+                    }),
                     async () => {
                         previewAdmitted = true;
+                        // Heavy visible previews burst CPU/process slots from the
+                        // interactive reserve without overcommitting bulk static memory.
+                        expect(broker.getSnapshot().usedBulk.estimatedResidentBytes).toBeLessThanOrEqual(capacity.estimatedResidentBytes);
                     },
                 );
                 // If the preview queued behind the phase lease, abort it immediately
@@ -897,6 +914,126 @@ describe('O-10: preview PPM retention, sourceDpiCandidate reuse, and no-op qpdf 
                 },
             );
         }
+    });
+
+    it('keeps 2c/4GiB prefetch previews queued and gates visible previews on live OS memory headroom during conversion and combine', async () => {
+        const twoCoreProfile = createHostProfile({logicalCpus: 2, totalRamBytes: 4 * GIB});
+        const capacity = resolveMainJobBrokerCapacity(twoCoreProfile);
+        const policy = resolveScanCleanupPreviewRasterAdmissionPolicy(capacity, baseCleanupOptions, twoCoreProfile.logicalCpus, {
+            overlapSidecarProcess: true,
+        });
+        const slotBytes = resolveScanCleanupPreviewRasterSlotResidentBytes(baseCleanupOptions, policy.rasterMaxPixels);
+
+        let availableBytes = 2 * GIB;
+        const broker = new JobBroker(capacity, {
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+            readSystemMemoryInfo: () => ({
+                totalBytes: 4 * GIB,
+                availableBytes,
+                freeBytes: 512 * MIB,
+            }),
+            memoryPressurePollIntervalMs: 0,
+        });
+
+        await runWithScanCleanupConversionPhaseBroker(
+            {
+                broker,
+                ownerId: 'scan-cleanup:1:conversion',
+                conversionResources: {
+                    cpuTokens: policy.cpuTokens ?? policy.rasterConcurrency,
+                    estimatedResidentBytes: policy.rasterConcurrency * slotBytes,
+                    nativeProcesses: policy.nativeProcesses ?? policy.rasterConcurrency,
+                    ioWeight: policy.ioWeight ?? 3,
+                },
+                logicalCpus: twoCoreProfile.logicalCpus,
+                signal: new AbortController().signal,
+            },
+            async (phaseBroker) => {
+                // Background prefetch remains bulk and must queue behind 2c/4GiB conversion.
+                const prefetchAbort = new AbortController();
+                const prefetchPromise = broker.run(
+                    createScanCleanupPreviewBrokerRequest({
+                        ownerId: 'scan-cleanup:2:prefetch',
+                        visibility: 'prefetch',
+                        estimatedResidentBytes: slotBytes,
+                        signal: prefetchAbort.signal,
+                    }),
+                    async () => undefined,
+                );
+                expect(broker.getSnapshot().queued).toBe(1);
+                prefetchAbort.abort(new Error('expected prefetch to queue on 2c/4GiB'));
+                await expect(prefetchPromise).rejects.toThrow('expected prefetch to queue on 2c/4GiB');
+
+                // Tight live OS RAM (950 MiB available: fits when idle at 822 MiB headroom,
+                // but blocked under the 512 MiB active bulk live floor -> 438 MiB < 610 MiB)
+                // must gate visible previews during BOTH conversion and combine to prevent OOM.
+                availableBytes = 950 * MIB;
+                const oomConversionAbort = new AbortController();
+                const oomConversionPromise = broker.run(
+                    createScanCleanupPreviewBrokerRequest({
+                        ownerId: 'scan-cleanup:2:preview',
+                        visibility: 'visible',
+                        estimatedResidentBytes: slotBytes,
+                        signal: oomConversionAbort.signal,
+                    }),
+                    async () => undefined,
+                );
+                expect(broker.getSnapshot().queued).toBe(1);
+                oomConversionAbort.abort(new Error('expected visible preview to queue under low live RAM during conversion'));
+                await expect(oomConversionPromise).rejects.toThrow(
+                    'expected visible preview to queue under low live RAM during conversion',
+                );
+
+                // Healthy live RAM admits the visible preview immediately during conversion.
+                availableBytes = 2 * GIB;
+                let conversionPreviewAdmitted = false;
+                await broker.run(
+                    createScanCleanupPreviewBrokerRequest({
+                        ownerId: 'scan-cleanup:2:preview',
+                        visibility: 'visible',
+                        estimatedResidentBytes: slotBytes,
+                        signal: new AbortController().signal,
+                    }),
+                    async () => {
+                        conversionPreviewAdmitted = true;
+                    },
+                );
+                expect(conversionPreviewAdmitted).toBe(true);
+
+                await phaseBroker.runWithCombineLease(10, new AbortController().signal, async () => {
+                    availableBytes = 950 * MIB;
+                    const oomCombineAbort = new AbortController();
+                    const oomCombinePromise = broker.run(
+                        createScanCleanupPreviewBrokerRequest({
+                            ownerId: 'scan-cleanup:2:preview',
+                            visibility: 'visible',
+                            estimatedResidentBytes: slotBytes,
+                            signal: oomCombineAbort.signal,
+                        }),
+                        async () => undefined,
+                    );
+                    expect(broker.getSnapshot().queued).toBe(1);
+                    oomCombineAbort.abort(new Error('expected visible preview to queue under low live RAM during combine'));
+                    await expect(oomCombinePromise).rejects.toThrow('expected visible preview to queue under low live RAM during combine');
+
+                    availableBytes = 2 * GIB;
+                    let combinePreviewAdmitted = false;
+                    await broker.run(
+                        createScanCleanupPreviewBrokerRequest({
+                            ownerId: 'scan-cleanup:2:preview',
+                            visibility: 'visible',
+                            estimatedResidentBytes: slotBytes,
+                            signal: new AbortController().signal,
+                        }),
+                        async () => {
+                            combinePreviewAdmitted = true;
+                        },
+                    );
+                    expect(combinePreviewAdmitted).toBe(true);
+                });
+            },
+        );
     });
 
     it('serializes producer and sidecar consumer stages when serializeStages is enabled on 1-token leases', async () => {

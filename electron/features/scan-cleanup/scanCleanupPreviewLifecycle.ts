@@ -44,6 +44,7 @@ import {
     RENDER_PROCESS_GONE_CANCELLATION_REASON,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
 import {
+    createScanCleanupPreviewBrokerRequest,
     type IScanCleanupRasterAdmissionPolicy,
     resolveScanCleanupPreviewRasterAdmissionPolicy,
     resolveScanCleanupPreviewRasterSlotResidentBytes,
@@ -189,18 +190,12 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
             rasterMaxPixels ??
             resolveScanCleanupPreviewRasterAdmissionPolicy(mainJobBroker.getSnapshot().capacity, options).rasterMaxPixels;
         return mainJobBroker.run(
-            {
+            createScanCleanupPreviewBrokerRequest({
                 ownerId,
-                kind: 'scan-cleanup-preview',
-                priority: visibility === 'prefetch' ? 'background' : 'visible',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: resolveScanCleanupPreviewRasterSlotResidentBytes(options, effectiveRasterMaxPixels),
-                    nativeProcesses: 1,
-                    ioWeight: 1,
-                },
+                visibility,
+                estimatedResidentBytes: resolveScanCleanupPreviewRasterSlotResidentBytes(options, effectiveRasterMaxPixels),
                 signal,
-            },
+            }),
             (brokerRun) => work(brokerRun),
         );
     },

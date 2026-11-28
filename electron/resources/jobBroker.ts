@@ -1,5 +1,7 @@
 import { clamp } from 'es-toolkit/math';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
+import type { ISystemMemoryInfo } from '@contracts/systemPlatformFeature';
+import { readSystemMemoryInfo } from '@electron/resources/systemMemoryInfo';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
@@ -8,13 +10,17 @@ const logger = createLogger('job-broker');
 const MIB = 1024 * 1024;
 const GIB = 1024 * MIB;
 const DEFAULT_AGING_INTERVAL_MS = 5_000;
+const DEFAULT_MEMORY_PRESSURE_POLL_INTERVAL_MS = 500;
+const DEFAULT_PENDING_ALLOCATION_SETTLE_MS = 2_000;
 const DEFAULT_JOB_BROKER_MAX_QUEUED_JOBS = 256;
 const DEFAULT_JOB_BROKER_MAX_QUEUED_JOBS_PER_OWNER = 64;
+const LIVE_MEMORY_RESERVE_MIN_BYTES = 512 * MIB;
+const LIVE_MEMORY_RESERVE_MAX_BYTES = 1 * GIB;
 
 export const MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES: Readonly<IJobResourceVector> = {
-    cpuTokens: 2,
+    cpuTokens: 1,
     estimatedResidentBytes: 512 * MIB,
-    nativeProcesses: 2,
+    nativeProcesses: 1,
     ioWeight: 4,
 };
 
@@ -216,6 +222,8 @@ export function createStableJobBrokerOwnerId(
 interface IActiveJob extends IJobBrokerRequest {
     token: string;
     lease: IJobBrokerLease;
+    grantedAt: number;
+    pendingResidentBytes: number;
 }
 
 interface IQueuedJob {
@@ -234,6 +242,10 @@ interface IJobBrokerOptions {
     maxQueuedJobsPerOwner?: number;
     maxInteractiveJobResources?: IJobResourceVector;
     interactiveReserve?: IJobResourceVector;
+    readSystemMemoryInfo?: () => ISystemMemoryInfo | null;
+    liveMemoryReserveBytes?: number;
+    memoryPressurePollIntervalMs?: number;
+    pendingAllocationSettleMs?: number;
 }
 
 const ZERO_RESOURCES: Readonly<IJobResourceVector> = {
@@ -243,19 +255,25 @@ const ZERO_RESOURCES: Readonly<IJobResourceVector> = {
     ioWeight: 0,
 };
 
-const RESOURCE_DIMENSIONS = [
-    'cpuTokens',
-    'estimatedResidentBytes',
-    'nativeProcesses',
-    'ioWeight',
-] as const satisfies ReadonlyArray<keyof IJobResourceVector>;
-
 const PRIORITY_RANK: Record<TJobBrokerPriority, number> = {
     visible: 0,
     foreground: 1,
     user: 2,
     background: 3,
 };
+
+function resolveLiveMemoryReserveBytes(totalBytes: number) {
+    if (!Number.isFinite(totalBytes) || totalBytes <= 0) {
+        return 0;
+    }
+    return Math.round(
+        clamp(
+            totalBytes * 0.1,
+            Math.min(totalBytes / 4, LIVE_MEMORY_RESERVE_MIN_BYTES),
+            LIVE_MEMORY_RESERVE_MAX_BYTES,
+        ),
+    );
+}
 
 function addResources(left: IJobResourceVector, right: IJobResourceVector): IJobResourceVector {
     return {
@@ -310,6 +328,13 @@ export class JobBroker {
     private readonly maxQueuedJobsPerOwner: number;
     private readonly maxInteractiveJobResources: IJobResourceVector;
     private readonly interactiveReserve: IJobResourceVector;
+    private readonly readSystemMemoryInfo: (() => ISystemMemoryInfo | null) | undefined;
+    private readonly liveMemoryReserveBytes: number | undefined;
+    private readonly memoryPressurePollIntervalMs: number;
+    private readonly pendingAllocationSettleMs: number;
+    private lastObservedAvailableBytes: number | null = null;
+    private memoryPressureTimer: ReturnType<typeof setTimeout> | null = null;
+    private reclaimingMemory = false;
     private usedResources: IJobResourceVector = {...ZERO_RESOURCES};
     private usedBulkResources: IJobResourceVector = {...ZERO_RESOURCES};
 
@@ -328,6 +353,12 @@ export class JobBroker {
             ?? options.interactiveReserve
             ?? ZERO_RESOURCES
         )};
+        this.readSystemMemoryInfo = options.readSystemMemoryInfo;
+        this.liveMemoryReserveBytes = options.liveMemoryReserveBytes;
+        this.memoryPressurePollIntervalMs = options.memoryPressurePollIntervalMs
+            ?? DEFAULT_MEMORY_PRESSURE_POLL_INTERVAL_MS;
+        this.pendingAllocationSettleMs = options.pendingAllocationSettleMs
+            ?? DEFAULT_PENDING_ALLOCATION_SETTLE_MS;
         validateResourceVector(capacity);
         validateResourceVector(this.maxInteractiveJobResources);
         validateResourceVector(this.interactiveReserve);
@@ -336,6 +367,15 @@ export class JobBroker {
         }
         if (!Number.isSafeInteger(this.maxQueuedJobsPerOwner) || this.maxQueuedJobsPerOwner < 1) {
             throw new TypeError('Job broker per-owner queue limit must be a positive safe integer');
+        }
+        if (this.liveMemoryReserveBytes !== undefined && !isNonNegativeFinite(this.liveMemoryReserveBytes)) {
+            throw new TypeError('Job broker live memory reserve must be a non-negative finite number');
+        }
+        if (!isNonNegativeFinite(this.memoryPressurePollIntervalMs)) {
+            throw new TypeError('Job broker memory pressure poll interval must be a non-negative finite number');
+        }
+        if (!isNonNegativeFinite(this.pendingAllocationSettleMs)) {
+            throw new TypeError('Job broker pending allocation settle window must be a non-negative finite number');
         }
     }
 
@@ -349,13 +389,19 @@ export class JobBroker {
 
     acquire(request: IJobBrokerRequest): Promise<IJobBrokerLease> {
         validateResourceVector(request.resources);
-        if (
-            request.admissionClass === 'interactive'
-            && !this.fitsWithin(request.resources, this.maxInteractiveJobResources)
-        ) {
-            return Promise.reject(new RangeError(
-                `Interactive job ${request.kind} exceeds broker interactive job limit`,
-            ));
+        if (request.admissionClass === 'interactive') {
+            const exceedsInteractiveNonMemoryLimit =
+                request.resources.cpuTokens > this.maxInteractiveJobResources.cpuTokens
+                || request.resources.nativeProcesses > this.maxInteractiveJobResources.nativeProcesses
+                || request.resources.ioWeight > this.maxInteractiveJobResources.ioWeight;
+            const disallowsInteractiveMemory =
+                this.maxInteractiveJobResources.estimatedResidentBytes === 0
+                && request.resources.estimatedResidentBytes > 0;
+            if (exceedsInteractiveNonMemoryLimit || disallowsInteractiveMemory) {
+                return Promise.reject(new RangeError(
+                    `Interactive job ${request.kind} exceeds broker interactive job limit`,
+                ));
+            }
         }
         if (!this.fitsWithin(request.resources, this.capacity)) {
             return Promise.reject(new RangeError(`Job ${request.kind} exceeds broker capacity`));
@@ -366,10 +412,12 @@ export class JobBroker {
         if (this.queue.length >= this.maxQueuedJobs) {
             return Promise.reject(new RangeError(`Job broker queue is full (${this.maxQueuedJobs} jobs)`));
         }
-        const ownerQueuedJobs = this.queue.reduce(
-            (count, queued) => count + Number(queued.request.ownerId === request.ownerId),
-            0,
-        );
+        let ownerQueuedJobs = 0;
+        for (const queued of this.queue) {
+            if (queued.request.ownerId === request.ownerId) {
+                ownerQueuedJobs += 1;
+            }
+        }
         if (ownerQueuedJobs >= this.maxQueuedJobsPerOwner) {
             return Promise.reject(new RangeError(
                 `Job broker owner queue is full (${this.maxQueuedJobsPerOwner} jobs for ${request.ownerId})`,
@@ -488,6 +536,12 @@ export class JobBroker {
         if (!active) {
             return false;
         }
+        // Reconcile any OS memory drop against this lease first before removing
+        // it so its own allocation is not misattributed to a sibling's pending
+        // reservation regardless of grant order.
+        if (active.pendingResidentBytes > 0) {
+            this.reconcilePendingMemory(this.readCurrentSystemMemoryInfo(), token);
+        }
         this.active.delete(token);
         this.retained.delete(token);
         this.accountLease(active, subtractResources);
@@ -534,8 +588,21 @@ export class JobBroker {
         if (!this.fitsWithin(resources, active.resources)) {
             throw new RangeError(`Lease ${token} can only shrink`);
         }
+        // Reconcile any OS memory drop against this lease first BEFORE clearing
+        // or clamping its pending allocation so its own allocation is not
+        // credited to another still-pending sibling lease regardless of grant order.
+        if (active.pendingResidentBytes > 0) {
+            this.reconcilePendingMemory(this.readCurrentSystemMemoryInfo(), token);
+        }
         this.accountLease(active, subtractResources);
         active.resources = {...resources};
+        if (this.isParkedMemoryLease(resources)) {
+            // Parked memory-only leases (such as warm idle OCR workers) hold
+            // already-resident memory that the OS snapshot already deducts.
+            active.pendingResidentBytes = 0;
+        } else {
+            active.pendingResidentBytes = Math.min(active.pendingResidentBytes, resources.estimatedResidentBytes);
+        }
         this.accountLease(active, addResources);
         this.dispatch();
         return true;
@@ -543,27 +610,50 @@ export class JobBroker {
 
     private dispatch() {
         while (this.queue.length > 0) {
-            const grantableIndex = this.findNextGrantableIndex();
-            if (grantableIndex < 0) {
-                if (this.queue.some(queued => this.isShortOfMemory(queued.request))) {
-                    for (const reclaim of Array.from(this.memoryReclaimers)) {
-                        try {
-                            reclaim();
-                        } catch (error) {
-                            let message = 'Unknown error';
+            const memoryInfo = this.readCurrentSystemMemoryInfo();
+            const pendingBytes = this.reconcilePendingMemory(memoryInfo);
+            const selection = this.findNextGrantable(memoryInfo, pendingBytes);
+            if (selection.index < 0) {
+                let shouldPollLiveMemory = selection.shouldPollLiveMemory;
+                if (!this.reclaimingMemory && this.memoryReclaimers.size > 0 && selection.shortOfMemory) {
+                    this.reclaimingMemory = true;
+                    try {
+                        for (const reclaim of Array.from(this.memoryReclaimers)) {
                             try {
-                                message = getErrorMessage(error);
-                            } catch {
-                                // Null-prototype or hostile thrown objects must not abort broker dispatch.
+                                reclaim();
+                            } catch (error) {
+                                let message = 'Unknown error';
+                                try {
+                                    message = getErrorMessage(error);
+                                } catch {
+                                    // Null-prototype or hostile thrown objects must not abort broker dispatch.
+                                }
+                                logger.warn('Job broker memory reclaimer failed', {error: message});
                             }
-                            logger.warn('Job broker memory reclaimer failed', {error: message});
+                        }
+                    } finally {
+                        this.reclaimingMemory = false;
+                    }
+                    if (this.queue.length === 0) {
+                        this.clearMemoryPressureTimer();
+                        return;
+                    }
+                    if (memoryInfo !== null) {
+                        const updatedMemoryInfo = this.readCurrentSystemMemoryInfo();
+                        const updatedPendingBytes = this.reconcilePendingMemory(updatedMemoryInfo);
+                        const rechecked = this.findNextGrantable(updatedMemoryInfo, updatedPendingBytes);
+                        shouldPollLiveMemory = rechecked.shouldPollLiveMemory;
+                        if (rechecked.index >= 0) {
+                            continue;
                         }
                     }
                 }
+                this.syncMemoryPressureTimer(shouldPollLiveMemory);
                 return;
             }
-            const [next] = this.queue.splice(grantableIndex, 1);
+            const [next] = this.queue.splice(selection.index, 1);
             if (!next) {
+                this.clearMemoryPressureTimer();
                 return;
             }
             next.removeAbortListener();
@@ -574,6 +664,8 @@ export class JobBroker {
                 resources: {...next.request.resources},
                 token,
                 lease: undefined as unknown as IJobBrokerLease,
+                grantedAt: this.now(),
+                pendingResidentBytes: next.request.resources.estimatedResidentBytes,
             };
             const lease: IJobBrokerLease = {
                 token,
@@ -594,6 +686,199 @@ export class JobBroker {
             this.accountLease(active, addResources);
             next.resolve(lease);
         }
+        this.clearMemoryPressureTimer();
+    }
+
+    private clearMemoryPressureTimer() {
+        if (this.memoryPressureTimer !== null) {
+            clearTimeout(this.memoryPressureTimer);
+            this.memoryPressureTimer = null;
+        }
+    }
+
+    private syncMemoryPressureTimer(stalledByLiveMemory: boolean) {
+        if (this.queue.length === 0 || !stalledByLiveMemory || this.memoryPressurePollIntervalMs <= 0) {
+            this.clearMemoryPressureTimer();
+            return;
+        }
+        if (this.memoryPressureTimer !== null) {
+            return;
+        }
+        const timer = setTimeout(() => {
+            this.memoryPressureTimer = null;
+            if (this.queue.length > 0) {
+                this.dispatch();
+            }
+        }, this.memoryPressurePollIntervalMs);
+        timer.unref?.();
+        this.memoryPressureTimer = timer;
+    }
+
+    private readCurrentSystemMemoryInfo(): ISystemMemoryInfo | null {
+        if (!this.readSystemMemoryInfo) {
+            return null;
+        }
+        try {
+            const info = this.readSystemMemoryInfo();
+            if (
+                info === null
+                || !Number.isFinite(info.totalBytes)
+                || info.totalBytes <= 0
+                || !Number.isFinite(info.availableBytes)
+                || info.availableBytes < 0
+            ) {
+                return null;
+            }
+            return info;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Tracks only outstanding (unobserved) allocations from recently granted
+     * leases against live OS available memory so resident/parked leases are not
+     * double-counted while same-turn bursts (including leaf escapes) cannot
+     * overcommit past available RAM.
+     */
+    private reconcilePendingMemory(memoryInfo: ISystemMemoryInfo | null, preferredToken?: string) {
+        const now = this.now();
+        for (const active of this.active.values()) {
+            if (active.pendingResidentBytes > 0 && now - active.grantedAt >= this.pendingAllocationSettleMs) {
+                active.pendingResidentBytes = 0;
+            }
+        }
+        if (memoryInfo === null) {
+            this.lastObservedAvailableBytes = null;
+            return 0;
+        }
+        if (this.lastObservedAvailableBytes !== null && memoryInfo.availableBytes < this.lastObservedAvailableBytes) {
+            let drop = this.lastObservedAvailableBytes - memoryInfo.availableBytes;
+            if (preferredToken !== undefined) {
+                const preferred = this.active.get(preferredToken);
+                if (preferred && preferred.pendingResidentBytes > 0) {
+                    const absorbed = Math.min(preferred.pendingResidentBytes, drop);
+                    preferred.pendingResidentBytes -= absorbed;
+                    drop -= absorbed;
+                }
+            }
+            for (const active of this.active.values()) {
+                if (drop <= 0) {
+                    break;
+                }
+                if (active.token === preferredToken || active.pendingResidentBytes <= 0) {
+                    continue;
+                }
+                const absorbed = Math.min(active.pendingResidentBytes, drop);
+                active.pendingResidentBytes -= absorbed;
+                drop -= absorbed;
+            }
+        }
+        this.lastObservedAvailableBytes = memoryInfo.availableBytes;
+        let pendingBytes = 0;
+        for (const active of this.active.values()) {
+            pendingBytes += active.pendingResidentBytes;
+        }
+        return pendingBytes;
+    }
+
+    private isParkedMemoryLease(resources: IJobResourceVector) {
+        return resources.cpuTokens === 0 && resources.nativeProcesses === 0 && resources.ioWeight === 0;
+    }
+
+    private hasActiveWork() {
+        for (const active of this.active.values()) {
+            if (!this.isParkedMemoryLease(active.resources)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private getIdleLiveMemoryHeadroomBytes(memoryInfo: ISystemMemoryInfo | null) {
+        if (memoryInfo === null) {
+            return Number.POSITIVE_INFINITY;
+        }
+        const bulkReserve = this.liveMemoryReserveBytes ?? resolveLiveMemoryReserveBytes(memoryInfo.totalBytes);
+        // On an otherwise idle broker (no active work running), keep a tighter
+        // OOM safety floor (1/4 of the bulk reserve, e.g. 128 MiB on 4 GiB,
+        // 256 MiB on >=10 GiB) so single fitting operations (such as 128 MiB
+        // pdfinfo probes at 380 MiB available or 512 MiB conformance at 900 MiB)
+        // always make forward progress instead of stalling indefinitely.
+        const idleOomFloorReserve = Math.floor(bulkReserve / 4);
+        return Math.max(0, memoryInfo.availableBytes - idleOomFloorReserve);
+    }
+
+    private getLiveMemoryHeadroomBytes(
+        request: Pick<IJobBrokerRequest, 'admissionClass' | 'resources'>,
+        memoryInfo: ISystemMemoryInfo | null,
+        forLeafEscape = false,
+    ) {
+        if (memoryInfo === null) {
+            return Number.POSITIVE_INFINITY;
+        }
+        if (!this.hasActiveWork()) {
+            return this.getIdleLiveMemoryHeadroomBytes(memoryInfo);
+        }
+        const bulkReserve = this.liveMemoryReserveBytes ?? resolveLiveMemoryReserveBytes(memoryInfo.totalBytes);
+        const interactiveReserve = Math.floor(bulkReserve / 2);
+        const useInteractiveReserve = forLeafEscape || !this.usesBulkMemoryAndIoBudget(request);
+        const reserve = useInteractiveReserve ? interactiveReserve : bulkReserve;
+        return Math.max(0, memoryInfo.availableBytes - reserve);
+    }
+
+    private fitsLiveMemory(request: IJobBrokerRequest, memoryInfo: ISystemMemoryInfo | null, pendingBytes: number) {
+        const bytes = request.resources.estimatedResidentBytes;
+        if (bytes <= 0 || memoryInfo === null) {
+            return true;
+        }
+        return pendingBytes + bytes <= this.getLiveMemoryHeadroomBytes(request, memoryInfo);
+    }
+
+    private fitsLeafLiveMemory(request: IJobBrokerRequest, memoryInfo: ISystemMemoryInfo | null, pendingBytes: number) {
+        const bytes = request.resources.estimatedResidentBytes;
+        if (bytes <= 0 || memoryInfo === null) {
+            return true;
+        }
+        return pendingBytes + bytes <= this.getLiveMemoryHeadroomBytes(request, memoryInfo, true);
+    }
+
+    private isHeavyInteractiveRequest(request: Pick<IJobBrokerRequest, 'admissionClass' | 'resources'>) {
+        return request.admissionClass === 'interactive'
+            && request.resources.estimatedResidentBytes > this.maxInteractiveJobResources.estimatedResidentBytes;
+    }
+
+    /**
+     * Small interactive jobs (`<= maxInteractiveJobResources.estimatedResidentBytes`)
+     * may burst across all dimensions of `interactiveReserve` and use the
+     * interactive live-memory reserve. Heavier interactive jobs (such as a
+     * full-canvas visible Scan Cleanup preview) burst only CPU and native-process
+     * slots from `interactiveReserve` while staying within the bulk static
+     * memory/I/O budgets (`capacity`) and the bulk live-memory floor.
+     */
+    private usesBulkMemoryAndIoBudget(request: Pick<IJobBrokerRequest, 'admissionClass' | 'resources'>) {
+        return request.admissionClass !== 'interactive' || this.isHeavyInteractiveRequest(request);
+    }
+
+    private hasActiveHeavyInteractiveLease() {
+        for (const active of this.active.values()) {
+            if (this.isHeavyInteractiveRequest(active)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * At most one memory-heavier interactive job may burst CPU/process slots into
+     * `interactiveReserve` at a time, so at least one interactive burst slot
+     * remains free for lightweight document-open / preview work.
+     */
+    private isHeavyInteractiveBurstLimited(request: IJobBrokerRequest) {
+        if (!this.isHeavyInteractiveRequest(request) || !this.hasActiveHeavyInteractiveLease()) {
+            return false;
+        }
+        return !this.fitsWithin(addResources(this.usedResources, request.resources), this.capacity);
     }
 
     private accountLease(
@@ -603,6 +888,13 @@ export class JobBroker {
         this.usedResources = apply(this.usedResources, lease.resources);
         if (lease.admissionClass !== 'interactive') {
             this.usedBulkResources = apply(this.usedBulkResources, lease.resources);
+        } else if (this.isHeavyInteractiveRequest(lease)) {
+            this.usedBulkResources = apply(this.usedBulkResources, {
+                cpuTokens: 0,
+                estimatedResidentBytes: lease.resources.estimatedResidentBytes,
+                nativeProcesses: 0,
+                ioWeight: lease.resources.ioWeight,
+            });
         }
     }
 
@@ -611,15 +903,17 @@ export class JobBroker {
      * smaller one may run ahead only when the best has neither aged nor a
      * better priority, when it takes nothing the best needs (interactive work
      * counted against the total it shares with the best, bulk work also
-     * against the bulk budget), or when it is a leaf escaping a lease that
+     * against the bulk budget), when the best cannot fit in current live OS
+     * memory even when idle, or when it is a leaf escaping a lease that
      * may be waiting for it. A stream of small jobs, interactive or not,
-     * therefore cannot keep a large one waiting once that one has aged.
+     * therefore cannot keep a large one waiting once that one has aged and
+     * live headroom permits it to run.
      */
-    private findNextGrantableIndex() {
+    private findNextGrantable(memoryInfo: ISystemMemoryInfo | null, pendingBytes: number) {
         let waitingIndex = -1;
         for (let index = 0; index < this.queue.length; index += 1) {
             const candidate = this.queue[index];
-            if (!candidate || this.isOwnerLimited(candidate.request)) {
+            if (!candidate || this.isOwnerLimited(candidate.request) || this.isHeavyInteractiveBurstLimited(candidate.request)) {
                 continue;
             }
             const waiting = waitingIndex >= 0 ? this.queue[waitingIndex] : undefined;
@@ -627,53 +921,175 @@ export class JobBroker {
                 waitingIndex = index;
             }
         }
+        let shouldPollLiveMemory = false;
+        let shortOfMemory = false;
         const waiting = waitingIndex >= 0 ? this.queue[waitingIndex] : undefined;
-        if (waiting && this.canGrant(waiting.request)) {
-            return waitingIndex;
+        if (waiting) {
+            const waitingGrant = this.evaluateGrant(waiting.request, memoryInfo, pendingBytes);
+            if (waitingGrant.grantable) {
+                return {index: waitingIndex, shouldPollLiveMemory: false, shortOfMemory: false};
+            }
+            shouldPollLiveMemory ||= waitingGrant.blockedByLiveMemory;
+            shortOfMemory ||= waitingGrant.shortOfMemory;
         }
         let bestIndex = -1;
         for (let index = 0; index < this.queue.length; index += 1) {
             const candidate = this.queue[index];
-            if (
-                !candidate
-                || index === waitingIndex
-                || !this.canGrant(candidate.request)
-                || (waiting !== undefined && !this.mayRunAhead(candidate, waiting))
-            ) {
+            if (!candidate || index === waitingIndex) {
                 continue;
+            }
+            const candidateGrant = this.evaluateGrant(candidate.request, memoryInfo, pendingBytes);
+            if (!candidateGrant.grantable) {
+                shouldPollLiveMemory ||= candidateGrant.blockedByLiveMemory;
+                shortOfMemory ||= candidateGrant.shortOfMemory;
+                continue;
+            }
+            if (waiting !== undefined) {
+                const runAhead = this.evaluateRunAhead(candidate, waiting, memoryInfo, pendingBytes);
+                if (!runAhead.allowed) {
+                    shouldPollLiveMemory ||= runAhead.dependsOnLiveMemory;
+                    shortOfMemory ||= runAhead.blockedByLiveMemory;
+                    continue;
+                }
             }
             const best = bestIndex >= 0 ? this.queue[bestIndex] : undefined;
             if (!best || this.compareQueued(candidate, best) < 0) {
                 bestIndex = index;
             }
         }
-        return bestIndex;
+        return {
+            index: bestIndex,
+            shouldPollLiveMemory,
+            shortOfMemory,
+        };
     }
 
-    private mayRunAhead(candidate: IQueuedJob, waiting: IQueuedJob) {
+    private evaluateRunAhead(
+        candidate: IQueuedJob,
+        waiting: IQueuedJob,
+        memoryInfo: ISystemMemoryInfo | null,
+        pendingBytes: number,
+    ) {
         const waitingIsProtected = this.getAgeSteps(waiting) >= 1
             || this.getEffectivePriorityRank(waiting) < this.getEffectivePriorityRank(candidate);
         if (!waitingIsProtected) {
-            return true;
+            return {allowed: true, blockedByLiveMemory: false, dependsOnLiveMemory: false};
         }
-        if (this.canEscapeAsLeaf(candidate.request)) {
-            return true;
+        if (this.canEscapeAsLeaf(candidate.request, memoryInfo, pendingBytes)) {
+            return {allowed: true, blockedByLiveMemory: false, dependsOnLiveMemory: false};
         }
-        return !this.takesWhatWaitingNeeds(candidate.request, waiting.request);
+        const waitingDependsOnLiveHeadroom = memoryInfo !== null && waiting.request.resources.estimatedResidentBytes > 0;
+        const waitingIdleLiveHeadroom = waitingDependsOnLiveHeadroom
+            ? this.getIdleLiveMemoryHeadroomBytes(memoryInfo)
+            : Number.POSITIVE_INFINITY;
+        // If `waiting` cannot fit in current live OS headroom even once the
+        // broker drains to idle, holding back a fitting job cannot help
+        // `waiting` run and would stall all fitting work behind external memory
+        // pressure.
+        if (waitingDependsOnLiveHeadroom && waiting.request.resources.estimatedResidentBytes > waitingIdleLiveHeadroom) {
+            return {allowed: true, blockedByLiveMemory: false, dependsOnLiveMemory: false};
+        }
+        if (this.takesStaticResourcesWaitingNeeds(candidate.request, waiting.request)) {
+            // Even when static fairness denies run-ahead today, a future drop
+            // in live OS headroom below `waiting`'s requirement would make this
+            // grantable candidate eligible to run ahead, so keep polling armed.
+            return {allowed: false, blockedByLiveMemory: false, dependsOnLiveMemory: waitingDependsOnLiveHeadroom};
+        }
+        // Only reserve live OS memory (and idle-drain opportunity) for `waiting`
+        // when `waiting` is not already blocked by an independent non-memory
+        // resource (such as CPU, process, or bulk I/O slots) that `candidate`
+        // does not touch. An unaged heavy interactive job waiting for the bulk
+        // live-memory floor also yields to lightweight interactive work so
+        // document opens are not delayed behind it.
+        if (
+            waitingDependsOnLiveHeadroom
+            && this.fitsNonMemoryStatic(waiting.request)
+            && !(
+                this.isHeavyInteractiveRequest(waiting.request)
+                && this.getAgeSteps(waiting) === 0
+                && !this.usesBulkMemoryAndIoBudget(candidate.request)
+            )
+        ) {
+            const waitingLiveHeadroom = this.getLiveMemoryHeadroomBytes(waiting.request, memoryInfo);
+            const candidatePreventsIdleDrain =
+                waiting.request.resources.estimatedResidentBytes > waitingLiveHeadroom
+                && !this.isParkedMemoryLease(candidate.request.resources);
+            const candidateExceedsLiveHeadroom =
+                candidate.request.resources.estimatedResidentBytes > 0
+                && pendingBytes
+                    + candidate.request.resources.estimatedResidentBytes
+                    + waiting.request.resources.estimatedResidentBytes
+                    > waitingLiveHeadroom;
+            if (candidatePreventsIdleDrain || candidateExceedsLiveHeadroom) {
+                return {allowed: false, blockedByLiveMemory: true, dependsOnLiveMemory: true};
+            }
+        }
+        return {allowed: true, blockedByLiveMemory: false, dependsOnLiveMemory: false};
     }
 
-    // Whether running the candidate uses any dimension the waiting request
-    // would then no longer find room in. Interactive work is charged to the
-    // total only, bulk work to the total and the bulk budget.
-    private takesWhatWaitingNeeds(candidate: IJobBrokerRequest, waiting: IJobBrokerRequest) {
-        const totalLimit = addResources(this.capacity, this.interactiveReserve);
+    private fitsNonMemoryStatic(request: IJobBrokerRequest) {
+        if (
+            this.usedResources.cpuTokens + request.resources.cpuTokens
+                > this.capacity.cpuTokens + this.interactiveReserve.cpuTokens
+            || this.usedResources.nativeProcesses + request.resources.nativeProcesses
+                > this.capacity.nativeProcesses + this.interactiveReserve.nativeProcesses
+            || this.usedResources.ioWeight + request.resources.ioWeight
+                > this.capacity.ioWeight + this.interactiveReserve.ioWeight
+        ) {
+            return false;
+        }
+        if (
+            this.usesBulkMemoryAndIoBudget(request)
+            && this.usedBulkResources.ioWeight + request.resources.ioWeight > this.capacity.ioWeight
+        ) {
+            return false;
+        }
+        if (request.admissionClass === 'interactive') {
+            return true;
+        }
+        return this.usedBulkResources.cpuTokens + request.resources.cpuTokens <= this.capacity.cpuTokens
+            && this.usedBulkResources.nativeProcesses + request.resources.nativeProcesses
+                <= this.capacity.nativeProcesses;
+    }
+
+    // Whether running the candidate uses any static dimension the waiting
+    // request would then no longer find room in. Lightweight interactive work
+    // is charged to the total only, heavy interactive work also to bulk memory
+    // and I/O, and bulk work to all bulk dimensions.
+    private takesStaticResourcesWaitingNeeds(candidate: IJobBrokerRequest, waiting: IJobBrokerRequest) {
         const checkBulk = waiting.admissionClass !== 'interactive' && candidate.admissionClass !== 'interactive';
-        return RESOURCE_DIMENSIONS.some(dimension => candidate.resources[dimension] > 0 && (
-            this.usedResources[dimension] + candidate.resources[dimension] + waiting.resources[dimension]
-                > totalLimit[dimension]
-            || (checkBulk && this.usedBulkResources[dimension] + candidate.resources[dimension]
-                + waiting.resources[dimension] > this.capacity[dimension])
-        ));
+        const checkBulkMemoryAndIo =
+            this.usesBulkMemoryAndIoBudget(waiting) && this.usesBulkMemoryAndIoBudget(candidate);
+        return (
+            (candidate.resources.cpuTokens > 0 && (
+                this.usedResources.cpuTokens + candidate.resources.cpuTokens + waiting.resources.cpuTokens
+                    > this.capacity.cpuTokens + this.interactiveReserve.cpuTokens
+                || (checkBulk && this.usedBulkResources.cpuTokens
+                    + candidate.resources.cpuTokens + waiting.resources.cpuTokens > this.capacity.cpuTokens)
+            ))
+            || (candidate.resources.estimatedResidentBytes > 0 && (
+                this.usedResources.estimatedResidentBytes
+                    + candidate.resources.estimatedResidentBytes + waiting.resources.estimatedResidentBytes
+                    > this.capacity.estimatedResidentBytes + this.interactiveReserve.estimatedResidentBytes
+                || (checkBulkMemoryAndIo && this.usedBulkResources.estimatedResidentBytes
+                    + candidate.resources.estimatedResidentBytes + waiting.resources.estimatedResidentBytes
+                    > this.capacity.estimatedResidentBytes)
+            ))
+            || (candidate.resources.nativeProcesses > 0 && (
+                this.usedResources.nativeProcesses
+                    + candidate.resources.nativeProcesses + waiting.resources.nativeProcesses
+                    > this.capacity.nativeProcesses + this.interactiveReserve.nativeProcesses
+                || (checkBulk && this.usedBulkResources.nativeProcesses
+                    + candidate.resources.nativeProcesses + waiting.resources.nativeProcesses
+                    > this.capacity.nativeProcesses)
+            ))
+            || (candidate.resources.ioWeight > 0 && (
+                this.usedResources.ioWeight + candidate.resources.ioWeight + waiting.resources.ioWeight
+                    > this.capacity.ioWeight + this.interactiveReserve.ioWeight
+                || (checkBulkMemoryAndIo && this.usedBulkResources.ioWeight
+                    + candidate.resources.ioWeight + waiting.resources.ioWeight > this.capacity.ioWeight)
+            ))
+        );
     }
 
     private isOwnerLimited(request: IJobBrokerRequest) {
@@ -681,24 +1097,31 @@ export class JobBroker {
             && this.getOwnerActiveCount(request.ownerId, request.kind) >= request.perOwnerLimit;
     }
 
-    private isShortOfMemory(request: IJobBrokerRequest) {
+    private isShortOfStaticMemory(request: IJobBrokerRequest) {
         const bytes = request.resources.estimatedResidentBytes;
+        if (bytes <= 0) {
+            return false;
+        }
         return this.usedResources.estimatedResidentBytes + bytes
             > this.capacity.estimatedResidentBytes + this.interactiveReserve.estimatedResidentBytes
-            || (request.admissionClass !== 'interactive'
+            || (this.usesBulkMemoryAndIoBudget(request)
                 && this.usedBulkResources.estimatedResidentBytes + bytes > this.capacity.estimatedResidentBytes);
     }
 
-    // A leaf may pass the capacity + interactive reserve only while a lease
-    // that may be waiting for it runs and no other leaf runs, and only by one
-    // process: the escape asks for at most one, and the processes charged with
-    // it stay within capacity + interactive reserve + 1.
-    private canEscapeAsLeaf(request: IJobBrokerRequest) {
+    private canEscapeAsLeafWithoutLiveMemory(request: IJobBrokerRequest) {
+        const maxLeafMemoryOverrun = Math.min(
+            this.capacity.estimatedResidentBytes,
+            MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.estimatedResidentBytes,
+        );
         if (
             request.admissionClass !== 'leaf'
             || request.resources.nativeProcesses > 1
             || this.usedResources.nativeProcesses + request.resources.nativeProcesses
                 > this.capacity.nativeProcesses + this.interactiveReserve.nativeProcesses + 1
+            || this.usedResources.estimatedResidentBytes + request.resources.estimatedResidentBytes
+                > this.capacity.estimatedResidentBytes
+                    + this.interactiveReserve.estimatedResidentBytes
+                    + maxLeafMemoryOverrun
         ) {
             return false;
         }
@@ -722,6 +1145,15 @@ export class JobBroker {
         return runningNonLeaves > 0;
     }
 
+    // A leaf may pass the capacity + interactive reserve only while a lease
+    // that may be waiting for it runs and no other leaf runs, and only by one
+    // process and one bounded single-job memory slice, never into live OOM
+    // pressure or pending-allocation overcommit.
+    private canEscapeAsLeaf(request: IJobBrokerRequest, memoryInfo: ISystemMemoryInfo | null, pendingBytes: number) {
+        return this.canEscapeAsLeafWithoutLiveMemory(request)
+            && this.fitsLeafLiveMemory(request, memoryInfo, pendingBytes);
+    }
+
     private compareQueued(left: IQueuedJob, right: IQueuedJob) {
         const leftRank = this.getEffectivePriorityRank(left);
         const rightRank = this.getEffectivePriorityRank(right);
@@ -743,22 +1175,27 @@ export class JobBroker {
         return Math.max(0, PRIORITY_RANK[item.request.priority] - this.getAgeSteps(item));
     }
 
-    private canGrant(request: IJobBrokerRequest) {
-        if (this.isOwnerLimited(request)) {
-            return false;
+    private evaluateGrant(request: IJobBrokerRequest, memoryInfo: ISystemMemoryInfo | null, pendingBytes: number) {
+        if (this.isOwnerLimited(request) || this.isHeavyInteractiveBurstLimited(request)) {
+            return {grantable: false, blockedByLiveMemory: false, shortOfMemory: false};
         }
-        if (this.canEscapeAsLeaf(request)) {
-            return true;
+        if (this.canEscapeAsLeafWithoutLiveMemory(request)) {
+            if (this.fitsLeafLiveMemory(request, memoryInfo, pendingBytes)) {
+                return {grantable: true, blockedByLiveMemory: false, shortOfMemory: false};
+            }
+            return {grantable: false, blockedByLiveMemory: true, shortOfMemory: true};
         }
-        const proposedTotal = addResources(this.usedResources, request.resources);
-        if (!this.fitsWithin(proposedTotal, addResources(this.capacity, this.interactiveReserve))) {
-            return false;
+        const shortOfStaticMemory = this.isShortOfStaticMemory(request);
+        const fitsStatic = !shortOfStaticMemory && this.fitsNonMemoryStatic(request);
+        const fitsLive = this.fitsLiveMemory(request, memoryInfo, pendingBytes);
+        if (fitsStatic && fitsLive) {
+            return {grantable: true, blockedByLiveMemory: false, shortOfMemory: false};
         }
-        if (request.admissionClass === 'interactive') {
-            return true;
-        }
-        const proposedBulk = addResources(this.usedBulkResources, request.resources);
-        return this.fitsWithin(proposedBulk, this.capacity);
+        return {
+            grantable: false,
+            blockedByLiveMemory: !fitsLive,
+            shortOfMemory: shortOfStaticMemory || !fitsLive,
+        };
     }
 
     private fitsWithin(resources: IJobResourceVector, capacity: IJobResourceVector) {
@@ -769,9 +1206,13 @@ export class JobBroker {
     }
 
     private getOwnerActiveCount(ownerId: string, kind: string) {
-        return Array.from(this.active.values())
-            .filter(active => active.ownerId === ownerId && active.kind === kind)
-            .length;
+        let count = 0;
+        for (const active of this.active.values()) {
+            if (active.ownerId === ownerId && active.kind === kind) {
+                count += 1;
+            }
+        }
+        return count;
     }
 
 }
@@ -814,7 +1255,7 @@ export function resolveMainJobBrokerCapacity(
         Math.min(Math.floor(cpuCount / 2), memoryProcessBound),
     );
     const tierNativeProcesses = profile.tier === 'low'
-        ? MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.nativeProcesses
+        ? Math.min(nativeProcesses, 2)
         : Math.max(nativeProcesses, profile.tier === 'medium' ? 2 : 3);
     return {
         cpuTokens: profile.performanceMode === 'low'
@@ -855,4 +1296,5 @@ export function getConfiguredMainJobBroker() {
 export const mainJobBroker = new JobBroker(MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES, {
     maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
     interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+    readSystemMemoryInfo,
 });
