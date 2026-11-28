@@ -762,23 +762,34 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
             // The sidebar's bookmarks and the text layer read these, as from djvu.js.
             ...(getNativeOutline ? {getOutline: () => getNativeOutline(djvuPath)} : {}),
             ...(getNativePageText ? {getPageText: (pageNumber: number) => getNativePageText(djvuPath, requirePageNumber(pageNumber))} : {}),
-            async renderPageObjectUrl(pageNumber: number, options?: IDjvuPagePreviewOptions): Promise<IDjvuRenderedPageObjectUrl> {
-                if (terminated) {
+            async renderPageObjectUrl(
+                pageNumber: number,
+                options?: IDjvuPagePreviewOptions & {signal?: AbortSignal},
+            ): Promise<IDjvuRenderedPageObjectUrl> {
+                if (terminated || options?.signal?.aborted) {
                     throw new Error('DjVu conversion canceled');
                 }
-                const previewRequestId = createPreviewRequestId(pageNumber, options);
+                const {signal: requestSignal, ...ipcOptions} = options ?? {};
+                const previewRequestId = createPreviewRequestId(pageNumber, ipcOptions);
                 activePreviewRequestIds.add(previewRequestId);
                 const pageRequestIds = activePreviewRequestIdsByPage.get(pageNumber) ?? new Set<TRequestId>();
                 pageRequestIds.add(previewRequestId);
                 activePreviewRequestIdsByPage.set(pageNumber, pageRequestIds);
+                const onRequestAbort = () => {
+                    if (activePreviewRequestIds.has(previewRequestId)) {
+                        canceledPreviewRequestIds.add(previewRequestId);
+                        cancelPreviewRequest(previewRequestId);
+                    }
+                };
+                requestSignal?.addEventListener('abort', onRequestAbort, {once: true});
                 const renderOptions: IDjvuPagePreviewOptions = {
-                    ...options,
+                    ...ipcOptions,
                     previewRequestId,
                 };
                 let preview;
                 try {
                     preview = await nativeDjvu.renderPagePreview(djvuPath, requirePageNumber(pageNumber), renderOptions);
-                    if (terminated.valueOf() || canceledPreviewRequestIds.has(previewRequestId)) {
+                    if (terminated.valueOf() || requestSignal?.aborted || canceledPreviewRequestIds.has(previewRequestId)) {
                         throw new Error('DjVu conversion canceled');
                     }
                 } catch (error) {
@@ -787,6 +798,7 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
                     }
                     throw error;
                 } finally {
+                    requestSignal?.removeEventListener('abort', onRequestAbort);
                     activePreviewRequestIds.delete(previewRequestId);
                     canceledPreviewRequestIds.delete(previewRequestId);
                     pageRequestIds.delete(previewRequestId);
@@ -821,6 +833,7 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
     const activePreviewRequestIds = new Set<TRequestId>();
     const activePreviewRequestIdsByPage = new Map<number, Set<TRequestId>>();
     const canceledPreviewRequestIds = new Set<TRequestId>();
+    const activePreviewControllers = new Map<TRequestId, AbortController>();
     const fallbackWindowObjectUrls = new Set<string>();
 
     const registerFallbackWindowObjectUrl = (url: string) => {
@@ -927,6 +940,7 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
             for (const activeRequestId of requestIds) {
                 if (activePreviewRequestIds.has(activeRequestId)) {
                     canceledPreviewRequestIds.add(activeRequestId);
+                    activePreviewControllers.get(activeRequestId)?.abort();
                 }
             }
         },
@@ -956,23 +970,41 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
         async getOutline() {
             return mapOutline(await worker.getOutline());
         },
-        async renderPageObjectUrl(pageNumber: number, options?: IDjvuPagePreviewOptions): Promise<IDjvuRenderedPageObjectUrl> {
-            if (terminated) {
+        async renderPageObjectUrl(
+            pageNumber: number,
+            options?: IDjvuPagePreviewOptions & {signal?: AbortSignal},
+        ): Promise<IDjvuRenderedPageObjectUrl> {
+            if (terminated || options?.signal?.aborted) {
                 throw new Error('DjVu conversion canceled');
             }
             const pageSize = (await pageSizesPromise)[pageNumber - 1];
             if (!pageSize) {
                 throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
             }
+            if (terminated || options?.signal?.aborted) {
+                throw new Error('DjVu conversion canceled');
+            }
             const previewRequestId = createFallbackPreviewRequestId(pageNumber, options);
+            const requestController = new AbortController();
+            const forwardAbort = () => {
+                canceledPreviewRequestIds.add(previewRequestId);
+                requestController.abort();
+            };
+            options?.signal?.addEventListener('abort', forwardAbort, {once: true});
             activePreviewRequestIds.add(previewRequestId);
+            activePreviewControllers.set(previewRequestId, requestController);
             const pageRequestIds = activePreviewRequestIdsByPage.get(pageNumber) ?? new Set<TRequestId>();
             pageRequestIds.add(previewRequestId);
             activePreviewRequestIdsByPage.set(pageNumber, pageRequestIds);
             try {
                 const preview = await enqueueFallbackRender(async () => {
                     throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
-                    return renderDjvuPagePreviewPng(worker, pageNumber, resolveDjvuPreviewTargetWidth(pageSize, options));
+                    return renderDjvuPagePreviewPng(
+                        worker,
+                        pageNumber,
+                        resolveDjvuPreviewTargetWidth(pageSize, options),
+                        requestController.signal,
+                    );
                 });
                 throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
                 const objectUrl = createPngObjectUrl(preview.bytes);
@@ -982,6 +1014,8 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
                     renderedPx: preview.width,
                 };
             } finally {
+                options?.signal?.removeEventListener('abort', forwardAbort);
+                activePreviewControllers.delete(previewRequestId);
                 activePreviewRequestIds.delete(previewRequestId);
                 canceledPreviewRequestIds.delete(previewRequestId);
                 pageRequestIds.delete(previewRequestId);
@@ -992,8 +1026,15 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
         },
         revokeObjectURL: revokeFallbackObjectUrl,
         terminate() {
+            if (terminated) {
+                return;
+            }
             terminated = true;
             nativeTextSearch?.dispose();
+            for (const controller of activePreviewControllers.values()) {
+                controller.abort();
+            }
+            activePreviewControllers.clear();
             activePreviewRequestIds.clear();
             activePreviewRequestIdsByPage.clear();
             canceledPreviewRequestIds.clear();

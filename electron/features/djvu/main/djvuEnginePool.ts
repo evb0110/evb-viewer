@@ -6,7 +6,18 @@ import * as electron from 'electron';
 import {WORKER_BUNDLES_BY_ID} from '@electron-worker-bundles/electronWorkerBundles.js';
 import {resolveUnpackedWorkerPath} from '@electron/utils/workerTask';
 import {getHostResourceProfileSnapshot} from '@electron/resources/hostResourceProfile';
+import {
+    getActiveJobBrokerLease,
+    getConfiguredMainJobBroker,
+    mergeTerminationProofSinks,
+    type IJobBrokerRunContext,
+    type IJobResourceVector,
+    type TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 import {abortErrorFromSignal} from '@electron/utils/abort';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import type {
     IDjvuEngineWorkerData,
     TDjvuEngineResultMap,
@@ -14,6 +25,7 @@ import type {
     TDjvuEngineWorkerRequest,
 } from '@electron/features/djvu/main/djvuEngineProtocol';
 
+const logger = createLogger('djvu-engine-pool');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENGINE_IDLE_TTL_MS = 60_000;
 const ENGINE_TASK_TIMEOUT_MS = 3 * 60 * 1000;
@@ -23,15 +35,41 @@ const WORKER_RESOURCE_LIMITS = {
     maxYoungGenerationSizeMb: 64,
     stackSizeMb: 4,
 };
+const DJVU_ENGINE_LEAF_RESOURCES: Readonly<IJobResourceVector> = {
+    cpuTokens: 1,
+    estimatedResidentBytes: 128 * 1024 * 1024,
+    nativeProcesses: 1,
+    ioWeight: 1,
+};
 
 type TDjvuEngineRequestPayloadMap = {
     [TRequest in TDjvuEngineWorkerRequest as TRequest['type']]: Omit<TRequest, 'id'>;
 };
 
+export interface IRunDjvuEngineOptions {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    /**
+     * Owning broker run context (`broker`, `lease`, `onTerminationProof`).
+     * While `broker.isRunningLease(lease)` holds, the engine runs under that
+     * lease instead of taking a fresh `leaf` lease, and forwards worker
+     * termination proofs to `brokerRun.onTerminationProof`.
+     */
+    brokerRun?: IJobBrokerRunContext;
+    /** Receives worker termination proof before a canceled/errored request rejects. */
+    onTerminationProof?: TTerminationProofSink;
+}
+
 interface IDjvuPoolWorker {
     worker: Worker;
     busy: boolean;
     ending: boolean;
+    exited: boolean;
+    /** Resolves `true` only once the worker has actually exited (used for broker lease accounting). */
+    exitProof: Promise<boolean>;
+    resolveExitProof: () => void;
+    /** Resolves `true` if exit was confirmed during `terminate()`, or `false` if `terminate()` rejected while still alive. */
+    terminationAttempt?: Promise<boolean>;
     heapBytes: number;
     idleTimer?: NodeJS.Timeout;
 }
@@ -86,29 +124,76 @@ class DjvuEnginePool {
         this.waiters.shift()?.();
     }
 
-    private endWorker(entry: IDjvuPoolWorker) {
-        if (entry.ending) {
-            return;
+    private endWorker(entry: IDjvuPoolWorker): {terminationAttempt: Promise<boolean>; exitProof: Promise<boolean>} {
+        if (entry.terminationAttempt) {
+            return {
+                terminationAttempt: entry.terminationAttempt,
+                exitProof: entry.exitProof,
+            };
         }
         entry.ending = true;
         entry.busy = true;
         clearTimeout(entry.idleTimer);
-        void entry.worker
-            .terminate()
-            .catch(() => undefined)
-            .finally(() => {
-                this.workers.delete(entry);
-                this.wakeWaiter();
-            });
+        if (entry.exited) {
+            entry.resolveExitProof();
+            this.workers.delete(entry);
+            this.wakeWaiter();
+            entry.terminationAttempt = Promise.resolve(true);
+            return {
+                terminationAttempt: entry.terminationAttempt,
+                exitProof: entry.exitProof,
+            };
+        }
+        entry.terminationAttempt = new Promise<boolean>((resolveAttempt) => {
+            let done = false;
+            const settle = (proven: boolean) => {
+                if (done) {
+                    return;
+                }
+                done = true;
+                entry.worker.off('exit', onWorkerExit);
+                if (proven) {
+                    entry.exited = true;
+                    entry.resolveExitProof();
+                    if (this.workers.delete(entry)) {
+                        this.wakeWaiter();
+                    }
+                }
+                resolveAttempt(proven);
+            };
+            const onWorkerExit = () => settle(true);
+            entry.worker.once('exit', onWorkerExit);
+            if (entry.exited) {
+                settle(true);
+                return;
+            }
+            Promise.resolve()
+                .then(() => entry.worker.terminate())
+                .then(
+                    () => settle(true),
+                    (error) => {
+                        logger.warn('DjVu engine worker termination failed', {
+                            error: getErrorMessage(error),
+                        });
+                        settle(entry.exited);
+                    },
+                );
+        });
+        return {
+            terminationAttempt: entry.terminationAttempt,
+            exitProof: entry.exitProof,
+        };
     }
 
     private parkWorker(entry: IDjvuPoolWorker) {
         if (entry.ending || this.closed || entry.heapBytes > ENGINE_HIGH_WATER_HEAP_BYTES) {
-            this.endWorker(entry);
+            void this.endWorker(entry);
             return;
         }
         entry.busy = false;
-        entry.idleTimer = setTimeout(() => this.endWorker(entry), ENGINE_IDLE_TTL_MS);
+        entry.idleTimer = setTimeout(() => {
+            void this.endWorker(entry);
+        }, ENGINE_IDLE_TTL_MS);
         entry.idleTimer.unref();
         this.wakeWaiter();
     }
@@ -119,14 +204,30 @@ class DjvuEnginePool {
             workerData: {engineDir: resolveDjvuEngineDir()} satisfies IDjvuEngineWorkerData,
             resourceLimits: WORKER_RESOURCE_LIMITS,
         });
+        const exitDeferred = Promise.withResolvers<boolean>();
         const entry: IDjvuPoolWorker = {
             worker,
             busy: true,
             ending: false,
+            exited: false,
+            exitProof: exitDeferred.promise,
+            resolveExitProof: () => exitDeferred.resolve(true),
             heapBytes: 0,
         };
-        worker.on('error', () => this.endWorker(entry));
-        worker.on('exit', () => this.endWorker(entry));
+        worker.on('error', () => {
+            void this.endWorker(entry);
+        });
+        worker.on('exit', () => {
+            entry.exited = true;
+            entry.resolveExitProof();
+            if (entry.ending) {
+                if (this.workers.delete(entry)) {
+                    this.wakeWaiter();
+                }
+            } else {
+                void this.endWorker(entry);
+            }
+        });
         this.workers.add(entry);
         return entry;
     }
@@ -168,15 +269,17 @@ class DjvuEnginePool {
         options: {
             signal?: AbortSignal;
             timeoutMs?: number;
+            onTerminationProof?: TTerminationProofSink;
         } = {},
     ): Promise<TDjvuEngineResultMap[TType]> {
-        const {signal, timeoutMs = ENGINE_TASK_TIMEOUT_MS} = options;
+        const {signal, timeoutMs = ENGINE_TASK_TIMEOUT_MS, onTerminationProof} = options;
         const entry = await this.acquire(signal);
         const id = this.nextId++;
         const {worker} = entry;
 
         return new Promise<TDjvuEngineResultMap[TType]>((resolvePromise, rejectPromise) => {
             let settled = false;
+            let terminating = false;
             const cleanup = () => {
                 clearTimeout(timer);
                 signal?.removeEventListener('abort', onAbort);
@@ -196,6 +299,23 @@ class DjvuEnginePool {
                     resolvePromise(result as TDjvuEngineResultMap[TType]);
                 }
             };
+            const failAfterExit = (baseError: Error) => {
+                if (settled || terminating) {
+                    return;
+                }
+                terminating = true;
+                cleanup();
+                const {terminationAttempt, exitProof} = this.endWorker(entry);
+                // Keep the broker lease charged until the worker actually exits (even after a late exit
+                // following a rejected terminate()), while settling the caller once the termination attempt completes.
+                onTerminationProof?.(exitProof);
+                void terminationAttempt.then((proven) => {
+                    const finalError = proven
+                        ? baseError
+                        : markUnprovenNativeTermination(baseError, 'DjVu engine worker termination could not be confirmed');
+                    finish(finalError);
+                });
+            };
             const onMessage = (reply: TDjvuEngineWorkerReply) => {
                 if (!reply || reply.id !== id) {
                     return;
@@ -209,20 +329,17 @@ class DjvuEnginePool {
                 }
             };
             const onError = (error: Error) => {
-                this.endWorker(entry);
-                finish(new Error(`DjVu engine worker failed: ${error.message}`, {cause: error}));
+                failAfterExit(new Error(`DjVu engine worker failed: ${error.message}`, {cause: error}));
             };
             const onExit = (code: number) => {
-                this.endWorker(entry);
-                finish(new Error(`DjVu engine worker exited with code ${code}`));
+                entry.exited = true;
+                failAfterExit(new Error(`DjVu engine worker exited with code ${code}`));
             };
             const onAbort = () => {
-                this.endWorker(entry);
-                finish(signal ? abortErrorFromSignal(signal) : new DOMException('DjVu operation canceled', 'AbortError'));
+                failAfterExit(signal ? abortErrorFromSignal(signal) : new DOMException('DjVu operation canceled', 'AbortError'));
             };
             const timer = setTimeout(() => {
-                this.endWorker(entry);
-                finish(new Error('DjVuLibre engine timed out'));
+                failAfterExit(new Error('DjVuLibre engine timed out'));
             }, timeoutMs);
             timer.unref();
 
@@ -232,20 +349,25 @@ class DjvuEnginePool {
             signal?.addEventListener('abort', onAbort, {once: true});
 
             if (signal?.aborted) {
-                onAbort();
+                this.parkWorker(entry);
+                finish(abortErrorFromSignal(signal));
                 return;
             }
-            worker.postMessage({
-                ...payload,
-                id,
-            });
+            try {
+                worker.postMessage({
+                    ...payload,
+                    id,
+                });
+            } catch (error) {
+                failAfterExit(error instanceof Error ? error : new Error(getErrorMessage(error)));
+            }
         });
     }
 
     public shutdown() {
         this.closed = true;
         for (const entry of [...this.workers]) {
-            this.endWorker(entry);
+            void this.endWorker(entry);
         }
         for (const wake of this.waiters.splice(0)) {
             wake();
@@ -260,14 +382,55 @@ function getPool() {
     return sharedPool;
 }
 
-export function runDjvuEngine<TType extends TDjvuEngineWorkerRequest['type']>(
+export async function runDjvuEngine<TType extends TDjvuEngineWorkerRequest['type']>(
     payload: TDjvuEngineRequestPayloadMap[TType] & {type: TType},
-    options?: {
-        signal?: AbortSignal;
-        timeoutMs?: number;
-    },
+    options?: IRunDjvuEngineOptions,
 ): Promise<TDjvuEngineResultMap[TType]> {
-    return getPool().request<TType>(payload, options);
+    const signal = options?.signal;
+    const timeoutMs = options?.timeoutMs;
+    const configuredBroker = getConfiguredMainJobBroker();
+    const heldLease = getActiveJobBrokerLease(options?.brokerRun, configuredBroker ?? undefined);
+    const callerTerminationProof =
+        heldLease === undefined
+            ? options?.onTerminationProof
+            : mergeTerminationProofSinks(options?.brokerRun?.onTerminationProof, options?.onTerminationProof);
+
+    if (heldLease !== undefined || configuredBroker === null) {
+        return getPool().request<TType>(payload, {
+            ...(signal === undefined ? {} : {signal}),
+            ...(timeoutMs === undefined ? {} : {timeoutMs}),
+            ...(callerTerminationProof === undefined ? {} : {onTerminationProof: callerTerminationProof}),
+        });
+    }
+
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
+
+    let admitted = false;
+    try {
+        return await configuredBroker.run(
+            {
+                ownerId: 'djvu-engine',
+                kind: 'djvu-engine',
+                priority: 'user',
+                admissionClass: 'leaf',
+                resources: DJVU_ENGINE_LEAF_RESOURCES,
+                ...(signal === undefined ? {} : {signal}),
+            },
+            ({onTerminationProof}) => {
+                admitted = true;
+                const mergedProof = mergeTerminationProofSinks(onTerminationProof, options?.onTerminationProof);
+                return getPool().request<TType>(payload, {
+                    ...(signal === undefined ? {} : {signal}),
+                    ...(timeoutMs === undefined ? {} : {timeoutMs}),
+                    ...(mergedProof === undefined ? {} : {onTerminationProof: mergedProof}),
+                });
+            },
+        );
+    } catch (error) {
+        throw !admitted && signal?.aborted ? abortErrorFromSignal(signal) : error;
+    }
 }
 
 export function shutdownDjvuEnginePool() {

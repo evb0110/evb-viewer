@@ -1,6 +1,6 @@
 import {BROWSER_OCR_ENGINE_IMAGE_PATH, BROWSER_OCR_ENGINE_OUTPUT_BASE, BROWSER_OCR_ENGINE_TESSDATA_PATH} from '@contracts/browserOcrEngine';
 import type {IOcrTextLayerInstructions, TOcrWordGeometry} from '@contracts/browserPageOpsWorker';
-import type {IOcrDiagnostic, IOcrSearchablePdfOptions} from '@contracts/electronApiOcr';
+import type {IOcrDiagnostic, IOcrSearchablePdfOptions, TOcrErrorCode} from '@contracts/electronApiOcr';
 import type {TOcrModelCode} from '@contracts/ocrLanguages';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {canReadEarlyPrint, hasLongSSignature, planEarlyPrintWordEdits, readEarlyPrintDictionary} from '@ocr-core/earlyPrintReading';
@@ -69,7 +69,7 @@ export interface IRecognizeOcrPagesInput<TImage> {
     renderPage: (pageNumber: number, dpi: number, signal: AbortSignal) => Promise<IOcrPageRaster<TImage>>;
     runEngine: (request: IOcrEngineRequest<TImage>, signal: AbortSignal) => Promise<IOcrEngineResult>;
     /** Installs the early-print models; called once, when a page first needs them. */
-    prepareEarlyPrintModels: () => Promise<void>;
+    prepareEarlyPrintModels: (signal?: AbortSignal) => Promise<void>;
     readModel: (code: TOcrModelCode) => Promise<Uint8Array>;
     /** The page as an earlier, interrupted run of this job recognized and accepted it. */
     restorePage?: (pageNumber: number) => Promise<IOcrRecognizedPage | null>;
@@ -92,6 +92,27 @@ export class OcrJobMessages<T> {
             }
         }
     }
+}
+
+/**
+ * A job-fatal OCR failure (such as exhausting the bounded in-memory checkpoint
+ * ceiling) that must cancel sibling lanes, drain them before cleanup, and fail
+ * the job rather than being swallowed as a per-page error.
+ */
+export class OcrFatalJobError extends Error {
+    public readonly code?: TOcrErrorCode;
+
+    public constructor(message: string, options?: {code?: TOcrErrorCode; cause?: unknown}) {
+        super(message, options?.cause === undefined ? undefined : {cause: options.cause});
+        this.name = 'OcrFatalJobError';
+        if (options?.code !== undefined) {
+            this.code = options.code;
+        }
+    }
+}
+
+export function isOcrFatalJobError(error: unknown): error is OcrFatalJobError {
+    return error instanceof OcrFatalJobError;
 }
 
 function throwIfAborted(signal: AbortSignal) {
@@ -157,6 +178,10 @@ function enginePass(
  */
 export async function recognizeOcrPages<TImage>(input: IRecognizeOcrPagesInput<TImage>) {
     const {signal, options} = input;
+    const fatalAbort = new AbortController();
+    const laneSignal = AbortSignal.any([signal, fatalAbort.signal]);
+    let hasFatalError = false;
+    let fatalError: unknown = null;
     const errors = new OcrJobMessages<string>();
     const diagnostics = new OcrJobMessages<IOcrDiagnostic>();
     const queue = [...input.pages];
@@ -166,6 +191,15 @@ export async function recognizeOcrPages<TImage>(input: IRecognizeOcrPagesInput<T
     let earlyPrintModels: Promise<void> | null = null;
     const dictionaries = new Map<string, Promise<ReadonlySet<string>>>();
 
+    const recordFatalError = (error: unknown) => {
+        if (!hasFatalError) {
+            hasFatalError = true;
+            fatalError = error;
+            queue.length = 0;
+            fatalAbort.abort(error);
+        }
+    };
+
     /**
      * On a page its own model read with the long-s signature, reads a fresh
      * raster again: the selected models writing hOCR as well, then ita_old for
@@ -173,8 +207,9 @@ export async function recognizeOcrPages<TImage>(input: IRecognizeOcrPagesInput<T
      * word edits replace the first reading only when every pass succeeded.
      */
     const readEarlyPrint = async (pageNumber: number, dpi: number, languages: readonly string[]) => {
-        earlyPrintModels ??= input.prepareEarlyPrintModels();
+        earlyPrintModels ??= input.prepareEarlyPrintModels(laneSignal);
         await earlyPrintModels;
+        throwIfAborted(laneSignal);
         const dictionaryKey = [...languages].sort().join('+');
         let dictionary = dictionaries.get(dictionaryKey);
         if (!dictionary) {
@@ -184,7 +219,7 @@ export async function recognizeOcrPages<TImage>(input: IRecognizeOcrPagesInput<T
             dictionaries.set(dictionaryKey, dictionary);
         }
         // The first request handed its raster to the engine; render the page again.
-        const raster = await input.renderPage(pageNumber, dpi, signal);
+        const raster = await input.renderPage(pageNumber, dpi, laneSignal);
         const result = await input.runEngine(
             {
                 image: raster.image,
@@ -199,7 +234,7 @@ export async function recognizeOcrPages<TImage>(input: IRecognizeOcrPagesInput<T
                     enginePass(['fra'], LIGATURES_OUTPUT_BASE, dpi, options, {hocr: true}),
                 ],
             },
-            signal,
+            laneSignal,
         );
         const [base, longS, ligatures] = result.passes;
         const [pdf, tsv, hocr] = base!.outputs;
@@ -241,7 +276,7 @@ export async function recognizeOcrPages<TImage>(input: IRecognizeOcrPagesInput<T
                     message: `Used ${dpi} DPI instead of ${input.extractionDpi} DPI to avoid upscaling the embedded page image`,
                 });
             }
-            let raster = await input.renderPage(pageNumber, dpi, signal);
+            let raster = await input.renderPage(pageNumber, dpi, laneSignal);
             if (raster.diagnostic) {
                 pageDiagnostics.push(raster.diagnostic);
             }
@@ -256,7 +291,7 @@ export async function recognizeOcrPages<TImage>(input: IRecognizeOcrPagesInput<T
                         }),
                     ],
                 },
-                signal,
+                laneSignal,
             );
             const [pass] = result.passes;
             const [firstPdf, firstTsv] = pass!.outputs;
@@ -275,7 +310,7 @@ export async function recognizeOcrPages<TImage>(input: IRecognizeOcrPagesInput<T
                     }
                     raster = early.raster;
                 } catch (error) {
-                    throwIfAborted(signal);
+                    throwIfAborted(laneSignal);
                     pageDiagnostics.push({
                         code: 'OCR_EARLY_PRINT_UNAVAILABLE',
                         severity: 'warning',
@@ -321,13 +356,23 @@ export async function recognizeOcrPages<TImage>(input: IRecognizeOcrPagesInput<T
         try {
             const restored = (await input.restorePage?.(request.pageNumber)) ?? null;
             const page = restored ?? (await recognizePage(request));
+            throwIfAborted(laneSignal);
             if (!restored) {
                 await input.acceptPage(page);
             }
             diagnostics.push(...page.diagnostics);
             recognizedCount += 1;
         } catch (error) {
-            throwIfAborted(signal);
+            if (signal.aborted) {
+                throwIfAborted(signal);
+            }
+            if (isOcrFatalJobError(error)) {
+                recordFatalError(error);
+                throw error;
+            }
+            if (hasFatalError) {
+                throw fatalError;
+            }
             errors.push(`Page ${request.pageNumber}: ${errorMessage(error)}`);
         } finally {
             activePages.delete(request.pageNumber);
@@ -339,11 +384,17 @@ export async function recognizeOcrPages<TImage>(input: IRecognizeOcrPagesInput<T
     const lanes = await Promise.allSettled(
         Array.from({length: Math.max(1, Math.min(input.lanes, queue.length))}, async () => {
             for (let request = queue.shift(); request; request = queue.shift()) {
-                throwIfAborted(signal);
+                throwIfAborted(laneSignal);
                 await runPage(request);
             }
         }),
     );
+    if (signal.aborted) {
+        throwIfAborted(signal);
+    }
+    if (hasFatalError) {
+        throw fatalError;
+    }
     const failed = lanes.find((lane) => lane.status === 'rejected');
     if (failed?.status === 'rejected') {
         throw failed.reason;
