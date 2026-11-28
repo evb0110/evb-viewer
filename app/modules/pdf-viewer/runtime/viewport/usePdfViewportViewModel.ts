@@ -1,8 +1,9 @@
-import {parsePageNumber} from '@contracts/pageNumbers';
+import {parsePageNumber, requirePageNumber} from '@contracts/pageNumbers';
 import type {TPageNumber} from '@contracts/pageNumbers';
 
-import type {ComputedRef, Ref} from 'vue';
+import {onScopeDispose, type ComputedRef, type Ref} from 'vue';
 import {useResizeObserver} from '@vueuse/core';
+import {getPageRowBoundsForViewMode} from '@app/modules/document-viewer/public';
 import {getCurrentSpreadRenderedBoundsFromMetrics} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromMetrics';
 import {resolveHorizontalScrollClampForActiveSpread as resolveActiveSpreadHorizontalScrollClamp} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolveHorizontalScrollClampForActiveSpread';
 import {HORIZONTAL_SCROLL_CLAMP_EPSILON_PX} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
@@ -55,6 +56,52 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
     const viewRotation = options.viewRotation ?? computed<TPdfViewRotation>(() => 0);
     const fitWidthHorizontalScrollLocked = ref(false);
     const viewportDimensionVersion = ref(0);
+    let lastHorizontalClampCache: {
+        container: HTMLElement;
+        key: string;
+        elements: HTMLElement[];
+        scrollLeft: number;
+        result: {scrollLeft: number; shouldLock: boolean};
+    } | null = null;
+    const observedActiveRowElements = new Set<HTMLElement>();
+    let activeRowGeometryObserver: ResizeObserver | null = null;
+    function getActiveRowGeometryObserver() {
+        if (activeRowGeometryObserver === null && typeof ResizeObserver !== 'undefined') {
+            activeRowGeometryObserver = new ResizeObserver(() => {
+                lastHorizontalClampCache = null;
+                syncHorizontalScrollForZoomMode();
+            });
+        }
+        return activeRowGeometryObserver;
+    }
+    function clearObservedActiveRowElements() {
+        if (observedActiveRowElements.size === 0) {
+            return;
+        }
+        for (const element of observedActiveRowElements) {
+            activeRowGeometryObserver?.unobserve(element);
+        }
+        observedActiveRowElements.clear();
+    }
+    function syncObservedActiveRowElements(elements: readonly HTMLElement[]) {
+        if (elements.length === observedActiveRowElements.size && elements.every((element) => observedActiveRowElements.has(element))) {
+            return;
+        }
+        clearObservedActiveRowElements();
+        const observer = getActiveRowGeometryObserver();
+        for (const element of elements) {
+            observedActiveRowElements.add(element);
+            observer?.observe(element);
+        }
+    }
+    function invalidateHorizontalClampCache() {
+        lastHorizontalClampCache = null;
+        clearObservedActiveRowElements();
+    }
+    onScopeDispose(() => {
+        activeRowGeometryObserver?.disconnect();
+        observedActiveRowElements.clear();
+    });
     let writeSequence = 0;
     const writeLeft = (container: HTMLElement, left: number, reason: string) => {
         writeSequence += 1;
@@ -68,6 +115,7 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
 
     useResizeObserver(options.viewerContainer, () => {
         viewportDimensionVersion.value += 1;
+        lastHorizontalClampCache = null;
     });
 
     const virtualization = usePdfViewerVirtualization({
@@ -172,13 +220,67 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         const container = options.viewerContainer.value;
         if (!container || options.classState.fitMode.value !== 'width') {
             fitWidthHorizontalScrollLocked.value = false;
+            invalidateHorizontalClampCache();
             return null;
         }
 
         const currentPage = parsePageNumber(options.currentPage.value, options.numPages.value);
         if (currentPage === null) {
             fitWidthHorizontalScrollLocked.value = false;
+            invalidateHorizontalClampCache();
             return null;
+        }
+
+        const isHandoffActive =
+            (options.navigationVisualHandoffTargetPage?.value ?? null) !== null || options.navigationAnchorPage.value !== null;
+        const rowBounds = getPageRowBoundsForViewMode({
+            pageNumber: currentPage,
+            viewMode: options.viewMode.value,
+            totalPages: options.numPages.value,
+        });
+        const activeRowElements: HTMLElement[] = [];
+        const activeRowStyleWidths: string[] = [];
+        const activeRowScales: number[] = [];
+        let canUseStableDomCache = !isHandoffActive;
+        for (let pageNumber = Number(rowBounds.start); pageNumber <= rowBounds.end; pageNumber += 1) {
+            const normalizedPage = requirePageNumber(pageNumber, options.numPages.value);
+            activeRowScales.push(virtualization.getPageLayoutScale(normalizedPage));
+            if (!canUseStableDomCache) {
+                continue;
+            }
+            const pageElement = container.querySelector<HTMLElement>(`.page_container[data-page="${normalizedPage}"]`);
+            if (!pageElement || pageElement.classList.contains('page_container--buffered')) {
+                canUseStableDomCache = false;
+                continue;
+            }
+            activeRowElements.push(pageElement);
+            activeRowStyleWidths.push(pageElement.style.width);
+        }
+
+        const clampKey = [
+            currentPage,
+            options.viewMode.value,
+            viewRotation.value,
+            options.numPages.value,
+            options.effectiveScale.value,
+            activeRowScales.join(','),
+            activeRowStyleWidths.join(','),
+            options.scaledMargin.value,
+            viewportDimensionVersion.value,
+            options.pageMetricsVersion.value,
+            container.clientWidth,
+        ].join(':');
+        if (
+            canUseStableDomCache &&
+            lastHorizontalClampCache &&
+            lastHorizontalClampCache.container === container &&
+            lastHorizontalClampCache.key === clampKey &&
+            lastHorizontalClampCache.elements.length === activeRowElements.length &&
+            lastHorizontalClampCache.elements.every((element, index) => element === activeRowElements[index]) &&
+            Math.abs(container.scrollLeft - lastHorizontalClampCache.scrollLeft) <= HORIZONTAL_SCROLL_CLAMP_EPSILON_PX
+        ) {
+            fitWidthHorizontalScrollLocked.value = lastHorizontalClampCache.result.shouldLock;
+            return lastHorizontalClampCache.result;
         }
 
         const scrollClamp = resolveActiveSpreadHorizontalScrollClamp({
@@ -196,6 +298,22 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
             epsilon: HORIZONTAL_SCROLL_CLAMP_EPSILON_PX,
         });
         fitWidthHorizontalScrollLocked.value = scrollClamp?.shouldLock ?? false;
+        if (
+            canUseStableDomCache &&
+            scrollClamp &&
+            Math.abs(container.scrollLeft - scrollClamp.scrollLeft) <= HORIZONTAL_SCROLL_CLAMP_EPSILON_PX
+        ) {
+            syncObservedActiveRowElements(activeRowElements);
+            lastHorizontalClampCache = {
+                container,
+                key: clampKey,
+                elements: activeRowElements,
+                scrollLeft: container.scrollLeft,
+                result: scrollClamp,
+            };
+        } else {
+            invalidateHorizontalClampCache();
+        }
         return scrollClamp;
     }
 

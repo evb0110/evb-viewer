@@ -68,36 +68,38 @@ import {annotationEditorSurfaceKey} from '@app/modules/pdf-viewer/runtime/annota
 
 interface IProps {
     page: TPageNumber;
-    showSkeleton: boolean;
+    shouldShowSkeleton: (page: TPageNumber) => boolean;
     deferSkeleton?: boolean;
     paintMode?: 'normal' | 'hidden' | 'shell-owned';
-    renderFailed?: boolean;
+    isPageRenderFailed: (page: TPageNumber) => boolean;
     renderErrorLabel?: string;
     spreadSingle?: boolean;
     buffered?: boolean;
     /** Painted and, when the viewport needs it, readable; a skeleton never covers a raster. */
-    rendered?: boolean;
+    isPageRendered: (page: TPageNumber) => boolean;
     /** A committed raster, at the current scale or stretched from an older one. */
-    raster?: 'current' | 'stale' | null;
-    pageScale: IPdfPageScale | null;
-    placeholderStyle?: Record<string, string> | null;
+    pageRaster: (page: TPageNumber) => 'current' | 'stale' | null;
+    getPageScale: (page: TPageNumber) => IPdfPageScale | null;
+    getPagePlaceholderStyle: (page: TPageNumber) => Record<string, string> | null;
+    openingPageFrameStyle?: Record<string, string> | null;
     placedImage?: IPdfImagePlacementDraft | null;
     placedImageBusy?: boolean;
 }
 
 const {
     page,
-    showSkeleton,
+    shouldShowSkeleton,
     deferSkeleton = false,
     paintMode = 'normal',
-    renderFailed = false,
+    isPageRenderFailed,
     renderErrorLabel = '',
     spreadSingle = false,
     buffered = false,
-    rendered = false,
-    raster = null,
-    pageScale,
-    placeholderStyle = null,
+    isPageRendered,
+    pageRaster,
+    getPageScale,
+    getPagePlaceholderStyle,
+    openingPageFrameStyle = null,
     placedImage = null,
     placedImageBusy = false,
 } = defineProps<IProps>();
@@ -110,7 +112,15 @@ const emit = defineEmits<{
     'cancel-placed-image': [];
 }>();
 const pageContainer = ref<HTMLElement | null>(null);
-const pageScaleStyle = computed(() => (pageScale ? buildPdfPageScaleStyle(pageScale) : undefined));
+const showSkeleton = computed(() => shouldShowSkeleton(page));
+const renderFailed = computed(() => isPageRenderFailed(page));
+const rendered = computed(() => isPageRendered(page));
+const raster = computed(() => pageRaster(page));
+const placeholderStyle = computed(() => openingPageFrameStyle ?? getPagePlaceholderStyle(page));
+const pageScaleStyle = computed(() => {
+    const resolved = getPageScale(page);
+    return resolved ? buildPdfPageScaleStyle(resolved) : undefined;
+});
 
 const {scaledSkeletonPadding, scaledPageHeight} = usePdfSkeletonContext();
 const fallbackSkeletonPadding = Object.freeze({

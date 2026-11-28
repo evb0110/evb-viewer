@@ -14,6 +14,7 @@ export interface ICreatePdfInitialVisualCommitOptions {
     viewport: TPdfViewportSession;
     viewerContainer: Ref<HTMLElement | null>;
     renderedPageStateVersion: Ref<number>;
+    markPageStateChanged?: ((pageNumber: TPageNumber) => void) | undefined;
     /** The attempt identity of the page's committed raster, while it is current. */
     getCommittedVisualRequestId: (pageNumber: TPageNumber) => number | null;
     queueFrame: () => void;
@@ -150,7 +151,11 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
             : null;
     }
     function handlePageCanvasMounted(commit: IPdfCanvasDomCommit) {
-        options.renderedPageStateVersion.value += 1;
+        if (options.markPageStateChanged) {
+            options.markPageStateChanged(commit.pageNumber);
+        } else {
+            options.renderedPageStateVersion.value += 1;
+        }
         options.queueFrame();
         const claimed = claimRequestedPageFence(commit);
         if (!chassisAuthority || !claimed) {

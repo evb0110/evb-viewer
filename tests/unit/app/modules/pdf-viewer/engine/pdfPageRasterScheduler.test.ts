@@ -1709,4 +1709,74 @@ describe('PdfPageRasterScheduler', () => {
         });
         await scheduler.dispose();
     });
+
+    it('overlaps at most one committing page with the next raster render while preserving inFlight same-key exclusion', async () => {
+        const commitResolvers = new Map<number, () => void>();
+        const renderResolvers = new Map<number, () => void>();
+        const started: number[] = [];
+        const harness = createHarness({maxConcurrency: 2});
+        harness.target.start = (prepared) => {
+            started.push(prepared.pageNumber);
+            const deferred = Promise.withResolvers<undefined>();
+            renderResolvers.set(prepared.pageNumber, () => deferred.resolve(undefined));
+            return createTask(deferred.promise);
+        };
+        harness.target.commit = async (prepared, _demand, commitRaster) => {
+            await new Promise<void>((resolve) => {
+                commitResolvers.set(prepared.pageNumber, resolve);
+            });
+            return commitRaster();
+        };
+        try {
+            harness.scheduler.setDemand({
+                sourceId: 'viewport',
+                input: [1, 2, 3, 4].map((page) => createDemand(page, 'viewport-visible')),
+                policy: {
+                    expand: (input) => input,
+                    compareWithinLane: (left, right) => left.ordinal - right.ordinal,
+                },
+                target: harness.target,
+            });
+            await vi.waitFor(() => expect(started).toEqual([1, 2]));
+            // Page 1 enters committing -> 1 overlapping raster render (page 3) starts,
+            // while page 1 remains inFlight (same-key excluded).
+            renderResolvers.get(1)!();
+            await vi.waitFor(() => expect(started).toEqual([1, 2, 3]));
+            expect(harness.scheduler.snapshot().inFlightPages.map((entry) => entry.pageNumber)).toEqual([1, 2, 3]);
+            // Same-key demand for committing page 1 reuses the live inFlight work instead of starting a duplicate.
+            harness.scheduler.setDemand({
+                sourceId: 'viewport',
+                input: [1, 2, 3, 4].map((page) => createDemand(page, 'viewport-visible')),
+                policy: {
+                    expand: (input) => input,
+                    compareWithinLane: (left, right) => left.ordinal - right.ordinal,
+                },
+                target: harness.target,
+            });
+            await flush();
+            expect(started).toEqual([1, 2, 3]);
+            // Page 2 also enters committing -> overlap stays capped at 1 (page 4 does NOT start yet).
+            renderResolvers.get(2)!();
+            await flush();
+            expect(started).toEqual([1, 2, 3]);
+            // Finishing page 1's commit frees a slot so page 4 starts.
+            commitResolvers.get(1)!();
+            await vi.waitFor(() => expect(started).toEqual([1, 2, 3, 4]));
+            renderResolvers.get(3)!();
+            renderResolvers.get(4)!();
+            await vi.waitFor(() => expect(commitResolvers.has(3) && commitResolvers.has(4)).toBe(true));
+            commitResolvers.get(2)!();
+            commitResolvers.get(3)!();
+            commitResolvers.get(4)!();
+            await vi.waitFor(() => expect(harness.scheduler.snapshot().inFlightPages).toEqual([]));
+        } finally {
+            for (const resolve of renderResolvers.values()) {
+                resolve();
+            }
+            for (const resolve of commitResolvers.values()) {
+                resolve();
+            }
+            await harness.scheduler.dispose();
+        }
+    });
 });

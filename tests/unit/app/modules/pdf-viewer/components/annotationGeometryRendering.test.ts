@@ -410,4 +410,33 @@ describe('annotation geometry rendering', () => {
         expect(hit.style.opacity).toBe('');
         expect(hit.querySelector('line')).not.toBeNull();
     });
+
+    it('omits the multiply-blend highlight SVG plane until a page has rendered highlight fills', async () => {
+        const harness = await mountLayer('select');
+        const multiplySvgs = () =>
+            Array.from(harness.layer.querySelectorAll<SVGElement>('.pdf-annotation-editor-surface__svg')).filter(
+                (el) => el.style.mixBlendMode === 'multiply',
+            );
+        expect(multiplySvgs()).toHaveLength(0);
+
+        harness.surface.createHighlightFromSelection(0, [{left: 0.1, top: 0.2, width: 0.3, height: 0.04}], {
+            subtype: 'Underline',
+            color: '#2563eb',
+            opacity: 1,
+        });
+        await nextTick();
+        expect(multiplySvgs()).toHaveLength(0);
+
+        const highlight = harness.surface.createHighlightFromSelection(0, [{left: 0.1, top: 0.3, width: 0.4, height: 0.05}], {
+            subtype: 'Highlight',
+            color: '#fde047',
+            opacity: 0.45,
+        });
+        await nextTick();
+        expect(multiplySvgs()).toHaveLength(1);
+
+        harness.surface.deleteAnnotation(highlight.identity.id);
+        await nextTick();
+        expect(multiplySvgs()).toHaveLength(0);
+    });
 });

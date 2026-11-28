@@ -3,7 +3,8 @@
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {nextTick} from 'vue';
+import {createApp, h, nextTick, ref} from 'vue';
+import DocumentThumbnailList from '@app/components/document-viewer/DocumentThumbnailList.vue';
 import {placeDocumentThumbnailRailsWithin} from '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController';
 import {
     createDocumentThumbnailSourceHarness,
@@ -163,6 +164,14 @@ describe('DocumentThumbnailList virtualization', () => {
         await placeDocumentThumbnailRailsWithin(pane);
         expect(rail.scrollTop).toBe(4_200);
         expect(unrelatedScroller.scrollTop).toBe(900);
+
+        // Scrolling and immediately relocating before the queued scroll frame runs
+        // must restore the scrolled offset rather than the Teleport-reset 0.
+        rail.scrollTop = 6_400;
+        rail.dispatchEvent(new Event('scroll'));
+        rail.scrollTop = 0;
+        await placeDocumentThumbnailRailsWithin(pane);
+        expect(rail.scrollTop).toBe(6_400);
     });
 
     it('skips a disconnected rail when its pending relocation placement completes', async () => {
@@ -209,5 +218,46 @@ describe('DocumentThumbnailList virtualization', () => {
         expect(heightAfter).toBeGreaterThan(heightBefore);
         const afterRect = rail.querySelector<HTMLElement>(`[data-thumbnail-page="${anchorPage}"]`)!.getBoundingClientRect();
         expect(Math.abs(afterRect.top + afterRect.height * anchorRatio - 300)).toBeLessThanOrEqual(1);
+    });
+
+    it('preserves a pending scroll position when resize starts before the scroll frame flushes', async () => {
+        measureRailRows();
+        const harness = createDocumentThumbnailSourceHarness(500);
+        const isResizing = ref(false);
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp({
+            render: () =>
+                h(DocumentThumbnailList, {
+                    source: harness.source,
+                    currentPage: 1,
+                    isActive: true,
+                    isResizing: isResizing.value,
+                }),
+        });
+        app.component('UIcon', {render: () => h('span')});
+        app.mount(host);
+        try {
+            await settleDocumentThumbnailList();
+            const rail = host.querySelector<HTMLElement>('[data-document-thumbnail-rail]')!;
+            expect(rail.scrollTop).toBe(0);
+
+            // Scroll, then begin resizing before the queued rAF runs.
+            rail.scrollTop = 4_200;
+            rail.dispatchEvent(new Event('scroll'));
+            isResizing.value = true;
+            await nextTick();
+            await settleDocumentThumbnailList();
+
+            // Releasing resize must restore the post-scroll position, not 0.
+            rail.scrollTop = 0;
+            isResizing.value = false;
+            await nextTick();
+            await settleDocumentThumbnailList();
+            expect(rail.scrollTop).toBe(4_200);
+        } finally {
+            app.unmount();
+            host.remove();
+        }
     });
 });

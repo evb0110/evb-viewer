@@ -81,7 +81,7 @@ export const usePdfViewerNavigationDiagnostics = (options: IUsePdfViewerNavigati
                     return;
                 }
                 if (pageChanged) {
-                    BrowserLogger.diagnostic('pdf-nav', `[viewer-current-page-ref] ${prevPage}->${page}`, {
+                    BrowserLogger.diagnostic('pdf-nav', `[viewer-current-page-ref] ${prevPage}->${page}`, () => ({
                         previous: prevPage,
                         next: page,
                         isLoading,
@@ -94,23 +94,27 @@ export const usePdfViewerNavigationDiagnostics = (options: IUsePdfViewerNavigati
                             end: visibleEnd,
                         },
                         viewer: options.summarizeViewerStateForLog(),
-                    });
+                    }));
                 }
                 if (rangeChanged) {
-                    BrowserLogger.diagnostic('pdf-nav', `[viewer-visible-range] ${prevStart}-${prevEnd} -> ${visibleStart}-${visibleEnd}`, {
-                        previous: {
-                            start: prevStart,
-                            end: prevEnd,
-                        },
-                        next: {
-                            start: visibleStart,
-                            end: visibleEnd,
-                        },
-                        currentPage: page,
-                        isLoading,
-                        continuousScroll: options.continuousScroll.value,
-                        viewer: options.summarizeViewerStateForLog(),
-                    });
+                    BrowserLogger.diagnostic(
+                        'pdf-nav',
+                        `[viewer-visible-range] ${prevStart}-${prevEnd} -> ${visibleStart}-${visibleEnd}`,
+                        () => ({
+                            previous: {
+                                start: prevStart,
+                                end: prevEnd,
+                            },
+                            next: {
+                                start: visibleStart,
+                                end: visibleEnd,
+                            },
+                            currentPage: page,
+                            isLoading,
+                            continuousScroll: options.continuousScroll.value,
+                            viewer: options.summarizeViewerStateForLog(),
+                        }),
+                    );
                 }
             }
             logPdfRenderTrace('raster-scheduler-snapshot', () => ({

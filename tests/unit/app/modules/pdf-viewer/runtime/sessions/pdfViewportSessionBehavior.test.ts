@@ -13,6 +13,7 @@ import {yieldToBrowser} from '@app/utils/yieldToBrowser';
 import type {IPdfDocumentTransition, TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import {createPdfViewportSession, type IPdfViewportDemand} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import {createPdfPageRasterScheduler} from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
+import {usePdfViewerNavigationDiagnostics} from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerNavigationDiagnostics';
 import {createWorkspaceSurfaceBudgetController} from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
 import {createPdfRenderingSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
 import type {
@@ -4782,6 +4783,255 @@ describe('PdfViewportSession layout placement receipt', () => {
         } finally {
             await fixture.dispose();
             fixture.container.remove();
+        }
+    });
+
+    it('short-circuits redundant equal-demand publishes without advancing demand revision', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 1,
+            continuousScroll: true,
+            pageCount: 5,
+            zoomMode: 'custom',
+        });
+        document.body.append(fixture.container);
+        try {
+            appendPageBox(fixture.container, 1, {height: 800, top: 0});
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+            await new Promise((resolve) => window.requestAnimationFrame(resolve));
+            const settledRevision = fixture.viewport.demand.value.revision;
+
+            // Unmounting an unmounted page leaves demand identical and does not churn revision.
+            fixture.viewport.markPageUnmounted(requirePageNumber(5));
+            expect(fixture.viewport.demand.value.revision).toBe(settledRevision);
+        } finally {
+            await fixture.dispose();
+            fixture.container.remove();
+        }
+    });
+
+    it('advances scrollClipRevision on same-page hand-tool pans and updates residency direction on vertical pan', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 2,
+            continuousScroll: true,
+            pageCount: 10,
+            viewportWritePort: createDocumentViewportWritePort(),
+            zoomMode: 'custom',
+        });
+        document.body.append(fixture.container);
+        try {
+            defineDimension(fixture.container, 'clientWidth', 800);
+            defineDimension(fixture.container, 'clientHeight', 800);
+            defineDimension(fixture.container, 'scrollWidth', 2_400);
+            defineDimension(fixture.container, 'scrollHeight', 10_000);
+            for (let page = 1; page <= 10; page += 1) {
+                appendPageBox(fixture.container, page, {height: 900, top: (page - 1) * 920});
+                fixture.viewport.markPageMounted(requirePageNumber(page));
+            }
+            await new Promise((resolve) => window.requestAnimationFrame(resolve));
+
+            // Scroll downward inside page 5 ([3_680, 4_580]) so preferredDirection becomes +1.
+            fixture.container.scrollTop = 3_760;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            await nextTick();
+            const demandRevisionBeforePan = fixture.viewport.demand.value.revision;
+            const clipRevisionBeforePan = fixture.viewport.scrollClipRevision.value;
+
+            // Same-page horizontal hand-tool pan leaves whole-page demand unchanged
+            // while advancing scrollClipRevision so detail rasters can reconcile.
+            fixture.viewport.viewportWritePort.apply(fixture.container, {
+                intent: fixture.viewport.viewportWritePort.beginIntent('pan-drag:1'),
+                reason: 'user-pan-drag',
+                left: 350,
+                top: fixture.container.scrollTop,
+            });
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            expect(fixture.viewport.demand.value.revision).toBe(demandRevisionBeforePan);
+            expect(fixture.viewport.scrollClipRevision.value).toBeGreaterThan(clipRevisionBeforePan);
+
+            // Vertical upward hand-tool pan *within the same page* (still page 5)
+            // flips preferredDirection to -1 and republishes residency demand so
+            // tight-budget nearbyPages prioritizes the page above (4) over below (6).
+            fixture.viewport.viewportWritePort.apply(fixture.container, {
+                intent: fixture.viewport.viewportWritePort.beginIntent('pan-drag:2'),
+                reason: 'user-pan-drag',
+                left: fixture.container.scrollLeft,
+                top: 3_700,
+            });
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            await nextTick();
+            expect(fixture.viewport.demand.value.visibleRange).toEqual({start: 5, end: 5});
+            expect(fixture.viewport.demand.value.nearbyPages[0]).toBe(4);
+        } finally {
+            await fixture.dispose();
+            fixture.container.remove();
+        }
+    });
+
+    it('reconciles detail rasters after a same-page hand-tool pan beyond the detail margin and invalidates painted state on release', async () => {
+        const geometry = installGeometryObservers();
+        const page = cast<IPdfPage>({
+            pageNumber: 1,
+            rotate: 0,
+            getAnnotations: async () => [],
+            getViewport: ({scale}: {scale: number}) => ({
+                width: 1_000 * scale,
+                height: 1_000 * scale,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 1_000,
+                    pageHeight: 1_000,
+                },
+            }),
+            render: () => ({
+                promise: Promise.resolve(),
+                cancel() {},
+            }),
+        });
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence: {
+                loadToken: 1,
+                documentVersion: 1,
+                documentRevision: 'revision-1',
+            },
+            leasePage: async () => ({
+                page,
+                release() {},
+            }),
+            surfaceBudget: createWorkspaceSurfaceBudgetController(256 * 1024 * 1024),
+        });
+        const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(Object.create(null));
+        const fixture = createViewportFixture({
+            pageCount: 1,
+            bufferPages: 0,
+            rasterScheduler: scheduler,
+            viewportWritePort: createDocumentViewportWritePort(),
+            zoomMode: 'custom',
+        });
+        document.body.append(fixture.container);
+        try {
+            fixture.zoom.value = 10;
+            defineDimension(fixture.container, 'clientWidth', 800);
+            defineDimension(fixture.container, 'clientHeight', 800);
+            defineDimension(fixture.container, 'scrollWidth', 10_000);
+            defineDimension(fixture.container, 'scrollHeight', 10_000);
+            vi.spyOn(fixture.container, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 800, 800));
+
+            const pageBox = appendPageBox(fixture.container, 1, {height: 10_000, top: 0});
+            const pageCanvas = document.createElement('div');
+            pageCanvas.className = 'page_canvas';
+            const canvasHost = document.createElement('div');
+            canvasHost.className = 'page_canvas__render-layer';
+            const detailHost = document.createElement('div');
+            detailHost.className = 'page_canvas__detail-layer';
+            pageCanvas.append(canvasHost, detailHost);
+            pageBox.append(pageCanvas);
+            let rowVerticalShift = 0;
+            const pageRect = () =>
+                new DOMRect(-fixture.container.scrollLeft, -fixture.container.scrollTop - rowVerticalShift, 10_000, 10_000);
+            vi.spyOn(pageBox, 'getBoundingClientRect').mockImplementation(pageRect);
+            vi.spyOn(pageCanvas, 'getBoundingClientRect').mockImplementation(pageRect);
+            fixture.documentSession.ensurePageMetricsInRange.mockResolvedValue(false);
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+
+            const pageOnePainted = computed(() => fixture.rendering!.isPagePainted(requirePageNumber(1)));
+            await expect.poll(() => pageOnePainted.value, {timeout: 2_000}).toBe(true);
+            await expect.poll(() => detailHost.querySelector('canvas'), {timeout: 2_000}).not.toBeNull();
+            const initialDetailCanvas = detailHost.querySelector<HTMLCanvasElement>('canvas')!;
+            const initialLeftStyle = initialDetailCanvas.style.left;
+            const demandRevisionBeforePan = fixture.viewport.demand.value.revision;
+
+            // Pan across the same page well past the detail canvas margin using the hand tool.
+            fixture.viewport.viewportWritePort.apply(fixture.container, {
+                intent: fixture.viewport.viewportWritePort.beginIntent('pan-drag:detail'),
+                reason: 'user-pan-drag',
+                left: 6_000,
+                top: 0,
+            });
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            expect(fixture.viewport.demand.value.revision).toBe(demandRevisionBeforePan);
+            await expect
+                .poll(
+                    () => {
+                        const left = detailHost.querySelector<HTMLCanvasElement>('canvas')?.style.left;
+                        return Boolean(left) && left !== initialLeftStyle;
+                    },
+                    {timeout: 2_000},
+                )
+                .toBe(true);
+
+            // A same-range mounted-row geometry shift (without scroll or viewport resize)
+            // also advances scrollClipRevision so pixels exposed outside the detail tile repaint.
+            const topStyleBeforeShift = detailHost.querySelector<HTMLCanvasElement>('canvas')!.style.top;
+            const demandRevisionBeforeShift = fixture.viewport.demand.value.revision;
+            rowVerticalShift = 5_000;
+            geometry.deliver(pageBox);
+            expect(fixture.viewport.demand.value.revision).toBe(demandRevisionBeforeShift);
+            await expect
+                .poll(
+                    () => {
+                        const top = detailHost.querySelector<HTMLCanvasElement>('canvas')?.style.top;
+                        return Boolean(top) && top !== topStyleBeforeShift;
+                    },
+                    {timeout: 2_000},
+                )
+                .toBe(true);
+
+            // A scrollbar-only clientHeight change also advances scrollClipRevision so
+            // newly exposed pixels reconcile detail coverage even if offsets and range hold steady.
+            defineDimension(fixture.container, 'offsetWidth', 816);
+            defineDimension(fixture.container, 'clientWidth', 800);
+            defineDimension(fixture.container, 'clientHeight', 800);
+            geometry.deliver(fixture.container);
+            const clipRevisionBeforeResize = fixture.viewport.scrollClipRevision.value;
+            const demandRevisionBeforeResize = fixture.viewport.demand.value.revision;
+            defineDimension(fixture.container, 'clientHeight', 784);
+            geometry.deliver(fixture.container);
+            expect(fixture.viewport.demand.value.revision).toBe(demandRevisionBeforeResize);
+            expect(fixture.viewport.scrollClipRevision.value).toBeGreaterThan(clipRevisionBeforeResize);
+
+            // Releasing an unmounted page reactively invalidates per-page readers.
+            fixture.rendering!.releaseUnmountedPage(requirePageNumber(1));
+            expect(pageOnePainted.value).toBe(false);
+        } finally {
+            await fixture.dispose();
+            await scheduler.dispose();
+            fixture.container.remove();
+            context.mockRestore();
+            geometry.restore();
+        }
+    });
+
+    it('skips summarizeViewerStateForLog when navigation diagnostic logging is inactive', async () => {
+        const summarize = vi.fn(() => ({scrollTop: 0}));
+        const currentPage = ref(1);
+        const visibleRange = ref({start: 1, end: 1});
+        const scope = effectScope();
+        try {
+            scope.run(() =>
+                usePdfViewerNavigationDiagnostics({
+                    currentPage,
+                    visibleRange,
+                    isLoading: ref(false),
+                    continuousScroll: computed(() => true),
+                    fitMode: computed(() => 'width'),
+                    viewMode: computed(() => 'single'),
+                    zoom: computed(() => 1),
+                    navigationAnchorWindow: computed(() => null),
+                    virtualizedContinuousMode: computed(() => false),
+                    virtualWindowStart: computed(() => 1),
+                    virtualWindowEnd: computed(() => 5),
+                    searchNavigationTargetPage: ref(null),
+                    searchNavigationState: ref('idle'),
+                    getRasterSchedulerSnapshot: () => null,
+                    summarizeViewerStateForLog: summarize,
+                }),
+            );
+            currentPage.value = 2;
+            visibleRange.value = {start: 2, end: 3};
+            await nextTick();
+            expect(summarize).not.toHaveBeenCalled();
+        } finally {
+            scope.stop();
         }
     });
 });

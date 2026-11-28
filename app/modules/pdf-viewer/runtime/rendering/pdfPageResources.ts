@@ -159,11 +159,15 @@ export function createPdfPageResources() {
         resources: resources as ReadonlyMap<TPageNumber, IPdfPageResource>,
         get,
         want(pageNumber: TPageNumber, job: IPdfRasterJob | null) {
+            if (get(pageNumber).job === job) {
+                return;
+            }
             update(pageNumber, {job});
         },
         setJobState(pageNumber: TPageNumber, job: IPdfRasterJob, rasterState: TPdfPageRasterState) {
+            const changed = job.rasterState !== rasterState;
             job.rasterState = rasterState;
-            if (get(pageNumber).job === job) {
+            if (changed && get(pageNumber).job === job) {
                 update(pageNumber, {job});
             }
         },

@@ -306,4 +306,100 @@ describe('usePdfViewportViewModel', () => {
             scope.stop();
         }
     });
+
+    it('unlocks Fit Width clamp when the active spread widens at the same effective scale and reuses cache when stable', async () => {
+        const scope = effectScope();
+        const writePort = createTestPdfViewportWritePort();
+        const container = document.createElement('div');
+        Object.defineProperty(container, 'clientWidth', {
+            configurable: true,
+            value: 1_000,
+        });
+        Object.defineProperty(container, 'scrollWidth', {
+            configurable: true,
+            value: 1_500,
+        });
+        container.scrollLeft = 0;
+        const containerBcr = vi.spyOn(container, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 1_000, 800));
+
+        const pageElement = document.createElement('div');
+        pageElement.className = 'page_container';
+        pageElement.dataset.page = '1';
+        pageElement.style.width = '980px';
+        let renderedWidth = 980;
+        vi.spyOn(pageElement, 'getBoundingClientRect').mockImplementation(() => new DOMRect(10, 0, renderedWidth, 1_200));
+        container.append(pageElement);
+
+        const navigationAnchorPage = ref<number | null>(null);
+        const viewModel = scope.run(() =>
+            usePdfViewportViewModel({
+                performancePolicy,
+                isActive: computed(() => true),
+                viewportWritePort: writePort.port,
+                viewerContainer: ref(container),
+                bufferPages: computed(() => 2),
+                viewMode: computed(() => 'single' as const),
+                numPages: ref(2),
+                currentPage: ref(1),
+                continuousScroll: computed(() => true),
+                basePageWidth: ref(980),
+                basePageHeight: ref(1_200),
+                pageMetrics: ref([
+                    {width: 980, height: 1_200},
+                    {width: 980, height: 1_200},
+                ]),
+                pageMetricsVersion: ref(0),
+                doesFitHeightSpreadFitWidth: () => false,
+                effectiveScale: ref(1),
+                scaledMargin: ref(0),
+                visibleRange: ref({start: 1, end: 1}),
+                navigationAnchorPage: computed(() => navigationAnchorPage.value),
+                navigationVisualHandoffTargetPage: computed(() => navigationAnchorPage.value),
+                physicalScrollOrigin: ref(0),
+                scaleContainerStyle: computed(() => ({})),
+                selectionMarkupStyle: computed(() => null),
+                classState: {
+                    isAnySaving: computed(() => false),
+                    isDragging: ref(false),
+                    isViewerPanDragModeActive: computed(() => false),
+                    isSelectionMarkupToolActive: computed(() => false),
+                    isTextSelectionModeActive: computed(() => false),
+                    fitMode: computed(() => 'width' as const),
+                    zoomMode: computed(() => 'fit-width' as const),
+                },
+            }),
+        );
+        try {
+            if (!viewModel) {
+                throw new Error('Failed to create viewport view model');
+            }
+            expect(viewModel.syncHorizontalScrollForZoomMode()).toBe(true);
+            expect(viewModel.viewerClass.value['pdfViewer--fit-width-page-fits']).toBe(true);
+            const callsAfterFirst = containerBcr.mock.calls.length;
+
+            // Stable active spread and unchanged scrollLeft reuse the cached clamp without re-reading layout.
+            expect(viewModel.syncHorizontalScrollForZoomMode()).toBe(true);
+            expect(containerBcr.mock.calls.length).toBe(callsAfterFirst);
+
+            // Widening the mounted page box and delivering its ResizeObserver callback
+            // unlocks the reactive Fit Width lock class without waiting for a manual sync or scroll.
+            renderedWidth = 1_500;
+            ResizeObserverDouble.instances[1]?.trigger();
+            expect(viewModel.viewerClass.value['pdfViewer--fit-width-page-fits']).toBe(false);
+            expect(containerBcr.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+
+            // Remounting the page element also invalidates the cache.
+            const callsAfterWiden = containerBcr.mock.calls.length;
+            const replacement = document.createElement('div');
+            replacement.className = 'page_container';
+            replacement.dataset.page = '1';
+            replacement.style.width = '980px';
+            vi.spyOn(replacement, 'getBoundingClientRect').mockReturnValue(new DOMRect(10, 0, 960, 1_200));
+            pageElement.replaceWith(replacement);
+            expect(viewModel.syncHorizontalScrollForZoomMode()).toBe(true);
+            expect(containerBcr.mock.calls.length).toBeGreaterThan(callsAfterWiden);
+        } finally {
+            scope.stop();
+        }
+    });
 });

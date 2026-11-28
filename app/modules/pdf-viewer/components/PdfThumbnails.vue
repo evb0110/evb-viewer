@@ -80,6 +80,8 @@ import {
     createHiddenAnnotationIdsSignature,
     getEditedTextMarkupThumbnailComments,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailTextMarkupVisuals';
+import {pdfDocumentAnnotationsKey} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
+import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
 import type {IPdfThumbnailsEmits, IPdfThumbnailsProps} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract';
 import type {TPageMoveOperation, TPageSelection} from '@contracts/pageNumbers';
 
@@ -110,14 +112,85 @@ const containerRef = computed<HTMLElement | null>(() => list.value?.scrollRoot ?
 const pageEpochs = new Map<number, number>();
 const pageEpochVersion = ref(0);
 let pendingRewrittenPages: number[] = [];
-const hiddenAnnotationSignature = computed(() => createHiddenAnnotationIdsSignature(new Set(hiddenAnnotationIds ?? [])));
+const documentAnnotations = inject(pdfDocumentAnnotationsKey, null);
+// Remember which page each annotation belonged to so deleting it only
+// invalidates that page's thumbnail instead of every page in the rail.
+const rememberedAnnotationPageById = new Map<string, number>();
+
+function recordAnnotationPage(id: string | null | undefined, pageNumber: number) {
+    if (!id || !Number.isInteger(pageNumber) || pageNumber < 1) {
+        return;
+    }
+    rememberedAnnotationPageById.set(id, pageNumber);
+    const normalized = normalizePdfJsAnnotationId(id);
+    if (normalized) {
+        rememberedAnnotationPageById.set(normalized, pageNumber);
+    }
+}
+
+const hiddenAnnotationSignatures = computed(() => {
+    for (const comment of annotationComments ?? []) {
+        const page = Math.floor(comment.pageNumber);
+        recordAnnotationPage(comment.annotationId, page);
+        recordAnnotationPage(comment.appAnnotationId, page);
+        recordAnnotationPage(comment.id, page);
+    }
+    const entityPageById = new Map<string, number>();
+    for (const entity of documentAnnotations?.entities.value ?? []) {
+        const page = entity.pageIndex + 1;
+        entityPageById.set(entity.identity.id, page);
+        recordAnnotationPage(entity.identity.id, page);
+        const normalizedId = normalizePdfJsAnnotationId(entity.identity.id);
+        if (normalizedId) {
+            entityPageById.set(normalizedId, page);
+        }
+        if (entity.identity.pdfRef) {
+            entityPageById.set(entity.identity.pdfRef, page);
+            recordAnnotationPage(entity.identity.pdfRef, page);
+            const normalizedRef = normalizePdfJsAnnotationId(entity.identity.pdfRef);
+            if (normalizedRef) {
+                entityPageById.set(normalizedRef, page);
+            }
+        }
+    }
+    const globalHidden = new Set<string>();
+    const byPage = new Map<number, Set<string>>();
+    for (const id of hiddenAnnotationIds ?? []) {
+        const normalized = normalizePdfJsAnnotationId(id);
+        const page =
+            entityPageById.get(id) ??
+            (normalized ? entityPageById.get(normalized) : undefined) ??
+            rememberedAnnotationPageById.get(id) ??
+            (normalized ? rememberedAnnotationPageById.get(normalized) : undefined);
+        if (page !== undefined) {
+            let pageIds = byPage.get(page);
+            if (!pageIds) {
+                pageIds = new Set<string>();
+                byPage.set(page, pageIds);
+            }
+            pageIds.add(id);
+        } else {
+            globalHidden.add(id);
+        }
+    }
+    const fallbackSignature = createHiddenAnnotationIdsSignature(globalHidden);
+    const perPage = new Map<number, string>();
+    for (const [page, pageIds] of byPage) {
+        const combined = globalHidden.size > 0 ? new Set([...globalHidden, ...pageIds]) : pageIds;
+        perPage.set(page, createHiddenAnnotationIdsSignature(combined));
+    }
+    return {
+        fallbackSignature,
+        perPage,
+    };
+});
 const editedMarkupsByPage = computed(() =>
     groupBy(getEditedTextMarkupThumbnailComments(annotationComments ?? []), (comment) => Math.floor(comment.pageNumber)),
 );
 const pageRevision = computed(() => {
     void pageEpochVersion.value;
     void pageGeometry?.version;
-    const hidden = hiddenAnnotationSignature.value;
+    const {fallbackSignature, perPage} = hiddenAnnotationSignatures.value;
     const markups = editedMarkupsByPage.value;
     const settings = annotationSettings;
     const metrics = pageGeometry?.metrics;
@@ -125,7 +198,7 @@ const pageRevision = computed(() => {
         [
             pageEpochs.get(page) ?? 0,
             metrics?.[page - 1]?.rotation ?? 0,
-            hidden,
+            perPage.get(page) ?? fallbackSignature,
             createEditedTextMarkupThumbnailVisualSignature(markups[page] ?? [], settings),
         ].join('\u0002');
 });
@@ -156,7 +229,10 @@ watch(
 );
 watch(
     () => source,
-    () => {
+    (nextSource, previousSource) => {
+        if (nextSource?.documentRef !== previousSource?.documentRef) {
+            rememberedAnnotationPageById.clear();
+        }
         if (pendingRewrittenPages.length > 0) {
             bumpPages(pendingRewrittenPages);
             pendingRewrittenPages = [];

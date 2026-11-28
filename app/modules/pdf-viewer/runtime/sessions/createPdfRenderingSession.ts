@@ -98,12 +98,27 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     const viewportRasterSourceId = `pdf-viewport:${rasterConsumerId}`;
     const thumbnailRasterSourceId = `pdf-thumbnails:${rasterConsumerId}`;
     const renderedPageStateVersion = ref(0);
+    const documentPageStateVersion = ref(0);
+    const pageStateVersions = shallowReactive(new Map<TPageNumber, number>());
+    function markPageStateChanged(pageNumber?: TPageNumber) {
+        renderedPageStateVersion.value += 1;
+        if (pageNumber !== undefined) {
+            pageStateVersions.set(pageNumber, (pageStateVersions.get(pageNumber) ?? 0) + 1);
+            return;
+        }
+        documentPageStateVersion.value += 1;
+    }
+    function deletePageStateVersion(pageNumber: TPageNumber) {
+        renderedPageStateVersion.value += 1;
+        pageStateVersions.delete(pageNumber);
+    }
     const initialVisual = createPdfInitialVisualCommit({
         chassisAuthority: options.chassisAuthority,
         openSurfaceRenderOwner: options.openSurfaceRenderOwner,
         viewport,
         viewerContainer: options.viewerContainer,
         renderedPageStateVersion,
+        markPageStateChanged,
         getCommittedVisualRequestId: (pageNumber) =>
             isCommittedVisual(pageNumber) ? (pageResources.get(pageNumber).shown?.requestId ?? null) : null,
         queueFrame: () => queueFrame(),
@@ -230,7 +245,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         );
     }
     function isPagePainted(pageNumber: TPageNumber) {
-        void renderedPageStateVersion.value;
+        void documentPageStateVersion.value;
+        void pageStateVersions.get(pageNumber);
         const target = getMountedRasterTarget(pageNumber);
         const shown = pageResources.get(pageNumber).shown;
         if (!target || !shown) {
@@ -447,7 +463,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 return;
             }
             pageResources.setJobState(pageNumber, job, outcome.status === 'failed' ? 'failed' : 'absent');
-            renderedPageStateVersion.value += 1;
+            markPageStateChanged(pageNumber);
             if (outcome.status !== 'failed') {
                 return;
             }
@@ -849,8 +865,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         workingCopyPath: options.workingCopyPath,
         documentRevisionToken: options.documentRevisionToken,
         linkAnnotations: options.linkAnnotations,
-        onRenderedPageStateChanged: () => {
-            renderedPageStateVersion.value += 1;
+        onRenderedPageStateChanged: (pageNumber) => {
+            markPageStateChanged(pageNumber);
             // Reconcile search marks when a target text layer commits. The
             // renderer preserves the outgoing current mark while this target
             // is still hydrating, then clears it in the same refresh that paints
@@ -885,7 +901,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             new Set(excludedPages.map((page) => requirePageNumber(page))),
             reauthorizeCommittedCanvases,
         );
-        renderedPageStateVersion.value += 1;
+        markPageStateChanged();
     }
     function dropJobs(keep: ReadonlySet<IPdfRasterJob> = new Set()) {
         for (const [pageNumber, resource] of [...pageResources.resources]) {
@@ -998,10 +1014,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 'transform-origin': 'center center',
             }).forEach((entry) => canvas.style.setProperty(...entry, 'important'));
             target.container.dataset.pageMutationPreview = 'rotation';
+            markPageStateChanged(pageNumber);
             preparedCount += 1;
         }
         if (preparedCount > 0) {
-            renderedPageStateVersion.value += 1;
             queueFrame();
         }
         return preparedCount > 0;
@@ -1017,10 +1033,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 continue;
             }
             clearPageRotationPreview(brandedPageNumber, true);
+            markPageStateChanged(brandedPageNumber);
             didCancel = true;
         }
         if (didCancel) {
-            renderedPageStateVersion.value += 1;
             queueFrame();
         }
         return didCancel;
@@ -1050,17 +1066,20 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             }
         }
         documentSession.evictPage(pageNumber);
-        renderedPageStateVersion.value += 1;
+        deletePageStateVersion(pageNumber);
     }
     // Drops every page this view shows, with its rasters on the scheduler;
     // another view keeps its own, and the document owns the page cache.
     async function cleanupRenderedPages() {
         const release = activeRasterScheduler?.releaseSource(viewportRasterSourceId);
+        pageStateVersions.clear();
         bumpRenderVersion();
         [...pageResources.resources.keys()].forEach((pageNumber) => clearAuthoritativePage(pageNumber, false));
         await Promise.all([release, detailRaster.release(), pageRenderer.cleanupAllLayers()]);
     }
     function isPageRenderFailed(pageNumber: TPageNumber) {
+        void documentPageStateVersion.value;
+        void pageStateVersions.get(pageNumber);
         const job = pageResources.get(pageNumber).job;
         return job?.rasterState === 'failed' && job.demand.consumerGeneration === renderVersion;
     }
@@ -1082,6 +1101,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         );
     }
     let frameId: number | null = null;
+    let pendingFrameKind: 'none' | 'detail' | 'demand' = 'none';
     let disposed = false;
     let mandatoryDemandTaskId: number | null = null;
     function queueMandatoryDemandTask() {
@@ -1122,14 +1142,46 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         isCommittedVisual: (pageNumber) => !rotationPreviewCanvases.has(pageNumber) && isCommittedVisual(pageNumber),
         canStartWork: () => qualityRefineGate.canRefineVisibleRaster(),
     });
-    function queueFrame() {
-        if (disposed || frameId !== null) {
+    function scheduleReconcileFrame(kind: 'detail' | 'demand') {
+        if (disposed) {
+            return;
+        }
+        if (kind === 'demand' || pendingFrameKind === 'none') {
+            pendingFrameKind = kind;
+        }
+        if (frameId !== null) {
             return;
         }
         frameId = window.requestAnimationFrame(() => {
+            const scheduledKind = pendingFrameKind;
+            pendingFrameKind = 'none';
             frameId = null;
-            reconcileDemand();
+            if (scheduledKind === 'demand') {
+                reconcileDemand();
+            } else if (scheduledKind === 'detail') {
+                reconcileDetailOnly();
+            }
         });
+    }
+    function queueFrame() {
+        scheduleReconcileFrame('demand');
+    }
+    function queueDetailReconcileFrame() {
+        scheduleReconcileFrame('detail');
+    }
+    function reconcileDetailOnly() {
+        qualityRefineGate.synchronizeViewportInteractionEpoch();
+        const demand = viewport.demand.value;
+        if (!demand.operational || demand.mandatoryRaster) {
+            return;
+        }
+        const requiredPages = demand.requiredPages.map(toPageNumber);
+        const requiredStates = requiredPages.map(getPageRasterState);
+        const stretchAndSettleActive = isStretchAndSettleActive();
+        detailRaster.reconcile(
+            requiredPages,
+            !stretchAndSettleActive && requiredStates.every((state) => state === 'current' || state === 'failed'),
+        );
     }
     function buildProtectedShownRequiredDemands(
         requiredPages: readonly TPageNumber[],
@@ -1383,6 +1435,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 if (frameId !== null) {
                     window.cancelAnimationFrame(frameId);
                     frameId = null;
+                    pendingFrameKind = 'none';
                 }
                 queueMandatoryDemandTask();
                 return;
@@ -1393,6 +1446,13 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             flush: 'sync',
             immediate: true,
         },
+    );
+    const stopScrollClipWatch = watch(
+        () => viewport.scrollClipRevision?.value,
+        () => {
+            queueDetailReconcileFrame();
+        },
+        {flush: 'sync'},
     );
     // The viewport hands superseded work's rasters over; renders requested
     // after the handoff start once the cancellation has settled.
@@ -1558,6 +1618,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         }
         unsubscribeDocumentTransitions();
         stopDemandWatch();
+        stopScrollClipWatch();
         stopOpenSurfaceResidentAdoptionWatch();
         stopRevisionReauthorizationWatch();
         stopAnnotationPaintWatch();

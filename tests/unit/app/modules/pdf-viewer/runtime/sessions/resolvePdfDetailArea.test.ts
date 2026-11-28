@@ -1,5 +1,11 @@
-import {describe, expect, it} from 'vitest';
-import {resolvePdfDetailArea} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDetailRaster';
+// @vitest-environment happy-dom
+import {describe, expect, it, vi} from 'vitest';
+import {ref} from 'vue';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {createPdfDetailRaster, resolvePdfDetailArea} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDetailRaster';
+import {createPdfPageResources} from '@app/modules/pdf-viewer/runtime/rendering/pdfPageResources';
+import type {IPdfPageRasterScheduler} from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
+import {cast} from '@tests/helpers/cast';
 
 // An A4 page at 1000 % on a 2x display, with the default tier's detail budget.
 const page = {
@@ -125,5 +131,96 @@ describe('resolvePdfDetailArea', () => {
                 current: null,
             }),
         ).toBeNull();
+    });
+
+    it('reads viewerContainer.getBoundingClientRect at most once per reconcile across multiple clamped pages', () => {
+        const viewer = document.createElement('div');
+        Object.defineProperty(viewer, 'clientLeft', {value: 0});
+        Object.defineProperty(viewer, 'clientTop', {value: 0});
+        Object.defineProperty(viewer, 'clientWidth', {value: 600});
+        Object.defineProperty(viewer, 'clientHeight', {value: 800});
+        const viewerRectSpy = vi.spyOn(viewer, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 600, 800));
+
+        const makePageContainer = (top: number) => {
+            const container = document.createElement('div');
+            const surface = document.createElement('div');
+            surface.className = 'page_canvas';
+            vi.spyOn(surface, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, top, 6000, 8400));
+            const detailHost = document.createElement('div');
+            container.append(surface, detailHost);
+            return {container, detailHost};
+        };
+        const targets = new Map([
+            [requirePageNumber(1), makePageContainer(0)],
+            [requirePageNumber(2), makePageContainer(300)],
+        ]);
+        const pageResources = createPdfPageResources();
+        const setDemand = vi.fn();
+        const scheduler = cast<IPdfPageRasterScheduler>({
+            documentFence: {loadToken: 1, documentVersion: 1, documentRevision: null},
+            setDemand,
+            invalidate: vi.fn(),
+            cancelSource: vi.fn(async () => undefined),
+            releaseSource: vi.fn(async () => undefined),
+        });
+        for (const pageNumber of [requirePageNumber(1), requirePageNumber(2)]) {
+            const job = cast<Parameters<typeof pageResources.want>[1]>({
+                requestId: pageNumber,
+                demand: {
+                    pageNumber,
+                    renderKey: `k:${pageNumber}`,
+                    lane: 'viewport-visible',
+                    ordinal: pageNumber,
+                    estimatedPixels: 100,
+                    retention: 'render-cache',
+                    documentFence: scheduler.documentFence,
+                    consumerGeneration: 1,
+                },
+                rasterIdentity: 'id',
+                rasterState: 'current',
+                renderOptions: {},
+                targetOutputScale: 2,
+                targetScale: 10,
+                targetViewRotation: 0,
+            })!;
+            pageResources.want(pageNumber, job);
+            pageResources.publish(pageNumber, job, {
+                render: cast({canvas: {width: 4096, height: 4096}}),
+                quality: {
+                    requestedPixels: 100_000_000,
+                    grantedPixels: 16_777_216,
+                    pixelScaleFactor: 0.3,
+                    wasClamped: true,
+                    intent: 'settled',
+                    paintsAnnotations: true,
+                },
+                container: targets.get(pageNumber)!.container,
+                documentToken: 'doc',
+                version: 1,
+                layers: 'canvas-only',
+            });
+        }
+        const detail = createPdfDetailRaster({
+            sourceId: 'detail',
+            budgetPixels: 2 ** 24,
+            settledMaxCanvasPixels: 2 ** 25,
+            canvasRenderer: cast({prepareCanvasRender: vi.fn(), cleanupCanvasRenderResult: vi.fn()}),
+            pageResources,
+            viewerContainer: ref(viewer),
+            getScheduler: () => scheduler,
+            getDocument: () => ({}),
+            getMountedTarget: (p) => targets.get(p) ?? null,
+            getScale: () => 10,
+            getOutputScale: () => 2,
+            getRotation: () => 0,
+            getHiddenAnnotationIds: () => new Set<string>(),
+            getSourceMaxPixels: () => null,
+            isCommittedVisual: () => true,
+            canStartWork: () => true,
+        });
+
+        detail.reconcile([requirePageNumber(1), requirePageNumber(2)], true);
+        expect(viewerRectSpy).toHaveBeenCalledTimes(1);
+        expect(setDemand).toHaveBeenCalledTimes(1);
     });
 });

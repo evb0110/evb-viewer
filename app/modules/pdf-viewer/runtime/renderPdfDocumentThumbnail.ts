@@ -39,12 +39,18 @@ export async function renderPdfDocumentThumbnail(options: {
     let priority = request.priority;
     let invalidate: (() => void) | undefined;
     let budgetLease: ReturnType<IWorkspaceSurfaceBudgetController['reserve']> | null = null;
-    const cancel = () =>
+    let cancelled = false;
+    const cancel = () => {
+        if (cancelled) {
+            return;
+        }
+        cancelled = true;
         scheduler.invalidate({
             pages: [pageNumber],
             reason: 'thumbnail-demand-cancelled',
             sourceId,
         });
+    };
     request.signal.addEventListener('abort', cancel, {once: true});
     try {
         const outcome = await scheduler.request<IPreparedPdfThumbnail>({

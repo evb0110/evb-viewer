@@ -134,17 +134,18 @@ let releaseViewportFeature: (() => void) | null = null;
 
 interface IPdfViewerPageBindings {
     page: TPageNumber;
-    showSkeleton: boolean;
+    shouldShowSkeleton: (page: TPageNumber) => boolean;
     deferSkeleton: boolean;
     paintMode: 'normal' | 'hidden' | 'shell-owned';
-    renderFailed: boolean;
+    isPageRenderFailed: (page: TPageNumber) => boolean;
     renderErrorLabel: string;
     spreadSingle: boolean;
     buffered: boolean;
-    rendered: boolean;
-    raster: 'current' | 'stale' | null;
-    pageScale: IPdfPageScale | null;
-    placeholderStyle: Record<string, string> | null;
+    isPageRendered: (page: TPageNumber) => boolean;
+    pageRaster: (page: TPageNumber) => 'current' | 'stale' | null;
+    getPageScale: (page: TPageNumber) => IPdfPageScale | null;
+    getPagePlaceholderStyle: (page: TPageNumber) => Record<string, string> | null;
+    openingPageFrameStyle: Record<string, string> | null;
     placedImage: IPdfImagePlacementDraft | null;
     placedImageBusy: boolean;
 }
@@ -245,24 +246,21 @@ const pagePaintMode = computed<'normal' | 'hidden' | 'shell-owned'>(() => {
     return snapshot.presentation === 'page-shell' ? 'shell-owned' : 'normal';
 });
 
-function getEffectivePagePlaceholderStyle(page: TPageNumber) {
-    return page === openingPageFramePage && openingPageFrameStyle ? openingPageFrameStyle : getPagePlaceholderStyle(page);
-}
-
 function buildPageProps(page: TPageNumber): IPdfViewerPageBindings {
     return {
         page,
-        showSkeleton: shouldShowSkeleton(page),
+        shouldShowSkeleton,
         deferSkeleton: deferPageSkeleton.value,
         paintMode: pagePaintMode.value,
-        renderFailed: isPageRenderFailed(page),
+        isPageRenderFailed,
         renderErrorLabel: pageRenderErrorLabel,
         spreadSingle: isSpreadSingle(page),
         buffered: isBufferedPage(page),
-        rendered: isPageRendered(page),
-        raster: pageRaster(page),
-        pageScale: getPageScale(page),
-        placeholderStyle: getEffectivePagePlaceholderStyle(page),
+        isPageRendered,
+        pageRaster,
+        getPageScale,
+        getPagePlaceholderStyle,
+        openingPageFrameStyle: page === openingPageFramePage ? openingPageFrameStyle : null,
         placedImage: pendingImagePlacement?.pageNumber === page ? pendingImagePlacement : null,
         placedImageBusy: isPendingImagePlacementFinalizing,
     };
