@@ -257,23 +257,48 @@ export function createPdfDetailRaster(options: {
         },
     };
 
-    function readVisibleArea(pageNumber: TPageNumber):
+    interface IViewerClipRect {
+        left: number;
+        top: number;
+        right: number;
+        bottom: number;
+    }
+
+    function readViewerClipRect(): IViewerClipRect | null {
+        const viewer = options.viewerContainer.value;
+        if (!viewer) {
+            return null;
+        }
+        const box = viewer.getBoundingClientRect();
+        const left = box.left + viewer.clientLeft;
+        const top = box.top + viewer.clientTop;
+        return {
+            left,
+            top,
+            right: left + viewer.clientWidth,
+            bottom: top + viewer.clientHeight,
+        };
+    }
+
+    function readVisibleArea(
+        pageNumber: TPageNumber,
+        getViewerClipRect: () => IViewerClipRect | null,
+    ):
         | (IPdfPageRegion & {
               width: number;
               height: number;
           })
         | null {
         const surface = options.getMountedTarget(pageNumber)?.container.querySelector<HTMLElement>('.page_canvas');
-        const viewer = options.viewerContainer.value;
-        if (!surface || !viewer) {
+        const viewerClip = surface ? getViewerClipRect() : null;
+        if (!surface || !viewerClip) {
             return null;
         }
         const page = surface.getBoundingClientRect();
-        const box = viewer.getBoundingClientRect();
-        const left = Math.max(page.left, box.left + viewer.clientLeft);
-        const top = Math.max(page.top, box.top + viewer.clientTop);
-        const right = Math.min(page.right, box.left + viewer.clientLeft + viewer.clientWidth);
-        const bottom = Math.min(page.bottom, box.top + viewer.clientTop + viewer.clientHeight);
+        const left = Math.max(page.left, viewerClip.left);
+        const top = Math.max(page.top, viewerClip.top);
+        const right = Math.min(page.right, viewerClip.right);
+        const bottom = Math.min(page.bottom, viewerClip.bottom);
         if (right - left < 1 || bottom - top < 1) {
             return null;
         }
@@ -288,7 +313,12 @@ export function createPdfDetailRaster(options: {
     }
 
     /** The job a page needs now, `'keep'` for its shown detail, or `'drop'`. */
-    function planPage(pageNumber: TPageNumber, ordinal: number, activeScheduler: IPdfPageRasterScheduler): IDetailJob | 'keep' | 'drop' {
+    function planPage(
+        pageNumber: TPageNumber,
+        ordinal: number,
+        activeScheduler: IPdfPageRasterScheduler,
+        getViewerClipRect: () => IViewerClipRect | null,
+    ): IDetailJob | 'keep' | 'drop' {
         // While its whole-page raster is replaced, a shown detail stretches
         // with it like any committed raster.
         if (!options.isCommittedVisual(pageNumber)) {
@@ -307,7 +337,7 @@ export function createPdfDetailRaster(options: {
         ) {
             return 'drop';
         }
-        const visible = readVisibleArea(pageNumber);
+        const visible = readVisibleArea(pageNumber, getViewerClipRect);
         if (!visible) {
             return 'keep';
         }
@@ -397,8 +427,15 @@ export function createPdfDetailRaster(options: {
         }
         const demands: IPdfRasterDemand[] = [];
         const nextJobs: IDetailJob[] = [];
+        let cachedViewerClipRect: IViewerClipRect | null | undefined;
+        const getViewerClipRect = () => {
+            if (cachedViewerClipRect === undefined) {
+                cachedViewerClipRect = readViewerClipRect();
+            }
+            return cachedViewerClipRect;
+        };
         requiredPages.forEach((pageNumber, ordinal) => {
-            const plan = canStart ? planPage(pageNumber, ordinal, activeScheduler) : 'keep';
+            const plan = canStart ? planPage(pageNumber, ordinal, activeScheduler, getViewerClipRect) : 'keep';
             if (plan === 'drop') {
                 clear(pageNumber);
             } else if (plan === 'keep') {

@@ -195,6 +195,7 @@ const LANE_CONTINUATION_PRIORITY: Record<TPdfRasterLane, TPdfRenderContinuationP
     'thumbnail-visible': 'thumbnail',
     prefetch: 'prefetch',
 };
+const MAX_COMMITTING_OVERLAP = 1;
 let nextSchedulerScopeId = 0;
 
 function createLaneCounts() {
@@ -236,6 +237,7 @@ export function createPdfPageRasterScheduler(options: ICreatePdfPageRasterSchedu
     const demandKeysBySource = new Map<string, Set<string>>();
     const currentDemandByIdentity = new Map<string, IPdfRasterDemand>();
     let accepting = true;
+    let committingCount = 0;
     let disposal: Promise<void> | null = null;
     let nextSequence = 0;
     let pumpScheduled = false;
@@ -541,11 +543,17 @@ export function createPdfPageRasterScheduler(options: ICreatePdfPageRasterSchedu
                 return;
             }
             work.stage = 'committing';
-            const accepted = await work.target.commit(work.prepared, work.demand, commitRaster);
-            if (!committed && (!accepted || !commitRaster())) {
-                discardPrepared(work);
-                releaseReservation(work);
-                settleUncommitted(work, {status: 'discarded', demand: work.demand});
+            committingCount += 1;
+            schedulePump();
+            try {
+                const accepted = await work.target.commit(work.prepared, work.demand, commitRaster);
+                if (!committed && (!accepted || !commitRaster())) {
+                    discardPrepared(work);
+                    releaseReservation(work);
+                    settleUncommitted(work, {status: 'discarded', demand: work.demand});
+                }
+            } finally {
+                committingCount -= 1;
             }
         } catch (error) {
             discardPrepared(work);
@@ -586,7 +594,7 @@ export function createPdfPageRasterScheduler(options: ICreatePdfPageRasterSchedu
         if (!accepting) {
             return;
         }
-        while (inFlight.size < maxConcurrency) {
+        while (inFlight.size < maxConcurrency + Math.min(MAX_COMMITTING_OVERLAP, committingCount)) {
             const work = takeNextWork();
             if (!work) {
                 return;

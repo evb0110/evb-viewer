@@ -119,6 +119,18 @@ function isStrictScrollClamp(previousTop: number | null, top: number, maxTop: nu
         Math.abs(top - clampedMaxTop) <= SCROLL_CLAMP_TOLERANCE_PX
     );
 }
+function areNumberArraysEqual(left: readonly number[], right: readonly number[]) {
+    if (left.length !== right.length) {
+        return false;
+    }
+    for (let index = 0; index < left.length; index += 1) {
+        if (left[index] !== right[index]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptions) => {
     const documentSession = options.document;
     const {pdfDocument, numPages, isLoading, basePageWidth, basePageHeight, pageMetrics, pageMetricsVersion} = documentSession;
@@ -126,17 +138,37 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     const chassisAuthority = options.chassisAuthority;
     const pageSlots = createPdfPageSlotRegistry();
     // The last offset a scroll event or an authored write left, against
-    // which the next scroll is classified as a clamp.
+    // which the next scroll is classified as a clamp or a physical clip change.
+    let lastObservedScrollLeft: number | null = null;
     let lastObservedScrollTop: number | null = null;
+    let preferredScrollDirection: -1 | 0 | 1 = 0;
+    const scrollClipRevision = shallowRef(0);
     // Every write of this view records the offset it left at once. Layout can
     // clamp that offset before the browser delivers the write's scroll event,
     // and the one coalesced event must still read as a clamp.
     const viewportWritePort: IPdfViewportWritePort = {
         ...options.viewportWritePort,
         apply(container, write) {
+            const previousLeft = container.scrollLeft;
+            const previousTop = container.scrollTop;
             const applied = options.viewportWritePort.apply(container, write);
             if (applied) {
+                lastObservedScrollLeft = container.scrollLeft;
                 lastObservedScrollTop = container.scrollTop;
+                if (container.scrollLeft !== previousLeft || container.scrollTop !== previousTop) {
+                    scrollClipRevision.value += 1;
+                }
+                if (write.reason === 'user-pan-drag') {
+                    const previousDirection = preferredScrollDirection;
+                    if (container.scrollTop > previousTop + 0.5) {
+                        preferredScrollDirection = 1;
+                    } else if (container.scrollTop < previousTop - 0.5) {
+                        preferredScrollDirection = -1;
+                    }
+                    if (preferredScrollDirection !== previousDirection && demandRevision > 0) {
+                        publishDemand();
+                    }
+                }
             }
             return applied;
         },
@@ -145,7 +177,9 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     watch(
         options.viewerContainer,
         () => {
+            lastObservedScrollLeft = null;
             lastObservedScrollTop = null;
+            preferredScrollDirection = 0;
         },
         {flush: 'sync'},
     );
@@ -477,6 +511,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     // pass ended without those pixels, a newer request superseded it or the demand was cancelled.
     let resolvePendingMandatoryRaster = (_settled: boolean) => {};
     let demandRevision = 0;
+    let lastPublishedDemandInputsKey: string | null = null;
     function estimatePageRasterPixels(pageNumber: TPageNumber) {
         const metric = pageMetrics.value[pageNumber - 1];
         const width = metric?.width ?? basePageWidth.value ?? 1;
@@ -500,8 +535,36 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         operational: false,
         mandatoryRaster: null,
     });
-    function resolveDemand(): IPdfViewportDemand {
-        demandRevision += 1;
+    function resolveDemandInputsKey(operational: boolean) {
+        if (!operational) {
+            return 'inactive';
+        }
+        return [
+            scale.effectiveScale.value,
+            viewRotation.value,
+            pageMetricsVersion.value,
+            options.outputScale.value,
+            options.isResizing.value ? 1 : 0,
+            isZoomGestureActive.value ? 1 : 0,
+            viewportWritePort.interactionEpochSignal.value,
+            viewportAuthority.activeWorkKind.value !== null ? 1 : 0,
+        ].join(':');
+    }
+    function isSameDemand(previous: IPdfViewportDemand, next: Omit<IPdfViewportDemand, 'revision'>) {
+        return (
+            previous.operational === next.operational &&
+            previous.visibleRange.start === next.visibleRange.start &&
+            previous.visibleRange.end === next.visibleRange.end &&
+            previous.currentPage === next.currentPage &&
+            previous.destinationPage === next.destinationPage &&
+            previous.mandatoryRaster === next.mandatoryRaster &&
+            areNumberArraysEqual(previous.requiredPages, next.requiredPages) &&
+            areNumberArraysEqual(previous.nearbyPages, next.nearbyPages) &&
+            areNumberArraysEqual(previous.residentPages, next.residentPages) &&
+            areNumberArraysEqual(previous.mountedPages, next.mountedPages)
+        );
+    }
+    function resolveDemand(): Omit<IPdfViewportDemand, 'revision'> {
         const range = getProtectedVisibleRange();
         const operational =
             (options.isActive.value || pendingMandatoryRaster !== null) &&
@@ -510,7 +573,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             numPages.value > 0;
         if (!operational) {
             return {
-                revision: demandRevision,
                 visibleRange: range,
                 requiredPages: [],
                 nearbyPages: [],
@@ -528,6 +590,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             visibleRange: range,
             bufferRadius: options.bufferPages.value,
             maxBufferPixels: options.maxBufferCanvasPixels,
+            preferredDirection: preferredScrollDirection,
             estimatePagePixels: estimatePageRasterPixels,
         });
         const mounted = new Set(mountedPages);
@@ -538,7 +601,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 ? []
                 : mountedPages.filter((page) => page >= visibleRange.value.start && page <= visibleRange.value.end);
         return {
-            revision: demandRevision,
             visibleRange: range,
             requiredPages,
             nearbyPages,
@@ -558,7 +620,17 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         };
     }
     function publishDemand() {
-        demand.value = resolveDemand();
+        const next = resolveDemand();
+        const nextInputsKey = resolveDemandInputsKey(next.operational);
+        if (demandRevision > 0 && lastPublishedDemandInputsKey === nextInputsKey && isSameDemand(demand.value, next)) {
+            return;
+        }
+        demandRevision += 1;
+        lastPublishedDemandInputsKey = nextInputsKey;
+        demand.value = {
+            revision: demandRevision,
+            ...next,
+        };
     }
     let mountedPageFlushFrameId: number | null = null;
     function cancelMountedPageFlush() {
@@ -597,6 +669,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                   if (!options.continuousScroll.value) {
                       return;
                   }
+                  scrollClipRevision.value += 1;
                   const revisionBefore = demandRevision;
                   projectViewportVisibleRange(options.viewerContainer.value, numPages.value);
                   if (mountedPageFlushFrameId !== null) {
@@ -772,6 +845,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         activeReloadAdmission = admittedReload;
         admittedReload = null;
         if (!plan.isReload) {
+            preferredScrollDirection = 0;
             activeReloadAdmission?.settle('superseded');
             activeReloadAdmission = null;
         }
@@ -848,14 +922,23 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             // Teleport can reset the native scroll offset while moving a pane.
             // The workspace marks that move explicitly, so only this lifecycle
             // event is excluded from viewport authority.
-            lastObservedScrollTop = container.scrollTop;
+            if (lastObservedScrollLeft !== container.scrollLeft || lastObservedScrollTop !== container.scrollTop) {
+                lastObservedScrollLeft = container.scrollLeft;
+                lastObservedScrollTop = container.scrollTop;
+                scrollClipRevision.value += 1;
+            }
             return;
         }
         // The compositor can apply one more inertial delta before scroll
         // suppression reaches it. That offset belongs to the superseded
         // gesture, not to the user taking the viewport.
+        const previousLeft = lastObservedScrollLeft;
         const previousTop = lastObservedScrollTop;
+        lastObservedScrollLeft = container.scrollLeft;
         lastObservedScrollTop = container.scrollTop;
+        if (previousLeft !== container.scrollLeft || previousTop !== container.scrollTop) {
+            scrollClipRevision.value += 1;
+        }
         if (
             wasAuthorityScroll ||
             viewportWritePort.isCommandResidueLive() ||
@@ -863,6 +946,13 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         ) {
             projectViewportVisibleRange(container, numPages.value);
             return;
+        }
+        if (previousTop !== null) {
+            if (container.scrollTop > previousTop + 0.5) {
+                preferredScrollDirection = 1;
+            } else if (container.scrollTop < previousTop - 0.5) {
+                preferredScrollDirection = -1;
+            }
         }
         endZoomGesture();
         cancelSupersededRaster();
@@ -1176,6 +1266,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         ) {
             return;
         }
+        scrollClipRevision.value += 1;
         // A scrollbar changes the space available to fit, but does not own
         // the zoom gesture's anchor. Recompute fit without placing it again;
         // the rows it covers or uncovers change what is visible and demanded.
@@ -1321,6 +1412,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         }
         if (transition.phase === 'invalidated') {
             endZoomGesture();
+            lastObservedScrollLeft = null;
             lastObservedScrollTop = null;
             singlePageScroll.viewportAuthority.suspend();
             cancelMandatoryRaster();
@@ -1372,6 +1464,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         visibleRange,
         isZoomGestureActive: readonly(isZoomGestureActive),
         demand: shallowReadonly(demand),
+        scrollClipRevision: readonly(scrollClipRevision),
         pageSlots,
         scroll,
         scale,

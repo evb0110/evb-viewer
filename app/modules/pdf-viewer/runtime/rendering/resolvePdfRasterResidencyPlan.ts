@@ -9,6 +9,7 @@ export interface IPdfRasterResidencyPlanOptions {
     visibleRange: IPageRange;
     bufferRadius: number;
     maxBufferPixels: number;
+    preferredDirection?: -1 | 0 | 1 | undefined;
     estimatePagePixels: (pageNumber: TPageNumber) => number;
 }
 
@@ -25,6 +26,7 @@ export function resolvePdfRasterResidencyPlan(options: IPdfRasterResidencyPlanOp
         visiblePages: Array.from({length: end - start + 1}, (_, index) => start + index),
         bufferRadius: options.bufferRadius,
         maxBufferPixels: options.maxBufferPixels,
+        ...(options.preferredDirection === undefined ? {} : {preferredDirection: options.preferredDirection}),
         estimatePagePixels: (pageNumber) => options.estimatePagePixels(requirePageNumber(pageNumber)),
     });
     const {maxPixelsPerBufferSurface, ...residency} = plan;

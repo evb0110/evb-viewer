@@ -40,7 +40,7 @@ export interface IUsePdfPageRendererOptions {
         },
         fence: IPdfDocumentFence,
     ) => void;
-    onRenderedPageStateChanged?: () => void;
+    onRenderedPageStateChanged?: (pageNumber?: TPageNumber) => void;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
     /** RenderingSession owns the page resources; layer work changes them only as their owner. */
     pageResources: TPdfPageResources;

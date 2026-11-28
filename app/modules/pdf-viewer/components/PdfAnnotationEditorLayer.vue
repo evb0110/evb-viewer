@@ -27,6 +27,7 @@
             aria-hidden="true"
         />
         <svg
+            v-if="hasHighlightFills"
             :id="highlightFillPlaneId"
             class="pdf-annotation-editor-surface__svg"
             viewBox="0 0 1 1"
@@ -367,6 +368,10 @@ const textMarkupRows = computed(() => {
     }
     return rows;
 });
+
+const hasHighlightFills = computed(() =>
+    textMarkupRows.value.some((row) => row.entity.subtype === 'Highlight' && (row.highlightPaintQuads ?? row.entity.quadPoints).length > 0),
+);
 
 const shapeRows = computed(() =>
     svgEntities.value.shapes.map((entity) => ({

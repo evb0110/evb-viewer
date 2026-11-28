@@ -53,4 +53,32 @@ describe('PDF raster residency planning', () => {
         expect(plan.bufferPages).toEqual([7, 4]);
         expect(plan.estimatedBufferPixels).toBe(20);
     });
+
+    it('biases buffer admission in the preferred scroll direction when forwarding preferredDirection', () => {
+        const downPlan = resolvePdfRasterResidencyPlan({
+            mountedPages: [8, 9, 10, 11, 12],
+            visibleRange: {
+                start: 10,
+                end: 10,
+            },
+            bufferRadius: 2,
+            maxBufferPixels: 20,
+            preferredDirection: 1,
+            estimatePagePixels: () => 10,
+        });
+        expect(downPlan.bufferPages).toEqual([11, 12]);
+
+        const upPlan = resolvePdfRasterResidencyPlan({
+            mountedPages: [8, 9, 10, 11, 12],
+            visibleRange: {
+                start: 10,
+                end: 10,
+            },
+            bufferRadius: 2,
+            maxBufferPixels: 20,
+            preferredDirection: -1,
+            estimatePagePixels: () => 10,
+        });
+        expect(upPlan.bufferPages).toEqual([9, 8]);
+    });
 });

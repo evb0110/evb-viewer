@@ -193,12 +193,17 @@ function collectVisiblePageMetrics(container: HTMLElement): IVisiblePageMetrics 
         }
 
         const pageTop = pageElement.offsetTop;
+        if (pageTop > viewportBottom) {
+            break;
+        }
         const pageBottom = pageTop + pageElement.offsetHeight;
+        const verticalIntersection = getViewportIntersectionLength(pageTop, pageBottom, viewportTop, viewportBottom);
+        if (verticalIntersection <= 0) {
+            continue;
+        }
         const pageLeft = pageElement.offsetLeft;
         const pageRight = pageLeft + pageElement.offsetWidth;
-        const visibleArea =
-            getViewportIntersectionLength(pageTop, pageBottom, viewportTop, viewportBottom) *
-            getViewportIntersectionLength(pageLeft, pageRight, viewportLeft, viewportRight);
+        const visibleArea = verticalIntersection * getViewportIntersectionLength(pageLeft, pageRight, viewportLeft, viewportRight);
 
         if (visibleArea > 0) {
             firstVisiblePage ??= pageNumber;
@@ -208,10 +213,6 @@ function collectVisiblePageMetrics(container: HTMLElement): IVisiblePageMetrics 
                 maxVisibleArea = visibleArea;
                 mostVisiblePage = pageNumber;
             }
-        }
-
-        if (pageTop > viewportBottom) {
-            break;
         }
     }
 

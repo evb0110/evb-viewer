@@ -4,6 +4,7 @@ import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {createApp, defineComponent, h, nextTick, reactive} from 'vue';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 import PdfThumbnails from '@app/modules/pdf-viewer/components/PdfThumbnails.vue';
 import {
@@ -51,7 +52,9 @@ const PassThroughStub = defineComponent({
 });
 
 interface IThumbnailHarnessState {
+    annotationComments?: IAnnotationCommentSummary[] | undefined;
     currentPage: number;
+    hiddenAnnotationIds?: string[] | undefined;
     isActive: boolean;
     selectedPages: number[];
     totalPages: number;
@@ -75,7 +78,8 @@ async function mountThumbnails(overrides: Partial<IThumbnailHarnessState> = {}) 
         totalPages: 12,
         ...overrides,
     });
-    const {source} = createDocumentThumbnailSourceHarness(state.totalPages);
+    const harness = createDocumentThumbnailSourceHarness(state.totalPages);
+    const {source} = harness;
     const goToPage: Array<{
         page: number;
         options?: IScrollToPageOptions | undefined;
@@ -91,6 +95,8 @@ async function mountThumbnails(overrides: Partial<IThumbnailHarnessState> = {}) 
                     totalPages: state.totalPages,
                     selectedPages: state.selectedPages,
                     isActive: state.isActive,
+                    annotationComments: state.annotationComments,
+                    hiddenAnnotationIds: state.hiddenAnnotationIds,
                     'onGo-to-page': (page: number, options?: IScrollToPageOptions) =>
                         goToPage.push({
                             page,
@@ -114,6 +120,7 @@ async function mountThumbnails(overrides: Partial<IThumbnailHarnessState> = {}) 
     activeUnmounts.add(unmount);
     return {
         goToPage,
+        harness,
         host,
         rail: host.querySelector<HTMLElement>('.pdf-thumbnails')!,
         state,
@@ -295,5 +302,37 @@ describe('PdfThumbnails keyboard navigation', () => {
 
         expect(tabStopPages(host)).toEqual([300]);
         expect(document.activeElement).toBe(row(host, 300));
+    });
+
+    it('re-renders only the page whose annotation was deleted instead of invalidating every thumbnail', async () => {
+        const commentOnPage2: IAnnotationCommentSummary = {
+            id: 'annot-p2',
+            stableKey: 'ann:1:12R',
+            annotationId: '12R',
+            pageIndex: 1,
+            pageNumber: 2,
+            text: 'Note on page 2',
+            author: null,
+            modifiedAt: null,
+            color: '#fde047',
+            uid: null,
+            source: 'pdf',
+            subtype: 'Highlight',
+            hasNote: false,
+            markerRect: null,
+        };
+        const {harness, state} = await mountThumbnails({
+            annotationComments: [commentOnPage2],
+            currentPage: 1,
+            hiddenAnnotationIds: [],
+            totalPages: 5,
+        });
+        const renderCountBefore = harness.renderCalls.length;
+        state.annotationComments = [];
+        state.hiddenAnnotationIds = ['12R'];
+        await settleDocumentThumbnailList();
+
+        const rerenderedPages = harness.renderCalls.slice(renderCountBefore);
+        expect(rerenderedPages).toEqual([2]);
     });
 });

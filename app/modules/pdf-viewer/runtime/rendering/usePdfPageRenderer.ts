@@ -134,7 +134,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         const pending: Promise<void> = hydrateCommittedLayers(commit, hydration, publishRaster).finally(() => {
             commit.signal?.removeEventListener('abort', abort);
             if (resources.settleHydration(pageNumber, hydration, 'canvas-only')) {
-                options.onRenderedPageStateChanged?.();
+                options.onRenderedPageStateChanged?.(pageNumber);
             }
             pendingHydrations.delete(pending);
             void runGuardedTask(() => promoteQueuedTextLayer(pageNumber), {
@@ -321,7 +321,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         if (!resources.settleHydration(pageNumber, hydration, 'failed')) {
             return;
         }
-        options.onRenderedPageStateChanged?.();
+        options.onRenderedPageStateChanged?.(pageNumber);
         if (!layer.failure) {
             return;
         }
@@ -355,7 +355,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 return;
             }
             container.querySelectorAll('.annotation-layer canvas').forEach((canvas) => canvas.remove());
-            options.onRenderedPageStateChanged?.();
+            options.onRenderedPageStateChanged?.(pageNumber);
             return;
         }
         const documentFence = options.document.captureFence();
@@ -442,7 +442,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                         .querySelector('.page_canvas__render-layer, .page_canvas')
                         ?.append(...textHost.querySelectorAll('.structTree'));
                 }
-                options.onRenderedPageStateChanged?.();
+                options.onRenderedPageStateChanged?.(pageNumber);
                 return true;
             });
             if (!textReady) {
@@ -457,7 +457,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 } catch (error) {
                     logNonCriticalStageError(pageNumber, 'search highlights', error);
                 }
-                options.onRenderedPageStateChanged?.();
+                options.onRenderedPageStateChanged?.(pageNumber);
             }
             const annotation = stagedAnnotations ?? (await renderAnnotationLayerForPage(pageNumber, context, hydration, shouldContinue));
             const failure = typeof textReady === 'object' ? textReady : typeof annotation === 'object' ? annotation : null;
@@ -481,7 +481,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 },
                 documentFence,
             );
-            options.onRenderedPageStateChanged?.();
+            options.onRenderedPageStateChanged?.(pageNumber);
         } finally {
             if (incomingText && textHost && !incomingText.isConnected) {
                 textLayerRenderer.cleanupTextLayerDom(incomingText);

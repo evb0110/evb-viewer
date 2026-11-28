@@ -33,11 +33,11 @@
             />
         </template>
         <Teleport
+            v-if="entity.subtype === 'Highlight' && highlightPath"
             :to="highlightFillTarget"
             defer
         >
             <g
-                v-if="entity.subtype === 'Highlight' && highlightPath"
                 class="pdf-annotation-editor-text-markup"
                 :class="{'is-original-appearance': originalAppearance}"
                 :style="markupStyle"
