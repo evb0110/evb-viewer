@@ -1,6 +1,8 @@
 import type {IPdfDocument, IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {range} from 'es-toolkit/math';
 import pdfjsLib, {createPdfjsDocumentOptions, preparePdfjsBrowserRuntime} from '@app/services/pdfjs/runtimeLib';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {resolvePerformanceProfile, type IPerformanceProfile} from '@app/utils/performanceProfile';
 import {
     BROWSER_PRINT_ROOT_SELECTOR,
     normalizePrintPageNumbers,
@@ -12,17 +14,70 @@ import {
 } from '@app/utils/pdfPrintShared';
 export {shouldPrintPageMetricsDirectly} from '@pdf-core';
 
-interface IRenderPdfPagesForBrowserPrintOptions {
+export interface IBrowserPrintDpiAdjustment {
+    baseDpi: number;
+    effectiveDpi: number;
+    pageCount: number;
+    aggregatePixelBudget: number;
+}
+
+export interface IRenderPdfPagesForBrowserPrintOptions {
     signal?: AbortSignal;
+    onDpiAdjusted?: (adjustment: IBrowserPrintDpiAdjustment) => void;
+    performanceProfile?: Pick<IPerformanceProfile, 'tier' | 'mobile'>;
+    aggregatePixelBudget?: number;
 }
 
 const BROWSER_PRINT_RESOLUTION_DPI = 300;
+const BROWSER_PRINT_MIN_ADAPTIVE_DPI = 1;
 const PDF_POINTS_PER_INCH = 72;
 const BROWSER_PRINT_RENDER_SCALE = BROWSER_PRINT_RESOLUTION_DPI / PDF_POINTS_PER_INCH;
+// Total decoded RGBA pixel budgets across all mounted <img> print sheets so
+// 300-500 page browser prints adapt DPI smoothly instead of OOM-killing tabs.
+const BROWSER_PRINT_AGGREGATE_PIXELS_MOBILE = 128_000_000;
+const BROWSER_PRINT_AGGREGATE_PIXELS_LOW_TIER = 256_000_000;
+const BROWSER_PRINT_AGGREGATE_PIXELS_MEDIUM_TIER = 512_000_000;
+const BROWSER_PRINT_AGGREGATE_PIXELS_HIGH_TIER = 1_024_000_000;
 // A page whose canvas this browser cannot back is rendered again at three
 // quarters of the scale, down to a page of this many pixels on its long edge.
 const BROWSER_PRINT_CANVAS_RETRY_SCALE = 0.75;
 const BROWSER_PRINT_MIN_CANVAS_EDGE = 512;
+
+export function resolveBrowserPrintAggregatePixelBudget(
+    profile: Pick<IPerformanceProfile, 'tier' | 'mobile'> = resolvePerformanceProfile(),
+) {
+    if (profile.mobile) {
+        return BROWSER_PRINT_AGGREGATE_PIXELS_MOBILE;
+    }
+    if (profile.tier === 'low') {
+        return BROWSER_PRINT_AGGREGATE_PIXELS_LOW_TIER;
+    }
+    if (profile.tier === 'high') {
+        return BROWSER_PRINT_AGGREGATE_PIXELS_HIGH_TIER;
+    }
+    return BROWSER_PRINT_AGGREGATE_PIXELS_MEDIUM_TIER;
+}
+
+export function resolveAdaptiveBrowserPrintDpi(
+    pageWidthPts: number,
+    pageHeightPts: number,
+    totalPages: number,
+    remainingPages: number,
+    remainingPixelBudget: number,
+) {
+    if (totalPages <= 1 || remainingPages < 1 || !Number.isFinite(remainingPixelBudget)) {
+        return BROWSER_PRINT_RESOLUTION_DPI;
+    }
+    const baseWidth = Math.max(1, Math.ceil(pageWidthPts * BROWSER_PRINT_RENDER_SCALE));
+    const baseHeight = Math.max(1, Math.ceil(pageHeightPts * BROWSER_PRINT_RENDER_SCALE));
+    const basePixels = baseWidth * baseHeight;
+    const perPageBudget = Math.max(1, remainingPixelBudget) / remainingPages;
+    if (basePixels <= perPageBudget) {
+        return BROWSER_PRINT_RESOLUTION_DPI;
+    }
+    const scaledDpi = Math.floor(BROWSER_PRINT_RESOLUTION_DPI * Math.sqrt(perPageBudget / basePixels));
+    return Math.max(BROWSER_PRINT_MIN_ADAPTIVE_DPI, Math.min(BROWSER_PRINT_RESOLUTION_DPI, scaledDpi));
+}
 
 function createBrowserPrintAbortError() {
     const error = new Error('Print preparation was canceled');
@@ -122,8 +177,8 @@ function releaseBrowserPrintCanvas(canvas: IBrowserPrintCanvas) {
     canvas.height = 0;
 }
 
-function allocateBrowserPrintCanvas(targetDocument: IBrowserPrintDocument, page: IPdfPage) {
-    for (let scale = BROWSER_PRINT_RENDER_SCALE; ; scale *= BROWSER_PRINT_CANVAS_RETRY_SCALE) {
+function allocateBrowserPrintCanvas(targetDocument: IBrowserPrintDocument, page: IPdfPage, initialScale = BROWSER_PRINT_RENDER_SCALE) {
+    for (let scale = initialScale; ; scale *= BROWSER_PRINT_CANVAS_RETRY_SCALE) {
         const viewport = page.getViewport({scale});
         const width = Math.max(1, Math.ceil(viewport.width));
         const height = Math.max(1, Math.ceil(viewport.height));
@@ -136,6 +191,8 @@ function allocateBrowserPrintCanvas(targetDocument: IBrowserPrintDocument, page:
                 canvas,
                 context,
                 viewport,
+                width,
+                height,
             };
         }
         releaseBrowserPrintCanvas(canvas);
@@ -157,17 +214,57 @@ function encodeBrowserPrintCanvas(canvas: IBrowserPrintCanvas) {
     });
 }
 
+function revokeBrowserPrintObjectUrls(targetDocument: IBrowserPrintDocument, objectUrls: string[]) {
+    const frameUrl = targetDocument.defaultView?.URL as {revokeObjectURL?: (url: string) => void} | undefined;
+    if (typeof frameUrl?.revokeObjectURL !== 'function') {
+        objectUrls.length = 0;
+        return;
+    }
+    for (const url of objectUrls.splice(0)) {
+        try {
+            frameUrl.revokeObjectURL(url);
+        } catch {
+            // Frame teardown also reclaims its object URLs.
+        }
+    }
+}
+
 // The print frame's own window creates the URL, so removing the frame
-// releases the page image with it.
-function loadBrowserPrintImage(targetDocument: IBrowserPrintDocument, image: IBrowserPrintImage, pageImage: Blob) {
+// releases the page image with it; failed or canceled prints revoke URLs early.
+function loadBrowserPrintImage(
+    targetDocument: IBrowserPrintDocument,
+    image: IBrowserPrintImage,
+    pageImage: Blob,
+    createdObjectUrls: string[],
+    signal?: AbortSignal,
+) {
     const frameUrl = targetDocument.defaultView?.URL;
     if (!frameUrl) {
         throw new Error('Missing browser print frame window');
     }
+    throwIfBrowserPrintAborted(signal);
+    const objectUrl = frameUrl.createObjectURL(pageImage);
+    createdObjectUrls.push(objectUrl);
     return new Promise<void>((resolve, reject) => {
-        image.onload = () => resolve();
-        image.onerror = () => reject(new Error('Failed to load a browser print page'));
-        image.src = frameUrl.createObjectURL(pageImage);
+        const cleanup = () => {
+            image.onload = null;
+            image.onerror = null;
+            signal?.removeEventListener('abort', onAbort);
+        };
+        const onAbort = () => {
+            cleanup();
+            reject(createBrowserPrintAbortError());
+        };
+        image.onload = () => {
+            cleanup();
+            resolve();
+        };
+        image.onerror = () => {
+            cleanup();
+            reject(new Error('Failed to load a browser print page'));
+        };
+        signal?.addEventListener('abort', onAbort, {once: true});
+        image.src = objectUrl;
     });
 }
 
@@ -268,8 +365,19 @@ async function renderPdfPageNumbersForBrowserPrint(
     getPage: (pageNumber: number) => Promise<IPdfPage>,
     options: IRenderPdfPagesForBrowserPrintOptions,
 ) {
+    const totalPages = pageNumbers.length;
+    const aggregatePixelBudget =
+        typeof options.aggregatePixelBudget === 'number' &&
+        Number.isFinite(options.aggregatePixelBudget) &&
+        options.aggregatePixelBudget > 0
+            ? options.aggregatePixelBudget
+            : resolveBrowserPrintAggregatePixelBudget(options.performanceProfile);
+    let remainingPixelBudget = aggregatePixelBudget;
+    let reportedDpiAdjustment = false;
+    const createdObjectUrls: string[] = [];
+
     try {
-        for (const pageNumber of pageNumbers) {
+        for (const [pageIndex, pageNumber] of pageNumbers.entries()) {
             throwIfBrowserPrintAborted(options.signal);
             const page = await getPage(pageNumber);
             let canvas: IBrowserPrintCanvas | null = null;
@@ -282,7 +390,27 @@ async function renderPdfPageNumbersForBrowserPrint(
                 const pageContainer = createBrowserPrintPageContainer(targetDocument);
                 pageContainer.className = `browser-print-page browser-print-page-${String(pageNumber)}`;
 
-                const allocated = allocateBrowserPrintCanvas(targetDocument, page);
+                const remainingPages = totalPages - pageIndex;
+                const targetDpi = resolveAdaptiveBrowserPrintDpi(
+                    displayViewport.width,
+                    displayViewport.height,
+                    totalPages,
+                    remainingPages,
+                    remainingPixelBudget,
+                );
+                if (!reportedDpiAdjustment && targetDpi < BROWSER_PRINT_RESOLUTION_DPI) {
+                    reportedDpiAdjustment = true;
+                    const adjustment: IBrowserPrintDpiAdjustment = {
+                        baseDpi: BROWSER_PRINT_RESOLUTION_DPI,
+                        effectiveDpi: targetDpi,
+                        pageCount: totalPages,
+                        aggregatePixelBudget,
+                    };
+                    BrowserLogger.warn('browser-print', 'Reduced browser print resolution to fit memory budget', adjustment);
+                    options.onDpiAdjusted?.(adjustment);
+                }
+
+                const allocated = allocateBrowserPrintCanvas(targetDocument, page, targetDpi / PDF_POINTS_PER_INCH);
                 canvas = allocated.canvas;
                 // Print intent: annotations flagged to print, not those to show.
                 const renderTask = page.render({
@@ -305,13 +433,15 @@ async function renderPdfPageNumbersForBrowserPrint(
                 }
 
                 const pageImage = await encodeBrowserPrintCanvas(canvas);
+                const renderedPixels = allocated.width * allocated.height;
                 releaseBrowserPrintCanvas(canvas);
                 canvas = null;
+                remainingPixelBudget = Math.max(0, remainingPixelBudget - renderedPixels);
                 throwIfBrowserPrintAborted(options.signal);
                 const image = createBrowserPrintImage(targetDocument);
                 image.style.width = formatPdfPointSizeAsCssInches(displayViewport.width);
                 image.style.height = formatPdfPointSizeAsCssInches(displayViewport.height);
-                await loadBrowserPrintImage(targetDocument, image, pageImage);
+                await loadBrowserPrintImage(targetDocument, image, pageImage, createdObjectUrls, options.signal);
                 throwIfBrowserPrintAborted(options.signal);
 
                 pageContainer.append(image);
@@ -326,6 +456,7 @@ async function renderPdfPageNumbersForBrowserPrint(
             }
         }
     } catch (error) {
+        revokeBrowserPrintObjectUrls(targetDocument, createdObjectUrls);
         root.replaceChildren();
         throw error;
     }

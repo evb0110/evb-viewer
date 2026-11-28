@@ -1157,6 +1157,9 @@ export default {
         fileNamePageSelection: 'pages {count}-selected_{first}-to-{last}_id-{fingerprint}',
         failed: 'Unable to prepare the document for printing.',
         failedWithReason: 'Unable to prepare the document for printing: {reason}',
+        reducedResolutionTitle: 'Print resolution reduced for memory safety',
+        reducedResolutionDescription:
+            'Printing {pages} pages at reduced resolution so the browser stays within memory limits. For full resolution, print smaller page ranges.',
     },
     menu: {
         noRecentFiles: 'No Recent Files',

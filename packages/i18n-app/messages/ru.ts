@@ -1186,6 +1186,9 @@ export default {
         fileNamePageSelection: 'страницы {count}-выбрано_{first}-до-{last}_id-{fingerprint}',
         failed: 'Не удалось подготовить документ к печати.',
         failedWithReason: 'Не удалось подготовить документ к печати: {reason}',
+        reducedResolutionTitle: 'Разрешение печати снижено для экономии памяти',
+        reducedResolutionDescription:
+            'Печать {pages} стр. с пониженным разрешением, чтобы браузер не превысил лимит памяти. Для максимального качества печатайте документ меньшими диапазонами страниц.',
     },
     menu: {
         noRecentFiles: 'Нет недавних файлов',

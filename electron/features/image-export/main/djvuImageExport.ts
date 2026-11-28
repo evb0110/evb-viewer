@@ -12,15 +12,18 @@ import {
     promoteStagedFiles,
     rollbackStagedFilePublications,
 } from '@electron/features/image-export/main/export';
+import {resolveImageExportConcurrency} from '@electron/features/image-export/main/imageExportResourceLimits';
 import {tryCombinePagesWithNativeTiffCombiner} from '@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner';
 import type {IStagedImageFile} from '@electron/features/image-export/main/imageExportPathPlanning';
 import {makeSiblingTempPath} from '@electron/utils/atomicReplace';
 import {buildMultiPageTiffOutputSuffixes} from '@pdf-core/imageExportFileName';
 import {abortErrorFromSignal} from '@electron/utils/abort';
+import {tryGetHostResourceProfileSnapshot} from '@electron/resources/hostResourceProfile';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 import {resolvePdfImageCombineResidentBytes, resolvePdfImageCombineThreads} from '@electron/native-tools/pdfImageCombineBudget';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {recordManagedScratchPaths, type TManagedScratchPrefix, usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 
 interface IDjvuImageExportOptions {
     format?: TImageExportFormat;
@@ -36,11 +39,54 @@ const DJVU_EXPORT_MAX_EDGE_PIXELS = 8_192;
 const DJVU_EXPORT_MAX_PAGE_PIXELS = 80_000_000;
 const DJVU_EXPORT_MAX_BATCH_STAGED_BYTES = 2 * 1024 * 1024 * 1024;
 const DJVU_TIFF_BATCH_MAX_PAGES = 8;
+const DJVU_TIFF_RENDER_PAGE_RESIDENT_BYTES = 128 * 1024 * 1024;
+// Matches the shared DjVu engine worker pool ceiling (1 on low tier, 2 otherwise)
+// so export waves do not hold idle broker leases waiting on the engine pool.
+const DJVU_RENDER_MAX_CONCURRENCY = 2;
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);
     }
+}
+
+export function resolveDjvuImageExportConcurrency(perTaskResidentBytes?: number) {
+    const capacity = mainJobBroker.getSnapshot().capacity;
+    return resolveImageExportConcurrency({
+        capacity,
+        hostProfile: tryGetHostResourceProfileSnapshot(),
+        perTaskResidentBytes: perTaskResidentBytes ?? resolvePdfImageCombineResidentBytes(capacity),
+        perTaskIoWeight: 2,
+        maxConcurrency: DJVU_RENDER_MAX_CONCURRENCY,
+    });
+}
+
+function createLinkedAbortController(parentSignal?: AbortSignal) {
+    const controller = new AbortController();
+    if (!parentSignal) {
+        return {
+            controller,
+            dispose: () => undefined,
+        };
+    }
+    if (parentSignal.aborted) {
+        controller.abort(abortErrorFromSignal(parentSignal));
+        return {
+            controller,
+            dispose: () => undefined,
+        };
+    }
+    const onAbort = () => controller.abort(abortErrorFromSignal(parentSignal));
+    parentSignal.addEventListener('abort', onAbort, {once: true});
+    return {
+        controller,
+        dispose: () => parentSignal.removeEventListener('abort', onAbort),
+    };
+}
+
+function selectPrimaryWaveError(errors: readonly unknown[], firstError: unknown) {
+    const unproven = errors.find((error) => getUnprovenNativeTerminationDetail(error) !== undefined);
+    return unproven ?? firstError ?? errors[0];
 }
 
 function usingDjvuScratch<T>(options: IDjvuImageExportOptions, prefix: TManagedScratchPrefix, run: (scratchPath: string) => Promise<T>) {
@@ -139,6 +185,9 @@ async function renderDjvuImagePages(
         const exportPages = [...iterateExportPages(pageCount, pages)];
         const outputPaths: string[] = [];
         const siblings = exportPages.map(() => makeSiblingTempPath(outputTemplatePath));
+        const concurrency = resolveDjvuImageExportConcurrency();
+        const ownerId = options.cancelGroup ?? `djvu-image-export:${djvuPath}`;
+        let processedPages = 0;
         const promoteBatch = async () => {
             if (stagedFiles.length === 0) {
                 return;
@@ -156,73 +205,227 @@ async function renderDjvuImagePages(
                 percent: 0,
             });
             await recordManagedScratchPaths(tempDirectory, siblings);
-            for (const [index, page] of exportPages.entries()) {
-                const sibling = siblings[index]!;
+            await mkdir(dirname(outputTemplatePath), {recursive: true});
+
+            for (let waveStart = 0; waveStart < exportPages.length; waveStart += concurrency) {
                 throwIfAborted(options.signal);
-                const ppmPath = join(tempDirectory, `page-${page}.ppm`);
-                // The render and the encoder run under this lease; one not
-                // proven gone keeps it charged until it is.
-                const imagePath = await mainJobBroker.run(
-                    {
-                        ownerId: options.cancelGroup ?? `djvu-image-export:${djvuPath}`,
-                        kind: 'djvu-image-export-page',
-                        priority: 'user',
-                        resources: {
-                            cpuTokens: 1,
-                            estimatedResidentBytes: resolvePdfImageCombineResidentBytes(mainJobBroker.getSnapshot().capacity),
-                            nativeProcesses: 1,
-                            ioWeight: 2,
-                        },
-                        ...(options.signal ? {signal: options.signal} : {}),
-                    },
-                    async (brokerRun) => {
-                        const render = await convertDjvuPageToImage(djvuPath, ppmPath, page, `djvu-image-export-${randomUUID()}`, {
-                            format: 'ppm',
-                            onTerminationProof: brokerRun.onTerminationProof,
-                            ...(options.signal ? {signal: options.signal} : {}),
-                        });
-                        if (!render.success) {
-                            throw render.cause instanceof Error
-                                ? render.cause
-                                : new Error(render.error ?? `Failed to render DjVu page ${page}`);
+                const wave = exportPages.slice(waveStart, waveStart + concurrency).map((page, offset) => ({
+                    index: waveStart + offset,
+                    page,
+                    sibling: siblings[waveStart + offset]!,
+                    ppmPath: join(tempDirectory, `page-${page}.ppm`),
+                }));
+
+                // Phase 1: render the bounded wave of DjVu pages to PPM in parallel.
+                // Pass only the caller's AbortSignal (not a synthetic sibling abort) so an
+                // already-running DjVu engine worker finishes its write cleanly before scratch
+                // cleanup, avoiding racing a terminating worker against tempDirectory removal.
+                let firstRenderError: unknown;
+                let hasRenderError = false;
+                const renderResults = await Promise.allSettled(
+                    wave.map(async (item) => {
+                        try {
+                            throwIfAborted(options.signal);
+                            const render = await mainJobBroker.run(
+                                {
+                                    ownerId,
+                                    kind: 'djvu-image-export-page',
+                                    priority: 'user',
+                                    resources: {
+                                        cpuTokens: 1,
+                                        estimatedResidentBytes: resolvePdfImageCombineResidentBytes(mainJobBroker.getSnapshot().capacity),
+                                        nativeProcesses: 1,
+                                        ioWeight: 2,
+                                    },
+                                    ...(options.signal ? {signal: options.signal} : {}),
+                                },
+                                async (brokerRun) => {
+                                    const rendered = await convertDjvuPageToImage(
+                                        djvuPath,
+                                        item.ppmPath,
+                                        item.page,
+                                        `djvu-image-export-${randomUUID()}`,
+                                        {
+                                            format: 'ppm',
+                                            onTerminationProof: brokerRun.onTerminationProof,
+                                            ...(options.signal ? {signal: options.signal} : {}),
+                                        },
+                                    );
+                                    if (!rendered.success) {
+                                        throw rendered.cause instanceof Error
+                                            ? rendered.cause
+                                            : new Error(rendered.error ?? `Failed to render DjVu page ${item.page}`);
+                                    }
+                                    return rendered;
+                                },
+                            );
+                            return {
+                                ...item,
+                                fileSize: render.fileSize,
+                            };
+                        } catch (error) {
+                            if (!hasRenderError) {
+                                hasRenderError = true;
+                                firstRenderError = error;
+                            }
+                            throw error;
                         }
-                        if (stagedFiles.length > 0 && stagedBytes + render.fileSize > DJVU_EXPORT_MAX_BATCH_STAGED_BYTES) {
-                            await promoteBatch();
-                        }
-                        if (render.fileSize > DJVU_EXPORT_MAX_BATCH_STAGED_BYTES) {
+                    }),
+                );
+
+                const renderErrors = renderResults
+                    .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+                    .map((result) => result.reason);
+                if (renderErrors.length > 0) {
+                    // Clean up PPM files produced by sibling pages whose render finished cleanly.
+                    await Promise.all(
+                        renderResults.flatMap((result) =>
+                            result.status === 'fulfilled' ? [rm(result.value.ppmPath, {force: true}).catch(() => undefined)] : [],
+                        ),
+                    );
+                    throw selectPrimaryWaveError(renderErrors, firstRenderError);
+                }
+
+                const renderedWave = renderResults.map(
+                    (result) => (result as PromiseFulfilledResult<(typeof wave)[number] & {fileSize: number}>).value,
+                );
+                const unconsumedPpmPaths = new Set(renderedWave.map((item) => item.ppmPath));
+
+                try {
+                    for (const item of renderedWave) {
+                        if (item.fileSize > DJVU_EXPORT_MAX_BATCH_STAGED_BYTES) {
                             throw new Error('DjVu PNG page exceeds the staged-byte limit');
                         }
-                        stagedBytes += render.fileSize;
-                        return convertRenderedPpmToImage(
-                            ppmPath,
-                            format,
-                            options.signal,
-                            options.cancelGroup,
-                            pageDpiByNumber.get(page),
-                            brokerRun,
-                        );
-                    },
-                );
-                await mkdir(dirname(outputTemplatePath), {recursive: true});
-                try {
-                    await copyFile(imagePath, sibling);
-                    throwIfAborted(options.signal);
-                    stagedFiles.push({
-                        stagedPath: sibling,
-                        targetPath: outputTemplatePath,
-                        suffix: totalPages === 1 ? '' : `-page-${String(page).padStart(3, '0')}`,
-                        allowOverwrite: totalPages === 1,
-                    });
+                    }
+
+                    // Partition the rendered wave into contiguous sub-batches that each stay
+                    // within the 2 GiB staged-byte limit before encoding and staging.
+                    const subBatches: Array<{items: typeof renderedWave; bytes: number}> = [];
+                    for (const item of renderedWave) {
+                        const current = subBatches.at(-1);
+                        if (!current || current.bytes + item.fileSize > DJVU_EXPORT_MAX_BATCH_STAGED_BYTES) {
+                            subBatches.push({
+                                items: [item],
+                                bytes: item.fileSize,
+                            });
+                        } else {
+                            current.items.push(item);
+                            current.bytes += item.fileSize;
+                        }
+                    }
+
+                    for (const subBatch of subBatches) {
+                        throwIfAborted(options.signal);
+                        if (stagedFiles.length > 0 && stagedBytes + subBatch.bytes > DJVU_EXPORT_MAX_BATCH_STAGED_BYTES) {
+                            await promoteBatch();
+                        }
+
+                        // Phase 2: encode the sub-batch to the target image format in parallel.
+                        const encodeAbort = createLinkedAbortController(options.signal);
+                        let firstEncodeError: unknown;
+                        let hasEncodeError = false;
+                        const encodeResults = await (async () => {
+                            try {
+                                return await Promise.allSettled(
+                                    subBatch.items.map(async (item) => {
+                                        let imagePath: string | null = null;
+                                        let copiedSibling = false;
+                                        let keepUnprovenFiles = false;
+                                        try {
+                                            throwIfAborted(encodeAbort.controller.signal);
+                                            imagePath = await mainJobBroker.run(
+                                                {
+                                                    ownerId,
+                                                    kind: 'djvu-image-export-page',
+                                                    priority: 'user',
+                                                    resources: {
+                                                        cpuTokens: 1,
+                                                        estimatedResidentBytes: resolvePdfImageCombineResidentBytes(
+                                                            mainJobBroker.getSnapshot().capacity,
+                                                        ),
+                                                        nativeProcesses: 1,
+                                                        ioWeight: 2,
+                                                    },
+                                                    signal: encodeAbort.controller.signal,
+                                                },
+                                                (brokerRun) =>
+                                                    convertRenderedPpmToImage(
+                                                        item.ppmPath,
+                                                        format,
+                                                        encodeAbort.controller.signal,
+                                                        options.cancelGroup,
+                                                        pageDpiByNumber.get(item.page),
+                                                        brokerRun,
+                                                    ),
+                                            );
+                                            await copyFile(imagePath, item.sibling);
+                                            copiedSibling = true;
+                                            throwIfAborted(encodeAbort.controller.signal);
+                                            return item;
+                                        } catch (error) {
+                                            if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+                                                keepUnprovenFiles = true;
+                                            }
+                                            if (copiedSibling) {
+                                                await rm(item.sibling, {force: true}).catch(() => undefined);
+                                            }
+                                            if (!hasEncodeError) {
+                                                hasEncodeError = true;
+                                                firstEncodeError = error;
+                                                encodeAbort.controller.abort(error);
+                                            }
+                                            throw error;
+                                        } finally {
+                                            unconsumedPpmPaths.delete(item.ppmPath);
+                                            if (!keepUnprovenFiles) {
+                                                await rm(item.ppmPath, {force: true}).catch(() => undefined);
+                                                if (imagePath !== null) {
+                                                    await rm(imagePath, {force: true}).catch(() => undefined);
+                                                }
+                                            }
+                                        }
+                                    }),
+                                );
+                            } finally {
+                                encodeAbort.dispose();
+                            }
+                        })();
+
+                        const encodeErrors = encodeResults
+                            .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+                            .map((result) => result.reason);
+                        if (encodeErrors.length > 0) {
+                            await Promise.all(
+                                encodeResults.flatMap((result) =>
+                                    result.status === 'fulfilled' ? [rm(result.value.sibling, {force: true}).catch(() => undefined)] : [],
+                                ),
+                            );
+                            throw selectPrimaryWaveError(encodeErrors, firstEncodeError);
+                        }
+
+                        // Commit staged entries in exact page order for deterministic filenames.
+                        for (const item of subBatch.items) {
+                            stagedBytes += item.fileSize;
+                            stagedFiles.push({
+                                stagedPath: item.sibling,
+                                targetPath: outputTemplatePath,
+                                suffix: totalPages === 1 ? '' : `-page-${String(item.page).padStart(3, '0')}`,
+                                allowOverwrite: totalPages === 1,
+                            });
+                            processedPages += 1;
+                            options.onProgress?.({
+                                phase: 'rendering',
+                                processed: processedPages,
+                                total: totalPages,
+                                percent: (processedPages / totalPages) * 100,
+                            });
+                        }
+                    }
                 } finally {
-                    await rm(ppmPath, {force: true}).catch(() => undefined);
-                    await rm(imagePath, {force: true}).catch(() => undefined);
+                    if (unconsumedPpmPaths.size > 0) {
+                        await Promise.all([...unconsumedPpmPaths].map((ppmPath) => rm(ppmPath, {force: true}).catch(() => undefined)));
+                    }
                 }
-                options.onProgress?.({
-                    phase: 'rendering',
-                    processed: index + 1,
-                    total: totalPages,
-                    percent: ((index + 1) / totalPages) * 100,
-                });
             }
             throwIfAborted(options.signal);
             await promoteBatch();
@@ -260,6 +463,8 @@ export async function exportDjvuAsMultiPageTiff(djvuPath: string, outputPath: st
         const exportPages = [...iterateExportPages(pageCount, pages)];
         const totalPages = exportPages.length;
         const stagedGroups: Array<{stagedPath: string}> = [];
+        const concurrency = resolveDjvuImageExportConcurrency(DJVU_TIFF_RENDER_PAGE_RESIDENT_BYTES);
+        const ownerId = options.cancelGroup ?? `djvu-tiff-export:${djvuPath}`;
         const combineBatch = async () => {
             if (pagePaths.length === 0) {
                 return;
@@ -274,7 +479,7 @@ export async function exportDjvuAsMultiPageTiff(djvuPath: string, outputPath: st
             stagedGroups.push({stagedPath});
             const combined = await mainJobBroker.run(
                 {
-                    ownerId: options.cancelGroup ?? `djvu-tiff-export:${djvuPath}`,
+                    ownerId,
                     kind: 'djvu-tiff-combine',
                     priority: 'user',
                     resources: {
@@ -306,60 +511,128 @@ export async function exportDjvuAsMultiPageTiff(djvuPath: string, outputPath: st
         let promoted = false;
         try {
             let processedPages = 0;
-            for (const page of exportPages) {
+            let cursor = 0;
+            while (cursor < exportPages.length) {
                 throwIfAborted(options.signal);
-                const pageDpi = pageDpiByNumber.get(page);
-                if (pagePaths.length > 0 && pageDpi !== batchDpi) {
+                const waveDpi = pageDpiByNumber.get(exportPages[cursor]!);
+                if (pagePaths.length > 0 && waveDpi !== batchDpi) {
                     await combineBatch();
                 }
-                const ppmPath = join(tempDirectory, `page-${page}.ppm`);
-                const render = await mainJobBroker.run(
-                    {
-                        ownerId: options.cancelGroup ?? `djvu-tiff-export:${djvuPath}`,
-                        kind: 'djvu-tiff-render-page',
-                        priority: 'user',
-                        resources: {
-                            cpuTokens: 1,
-                            estimatedResidentBytes: 128 * 1024 * 1024,
-                            nativeProcesses: 1,
-                            ioWeight: 2,
-                        },
-                        ...(options.signal ? {signal: options.signal} : {}),
-                    },
-                    async ({onTerminationProof}) => {
-                        const rendered = await convertDjvuPageToImage(djvuPath, ppmPath, page, `djvu-tiff-export-${randomUUID()}`, {
-                            format: 'ppm',
-                            onTerminationProof,
-                            ...(options.signal ? {signal: options.signal} : {}),
-                        });
-                        // Thrown inside the lease, so a render not proven gone keeps it charged.
-                        if (!rendered.success) {
-                            throw rendered.cause instanceof Error
-                                ? rendered.cause
-                                : new Error(rendered.error ?? `Failed to render DjVu page ${page}`);
-                        }
-                        return rendered;
-                    },
-                );
-                if (
-                    pagePaths.length > 0 &&
-                    (pagePaths.length >= DJVU_TIFF_BATCH_MAX_PAGES || stagedBytes + render.fileSize > DJVU_EXPORT_MAX_BATCH_STAGED_BYTES)
+                const remainingBatchSlots = Math.max(1, DJVU_TIFF_BATCH_MAX_PAGES - pagePaths.length);
+                const maxWavePages = Math.min(concurrency, remainingBatchSlots);
+                let waveEnd = cursor;
+                while (
+                    waveEnd < exportPages.length &&
+                    waveEnd - cursor < maxWavePages &&
+                    pageDpiByNumber.get(exportPages[waveEnd]!) === waveDpi
                 ) {
-                    await combineBatch();
+                    waveEnd += 1;
                 }
-                if (render.fileSize > DJVU_EXPORT_MAX_BATCH_STAGED_BYTES) {
-                    throw new Error('DjVu TIFF page exceeds the staged-byte limit');
+                const wave = exportPages.slice(cursor, waveEnd).map((page) => ({
+                    page,
+                    ppmPath: join(tempDirectory, `page-${page}.ppm`),
+                }));
+                cursor = waveEnd;
+
+                let firstRenderError: unknown;
+                let hasRenderError = false;
+                const renderResults = await Promise.allSettled(
+                    wave.map(async (item) => {
+                        try {
+                            throwIfAborted(options.signal);
+                            const rendered = await mainJobBroker.run(
+                                {
+                                    ownerId,
+                                    kind: 'djvu-tiff-render-page',
+                                    priority: 'user',
+                                    resources: {
+                                        cpuTokens: 1,
+                                        estimatedResidentBytes: DJVU_TIFF_RENDER_PAGE_RESIDENT_BYTES,
+                                        nativeProcesses: 1,
+                                        ioWeight: 2,
+                                    },
+                                    ...(options.signal ? {signal: options.signal} : {}),
+                                },
+                                async ({onTerminationProof}) => {
+                                    const result = await convertDjvuPageToImage(
+                                        djvuPath,
+                                        item.ppmPath,
+                                        item.page,
+                                        `djvu-tiff-export-${randomUUID()}`,
+                                        {
+                                            format: 'ppm',
+                                            onTerminationProof,
+                                            ...(options.signal ? {signal: options.signal} : {}),
+                                        },
+                                    );
+                                    // Thrown inside the lease, so a render not proven gone keeps it charged.
+                                    if (!result.success) {
+                                        throw result.cause instanceof Error
+                                            ? result.cause
+                                            : new Error(result.error ?? `Failed to render DjVu page ${item.page}`);
+                                    }
+                                    return result;
+                                },
+                            );
+                            return {
+                                ...item,
+                                fileSize: rendered.fileSize,
+                            };
+                        } catch (error) {
+                            if (!hasRenderError) {
+                                hasRenderError = true;
+                                firstRenderError = error;
+                            }
+                            throw error;
+                        }
+                    }),
+                );
+
+                const renderErrors = renderResults
+                    .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+                    .map((result) => result.reason);
+                if (renderErrors.length > 0) {
+                    await Promise.all(
+                        renderResults.flatMap((result) =>
+                            result.status === 'fulfilled' ? [rm(result.value.ppmPath, {force: true}).catch(() => undefined)] : [],
+                        ),
+                    );
+                    throw selectPrimaryWaveError(renderErrors, firstRenderError);
                 }
-                stagedBytes += render.fileSize;
-                pagePaths.push(ppmPath);
-                batchDpi ??= pageDpi;
-                processedPages += 1;
-                options.onProgress?.({
-                    phase: 'rendering',
-                    processed: processedPages,
-                    total: totalPages,
-                    percent: (processedPages / totalPages) * 90,
-                });
+
+                const renderedWave = renderResults.map(
+                    (result) => (result as PromiseFulfilledResult<(typeof wave)[number] & {fileSize: number}>).value,
+                );
+                const unconsumedWavePaths = new Set(renderedWave.map((item) => item.ppmPath));
+                try {
+                    for (const item of renderedWave) {
+                        if (
+                            pagePaths.length > 0 &&
+                            (pagePaths.length >= DJVU_TIFF_BATCH_MAX_PAGES ||
+                                stagedBytes + item.fileSize > DJVU_EXPORT_MAX_BATCH_STAGED_BYTES)
+                        ) {
+                            await combineBatch();
+                        }
+                        if (item.fileSize > DJVU_EXPORT_MAX_BATCH_STAGED_BYTES) {
+                            throw new Error('DjVu TIFF page exceeds the staged-byte limit');
+                        }
+                        stagedBytes += item.fileSize;
+                        pagePaths.push(item.ppmPath);
+                        unconsumedWavePaths.delete(item.ppmPath);
+                        batchDpi ??= waveDpi;
+                        processedPages += 1;
+                        options.onProgress?.({
+                            phase: 'rendering',
+                            processed: processedPages,
+                            total: totalPages,
+                            percent: (processedPages / totalPages) * 90,
+                        });
+                    }
+                } finally {
+                    if (unconsumedWavePaths.size > 0) {
+                        await Promise.all([...unconsumedWavePaths].map((ppmPath) => rm(ppmPath, {force: true}).catch(() => undefined)));
+                    }
+                }
             }
             await combineBatch();
             const suffixes = buildMultiPageTiffOutputSuffixes(stagedGroups.length);

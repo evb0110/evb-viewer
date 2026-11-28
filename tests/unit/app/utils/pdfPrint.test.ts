@@ -1,5 +1,12 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {renderPdfDocumentPagesForBrowserPrint, renderPdfPagesForBrowserPrint, shouldPrintPageMetricsDirectly} from '@app/utils/pdfPrint';
+import {
+    renderPdfDocumentPagesForBrowserPrint,
+    renderPdfPagesForBrowserPrint,
+    resolveAdaptiveBrowserPrintDpi,
+    resolveBrowserPrintAggregatePixelBudget,
+    shouldPrintPageMetricsDirectly,
+    type IBrowserPrintDpiAdjustment,
+} from '@app/utils/pdfPrint';
 import {
     buildBrowserPrintFrameMarkup,
     parsePrintPageRangeInput,
@@ -130,8 +137,21 @@ describe('pdfPrint', () => {
             canvases.push(canvas);
             return canvas;
         }
+        const createdObjectUrls: string[] = [];
+        const revokedObjectUrls: string[] = [];
         const targetDocument = cast<IBrowserPrintDocument & {head: typeof head}>({
-            defaultView: {URL: {createObjectURL: (blob: Blob) => `blob:print-page-${images.length}-${blob.size}`}},
+            defaultView: {
+                URL: {
+                    createObjectURL: (blob: Blob) => {
+                        const url = `blob:print-page-${images.length}-${blob.size}`;
+                        createdObjectUrls.push(url);
+                        return url;
+                    },
+                    revokeObjectURL: (url: string) => {
+                        revokedObjectUrls.push(url);
+                    },
+                },
+            },
             head,
             querySelector: () => root,
             createElement: (tag: 'canvas' | 'section' | 'img' | 'style') => {
@@ -207,6 +227,9 @@ describe('pdfPrint', () => {
             head,
             sections,
             images,
+            canvases,
+            createdObjectUrls,
+            revokedObjectUrls,
             targetDocument,
             createPage,
             renderedCanvasSizes,
@@ -324,5 +347,173 @@ describe('pdfPrint', () => {
 
     it('escapes the browser-print title before inserting it into markup', () => {
         expect(buildBrowserPrintFrameMarkup('one & <two>.pdf')).toContain('<title>one &amp; &lt;two&gt;.pdf</title>');
+    });
+
+    it('adapts DPI smoothly for 300-500 page browser prints on low-tier hosts and emits a single warning', async () => {
+        vi.stubGlobal('document', undefined);
+        const environment = createPrintEnvironment();
+        const pageCount = 400;
+        const pages = Array.from({length: pageCount}, () => environment.createPage(612, 792));
+        const adjustments: IBrowserPrintDpiAdjustment[] = [];
+        const lowTierBudget = resolveBrowserPrintAggregatePixelBudget({
+            tier: 'low',
+            mobile: false,
+        });
+
+        await renderPdfDocumentPagesForBrowserPrint(
+            environment.targetDocument,
+            {
+                getPage: async (pageNumber: number) => pages[pageNumber - 1],
+                numPages: pageCount,
+            } as never,
+            Array.from({length: pageCount}, (_, index) => index + 1),
+            {
+                performanceProfile: {
+                    tier: 'low',
+                    mobile: false,
+                },
+                onDpiAdjusted: (adjustment) => adjustments.push(adjustment),
+            },
+        );
+
+        expect(environment.images).toHaveLength(pageCount);
+        expect(adjustments).toHaveLength(1);
+        expect(adjustments[0]).toMatchObject({
+            baseDpi: 300,
+            pageCount,
+            aggregatePixelBudget: lowTierBudget,
+        });
+        expect(adjustments[0]!.effectiveDpi).toBeGreaterThanOrEqual(72);
+        expect(adjustments[0]!.effectiveDpi).toBeLessThan(150);
+
+        const totalRenderedPixels = environment.renderedCanvasSizes.reduce((sum, size) => sum + size.width * size.height, 0);
+        // Smooth adaptive DPI keeps aggregate RGBA bitmap area tightly bounded near the low-tier budget.
+        expect(totalRenderedPixels).toBeLessThanOrEqual(lowTierBudget * 1.15);
+        expect(environment.images[0]?.style).toEqual({
+            width: '8.5in',
+            height: '11in',
+        });
+        expect(environment.peakCanvasesHoldingPixels()).toBe(1);
+        vi.unstubAllGlobals();
+    });
+
+    it('keeps 500 A3 sheets on low-tier hosts and 500 A4 sheets on mobile strictly within the aggregate pixel budget', async () => {
+        vi.stubGlobal('document', undefined);
+        try {
+            const lowA3Env = createPrintEnvironment();
+            const lowA3Budget = resolveBrowserPrintAggregatePixelBudget({
+                tier: 'low',
+                mobile: false,
+            });
+            const a3Pages = Array.from({length: 500}, () => lowA3Env.createPage(842, 1191));
+            await renderPdfDocumentPagesForBrowserPrint(
+                lowA3Env.targetDocument,
+                {
+                    getPage: async (pageNumber: number) => a3Pages[pageNumber - 1],
+                    numPages: 500,
+                } as never,
+                Array.from({length: 500}, (_, index) => index + 1),
+                {
+                    performanceProfile: {
+                        tier: 'low',
+                        mobile: false,
+                    },
+                },
+            );
+            const lowA3TotalPixels = lowA3Env.renderedCanvasSizes.reduce((sum, size) => sum + size.width * size.height, 0);
+            expect(lowA3TotalPixels).toBeLessThanOrEqual(lowA3Budget);
+
+            const mobileA4Env = createPrintEnvironment();
+            const mobileBudget = resolveBrowserPrintAggregatePixelBudget({
+                tier: 'low',
+                mobile: true,
+            });
+            const a4Pages = Array.from({length: 500}, () => mobileA4Env.createPage(595, 842));
+            await renderPdfDocumentPagesForBrowserPrint(
+                mobileA4Env.targetDocument,
+                {
+                    getPage: async (pageNumber: number) => a4Pages[pageNumber - 1],
+                    numPages: 500,
+                } as never,
+                Array.from({length: 500}, (_, index) => index + 1),
+                {
+                    performanceProfile: {
+                        tier: 'low',
+                        mobile: true,
+                    },
+                },
+            );
+            const mobileA4TotalPixels = mobileA4Env.renderedCanvasSizes.reduce((sum, size) => sum + size.width * size.height, 0);
+            expect(mobileA4TotalPixels).toBeLessThanOrEqual(mobileBudget);
+
+            // Even at the 5,000-sheet browser layout limit, adaptive DPI scales below 24 DPI to honor mobile memory bounds.
+            const extremeDpi = resolveAdaptiveBrowserPrintDpi(595, 842, 5_000, 5_000, mobileBudget);
+            expect(extremeDpi).toBeLessThan(24);
+            const extremePixelsPerPage = Math.ceil((595 * extremeDpi) / 72) * Math.ceil((842 * extremeDpi) / 72);
+            expect(extremePixelsPerPage * 5_000).toBeLessThanOrEqual(mobileBudget);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('preserves full 300 DPI and emits no warning for small print jobs on low-tier hosts', async () => {
+        vi.stubGlobal('document', undefined);
+        const environment = createPrintEnvironment();
+        const pages = Array.from({length: 10}, () => environment.createPage(612, 792));
+        const onDpiAdjusted = vi.fn();
+
+        await renderPdfDocumentPagesForBrowserPrint(
+            environment.targetDocument,
+            {
+                getPage: async (pageNumber: number) => pages[pageNumber - 1],
+                numPages: pages.length,
+            } as never,
+            Array.from({length: pages.length}, (_, index) => index + 1),
+            {
+                performanceProfile: {
+                    tier: 'low',
+                    mobile: false,
+                },
+                onDpiAdjusted,
+            },
+        );
+
+        expect(onDpiAdjusted).not.toHaveBeenCalled();
+        expect(environment.renderedCanvasSizes[0]).toEqual({
+            width: Math.ceil(612 * (300 / 72)),
+            height: Math.ceil(792 * (300 / 72)),
+        });
+        expect(resolveAdaptiveBrowserPrintDpi(612, 792, 1, 1, 1_000)).toBe(300);
+        vi.unstubAllGlobals();
+    });
+
+    it('revokes object URLs and releases canvases when browser print is canceled mid-run', async () => {
+        vi.stubGlobal('document', undefined);
+        const environment = createPrintEnvironment();
+        const controller = new AbortController();
+        const pages = Array.from({length: 5}, () => environment.createPage(612, 792));
+
+        await expect(
+            renderPdfDocumentPagesForBrowserPrint(
+                environment.targetDocument,
+                {
+                    getPage: async (pageNumber: number) => {
+                        if (pageNumber === 4) {
+                            controller.abort();
+                        }
+                        return pages[pageNumber - 1];
+                    },
+                    numPages: pages.length,
+                } as never,
+                [1, 2, 3, 4, 5],
+                {signal: controller.signal},
+            ),
+        ).rejects.toMatchObject({name: 'AbortError'});
+
+        expect(environment.createdObjectUrls).toHaveLength(3);
+        expect(environment.revokedObjectUrls).toEqual(environment.createdObjectUrls);
+        expect(environment.canvases.every((canvas) => canvas.width === 0 && canvas.height === 0)).toBe(true);
+        expect(environment.root.replaceChildren).toHaveBeenCalledTimes(2);
+        vi.unstubAllGlobals();
     });
 });

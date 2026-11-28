@@ -1,4 +1,3 @@
-import {injectAnalytics} from '@vercel/analytics/nuxt/runtime';
 import {hasElectronAPI} from '@app/utils/platform';
 
 // Vercel Web Analytics for the hosted browser build only. The desktop app sends
@@ -10,10 +9,16 @@ export default defineNuxtPlugin(() => {
         return;
     }
 
-    injectAnalytics({
-        beforeSend: (event) => ({
-            ...event,
-            url: event.url.split(/[?#]/u, 1)[0] ?? event.url,
-        }),
-    });
+    void import('@vercel/analytics/nuxt/runtime')
+        .then(({injectAnalytics}) => {
+            injectAnalytics({
+                beforeSend: (event) => ({
+                    ...event,
+                    url: event.url.split(/[?#]/u, 1)[0] ?? event.url,
+                }),
+            });
+        })
+        .catch(() => {
+            // Hosted web analytics is optional and must never break startup.
+        });
 });

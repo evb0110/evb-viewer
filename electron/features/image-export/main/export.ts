@@ -1,12 +1,11 @@
 import {existsSync} from 'fs';
 import {te} from '@electron/te';
-import {copyFile, mkdtemp, mkdir, readFile, readdir, stat, rename, rm, unlink, writeFile} from 'fs/promises';
+import {copyFile, mkdtemp, mkdir, readdir, rename, rm, unlink} from 'fs/promises';
 import {basename, dirname, join} from 'path';
 import {fileURLToPath} from 'url';
 import type {ResourceLimits} from 'worker_threads';
 import {chunkBy, sortBy, uniq} from 'es-toolkit/array';
 import {clamp} from 'es-toolkit/math';
-import {encode as encodePng} from 'fast-png';
 import {createAbortError} from '@contracts/isAbortError';
 import {isErrnoException} from '@contracts/runtimeGuards';
 import type {TImageExportProgressPhase} from '@contracts/imageExportPlatformFeature';
@@ -16,10 +15,10 @@ import {fsyncFile, fsyncDirectory} from '@electron/utils/fsyncPath';
 import {runQpdfCommand} from '@electron/features/page-ops/publicNative';
 import {buildPopplerEnv, type IPopplerRuntimePaths} from '@electron/native-tools/buildPopplerEnv';
 import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
-import {forEachConcurrent} from '@electron/utils/concurrency';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {isReservedTempPath} from '@electron/utils/pathValidator';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {tryGetHostResourceProfileSnapshot} from '@electron/resources/hostResourceProfile';
 import {mainJobBroker, type IJobBrokerRunContext} from '@electron/resources/jobBroker';
 import {resolvePdfImageCombineResidentBytes, resolvePdfImageCombineThreads} from '@electron/native-tools/pdfImageCombineBudget';
 import {createLogger} from '@electron/utils/createLogger';
@@ -28,6 +27,7 @@ import {
     combinePagesIntoMultiPageTiffLocal,
     readTiffPageDescriptors,
 } from '@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal';
+import {assertReadableRenderedPpmFile, convertRenderedPpmToPngJs} from '@electron/features/image-export/main/convertPpmToPngJs';
 import {resolveUnpackedWorkerPath, runResultWorkerTask} from '@electron/utils/workerTask';
 import {WORKER_BUNDLES_BY_ID} from '@electron-worker-bundles/electronWorkerBundles.js';
 import {atomicReplace, makeSiblingTempPath, moveFileToMissingPath} from '@electron/utils/atomicReplace';
@@ -52,16 +52,11 @@ import {
     assertImageExportOutputPathBudget,
     type IExportPageSize,
     estimateImageExportStagedBytes,
+    resolveImageExportConcurrency,
     validateRenderedImagePageFiles,
 } from '@electron/features/image-export/main/imageExportResourceLimits';
 import {resolveOutputPathConflict, type IStagedImageFile} from '@electron/features/image-export/main/imageExportPathPlanning';
-import {
-    IMAGE_EXPORT_MAX_NETPBM_READ_BYTES,
-    resolveExportRenderDpi,
-    resolveExportRenderSize,
-    selectDpiProbePages,
-} from '@pdf-core/imageExportResolution';
-import {addPngPhysicalResolution} from '@pdf-core/addPngPhysicalResolution';
+import {resolveExportRenderDpi, resolveExportRenderSize, selectDpiProbePages} from '@pdf-core/imageExportResolution';
 import {splitTiffPageDescriptorsForClassicLimit} from '@pdf-core/tiffEncoding';
 import UTIF from 'utif';
 import {canUseLocalTiffCombineFallback} from '@electron/features/image-export/main/canUseLocalTiffCombineFallback';
@@ -110,7 +105,7 @@ const PDFINFO_PAGE_SIZE_TIMEOUT_MS = 30 * 1000;
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 const DEFAULT_RENDER_DPI = 300;
-const PDF_EXPORT_PPM_CONVERT_CONCURRENCY = 4;
+const PDF_EXPORT_PPM_CONVERT_MAX_CONCURRENCY = 12;
 const PDF_EXPORT_RENDER_CHUNK_PAGES = 25;
 const PDF_EXPORT_PNG_RENDER_CHUNK_PAGES = 5;
 const TIFF_COMBINE_WORKER_TIMEOUT_MS = 10 * 60 * 1000;
@@ -120,8 +115,24 @@ const TIFF_COMBINE_WORKER_RESOURCE_LIMITS: ResourceLimits = {
     maxYoungGenerationSizeMb: 64,
     stackSizeMb: 8,
 };
+const PPM_TO_PNG_WORKER_RESOURCE_LIMITS: ResourceLimits = {
+    maxOldGenerationSizeMb: 512,
+    maxYoungGenerationSizeMb: 64,
+    stackSizeMb: 8,
+};
 const TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES = 2;
 const TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
+
+export function resolvePdfExportPpmConvertConcurrency() {
+    const capacity = mainJobBroker.getSnapshot().capacity;
+    return resolveImageExportConcurrency({
+        capacity,
+        hostProfile: tryGetHostResourceProfileSnapshot(),
+        perTaskResidentBytes: resolvePdfImageCombineResidentBytes(capacity),
+        perTaskIoWeight: 1,
+        maxConcurrency: PDF_EXPORT_PPM_CONVERT_MAX_CONCURRENCY,
+    });
+}
 export function validateImageExportPath(filePath: string, format = resolveImageExportFormat(filePath)) {
     if (isReservedTempPath(filePath)) {
         throw new Error('Invalid file path: cannot save into reserved application directory');
@@ -131,94 +142,6 @@ export function validateImageExportPath(filePath: string, format = resolveImageE
         throw new Error(te('errors.browser.imageExtensionMismatch', {extensions: extensions.join(', ')}));
     }
     return filePath;
-}
-
-function readPnmToken(bytes: Uint8Array, cursor: {offset: number}) {
-    while (cursor.offset < bytes.length) {
-        const byte = bytes[cursor.offset];
-        if (byte === 0x23) {
-            while (cursor.offset < bytes.length && bytes[cursor.offset] !== 0x0a) {
-                cursor.offset += 1;
-            }
-            continue;
-        }
-        if (byte !== undefined && byte <= 0x20) {
-            cursor.offset += 1;
-            continue;
-        }
-        break;
-    }
-
-    const start = cursor.offset;
-    while (cursor.offset < bytes.length) {
-        const byte = bytes[cursor.offset];
-        if (byte === undefined || byte <= 0x20) {
-            break;
-        }
-        cursor.offset += 1;
-    }
-
-    if (start === cursor.offset) {
-        throw new Error('Invalid PPM image header');
-    }
-
-    return Buffer.from(bytes.buffer, bytes.byteOffset + start, cursor.offset - start).toString('ascii');
-}
-
-function parsePositivePnmInteger(value: string, label: string) {
-    const parsed = Number.parseInt(value, 10);
-    if (!Number.isInteger(parsed) || parsed < 1) {
-        throw new Error(`Invalid PPM ${label}`);
-    }
-    return parsed;
-}
-
-function parseRawPpm(bytes: Uint8Array) {
-    const cursor = {offset: 0};
-    const magic = readPnmToken(bytes, cursor);
-    if (magic !== 'P6') {
-        throw new Error(`Unsupported PPM image type: ${magic}`);
-    }
-
-    const width = parsePositivePnmInteger(readPnmToken(bytes, cursor), 'width');
-    const height = parsePositivePnmInteger(readPnmToken(bytes, cursor), 'height');
-    const maxValue = parsePositivePnmInteger(readPnmToken(bytes, cursor), 'max value');
-    if (maxValue !== 255) {
-        throw new Error(`Unsupported PPM max value: ${maxValue}`);
-    }
-
-    if (cursor.offset < bytes.length) {
-        const separator = bytes[cursor.offset];
-        if (separator !== undefined && separator <= 0x20) {
-            cursor.offset += 1;
-        }
-    }
-
-    const expectedByteLength = width * height * 3;
-    const data = bytes.subarray(cursor.offset);
-    if (data.length !== expectedByteLength) {
-        throw new Error(`Invalid PPM pixel data length: expected ${expectedByteLength}, found ${data.length}`);
-    }
-
-    return {
-        width,
-        height,
-        data,
-    };
-}
-
-function createLosslessGrayscaleData(data: Uint8Array) {
-    const grayscaleData = new Uint8Array(data.length / 3);
-    for (let sourceIndex = 0, targetIndex = 0; sourceIndex < data.length; sourceIndex += 3, targetIndex += 1) {
-        const red = data[sourceIndex];
-        const green = data[sourceIndex + 1];
-        const blue = data[sourceIndex + 2];
-        if (red === undefined || green === undefined || blue === undefined || red !== green || red !== blue) {
-            return null;
-        }
-        grayscaleData[targetIndex] = red;
-    }
-    return grayscaleData;
 }
 
 async function tryConvertRenderedPpmToPngNative(
@@ -261,6 +184,43 @@ async function tryConvertRenderedPpmToPngNative(
     }
 }
 
+const PPM_TO_PNG_FALLBACK_MIN_RESIDENT_BYTES = 128 * 1024 * 1024;
+// JS fast-png encoding + grayscale scan + pHYs rewrite + worker V8 overhead peaks around 5-6x raw PPM size.
+const PPM_TO_PNG_FALLBACK_BUFFER_MULTIPLIER = 6;
+
+function resolvePpmToPngFallbackResidentBytes(sourceBytes: number) {
+    const capacityBytes = mainJobBroker.getSnapshot().capacity.estimatedResidentBytes;
+    const peakBytes = Math.max(PPM_TO_PNG_FALLBACK_MIN_RESIDENT_BYTES, sourceBytes * PPM_TO_PNG_FALLBACK_BUFFER_MULTIPLIER);
+    return Math.min(peakBytes, capacityBytes);
+}
+
+async function runPpmToPngFallbackInWorker(workerPath: string, sourcePath: string, pngPath: string, dpi: number, signal?: AbortSignal) {
+    // JS-only worker spawns no native children; omitting createCancelMessage lets
+    // runResultWorkerTask await worker.terminate() directly without marking the
+    // abort as an unproven native termination.
+    await runResultWorkerTask<undefined>({
+        workerPath,
+        workerData: {
+            task: 'ppm-to-png',
+            sourcePath,
+            pngPath,
+            dpi,
+        },
+        invalidPayloadMessage: 'PPM-to-PNG fallback worker returned an invalid payload',
+        createStartError: (message) => new TiffCombineWorkerStartupError(`PPM-to-PNG fallback worker failed to start: ${message}`),
+        createStartupError: (message) =>
+            new TiffCombineWorkerStartupError(`PPM-to-PNG fallback worker failed before becoming ready: ${message}`),
+        createStartupExitError: (code) =>
+            new TiffCombineWorkerStartupError(`PPM-to-PNG fallback worker exited during startup with code ${code}`),
+        createWorkerExitError: (code) => new Error(`PPM-to-PNG fallback worker exited with code ${code}`),
+        decodeResult: (data: unknown) => (data === undefined ? undefined : null),
+        invalidResultMessage: 'PPM-to-PNG fallback worker returned an invalid result',
+        resourceLimits: PPM_TO_PNG_WORKER_RESOURCE_LIMITS,
+        ...(signal ? {signal} : {}),
+        timeoutMs: PDFTOPPM_TIMEOUT_MS,
+    });
+}
+
 async function convertRenderedPpmToPng(
     sourcePath: string,
     signal?: AbortSignal,
@@ -274,28 +234,52 @@ async function convertRenderedPpmToPng(
     }
 
     throwIfAborted(signal);
-    const sourceStat = await stat(sourcePath);
-    if (!sourceStat.isFile()) {
-        throw new Error(`Rendered PPM output is not a regular file: ${sourcePath}`);
-    }
-    if (sourceStat.size > IMAGE_EXPORT_MAX_NETPBM_READ_BYTES) {
-        const maxMb = Math.floor(IMAGE_EXPORT_MAX_NETPBM_READ_BYTES / (1024 * 1024));
-        throw new Error(`Rendered PPM output exceeds safe read limit (${maxMb}MB): ${sourcePath}`);
-    }
-    const sourceBytes = await readFile(sourcePath);
+    const sourceSizeBytes = await assertReadableRenderedPpmFile(sourcePath);
     throwIfAborted(signal);
-    const image = parseRawPpm(sourceBytes);
-    const grayscaleData = createLosslessGrayscaleData(image.data);
-    const pngBytes = encodePng({
-        width: image.width,
-        height: image.height,
-        channels: grayscaleData ? 1 : 3,
-        depth: 8,
-        data: grayscaleData ?? image.data,
-    });
-    await writeFile(pngPath, addPngPhysicalResolution(pngBytes, dpi));
-    await unlink(sourcePath).catch(() => undefined);
-    return pngPath;
+
+    const runFallback = async () => {
+        const workerPath = resolveTiffCombineWorkerPath();
+        if (existsSync(workerPath)) {
+            try {
+                await runPpmToPngFallbackInWorker(workerPath, sourcePath, pngPath, dpi, signal);
+                throwIfAborted(signal);
+                return pngPath;
+            } catch (error) {
+                await rm(pngPath, {force: true}).catch(() => undefined);
+                if (!(error instanceof TiffCombineWorkerStartupError) || signal?.aborted || isAbortError(error)) {
+                    throw error;
+                }
+                logger.warn(`PPM-to-PNG fallback worker unavailable, encoding on current thread: ${error.message}`);
+            }
+        }
+
+        try {
+            return await convertRenderedPpmToPngJs(sourcePath, pngPath, dpi, signal);
+        } catch (error) {
+            await rm(pngPath, {force: true}).catch(() => undefined);
+            throw error;
+        }
+    };
+
+    if (brokerRun) {
+        return runFallback();
+    }
+
+    return mainJobBroker.run(
+        {
+            ownerId: cancelGroup ?? 'pdf-ppm-to-png-fallback',
+            kind: 'pdf-ppm-to-png-fallback',
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: resolvePpmToPngFallbackResidentBytes(sourceSizeBytes),
+                nativeProcesses: 0,
+                ioWeight: 1,
+            },
+            ...(signal ? {signal} : {}),
+        },
+        runFallback,
+    );
 }
 
 export async function convertRenderedPpmToImage(
@@ -780,10 +764,54 @@ async function renderPdfToTempPages(
     }
 
     if (renderFormat === 'ppm') {
-        await forEachConcurrent(pageFiles, PDF_EXPORT_PPM_CONVERT_CONCURRENCY, async (pageFile) => {
-            throwIfAborted(signal);
-            pageFile.path = await convertRenderedPpmToPng(pageFile.path, signal, cancelGroup, renderDpi);
-        });
+        const concurrency = clamp(resolvePdfExportPpmConvertConcurrency(), 1, pageFiles.length);
+        const batchAbortController = new AbortController();
+        const forwardAbort = () => batchAbortController.abort(signal?.reason ?? createAbortError());
+        if (signal?.aborted) {
+            forwardAbort();
+        } else {
+            signal?.addEventListener('abort', forwardAbort, {once: true});
+        }
+        let nextIndex = 0;
+        let hasFailure = false;
+        let firstError: unknown;
+        const workerErrors: unknown[] = [];
+
+        const runWorker = async () => {
+            while (!hasFailure && !batchAbortController.signal.aborted) {
+                const index = nextIndex;
+                if (index >= pageFiles.length) {
+                    return;
+                }
+                nextIndex += 1;
+                const pageFile = pageFiles[index]!;
+                try {
+                    throwIfAborted(batchAbortController.signal);
+                    pageFile.path = await convertRenderedPpmToPng(pageFile.path, batchAbortController.signal, cancelGroup, renderDpi);
+                } catch (error) {
+                    workerErrors.push(error);
+                    if (!hasFailure) {
+                        hasFailure = true;
+                        firstError = error;
+                        batchAbortController.abort(error);
+                    }
+                    return;
+                }
+            }
+        };
+
+        try {
+            // Always drain all active sibling conversions before leaving the scratch scope so
+            // tempDir is never removed while a sibling converter or native child is still live.
+            await Promise.allSettled(Array.from({length: concurrency}, () => runWorker()));
+        } finally {
+            signal?.removeEventListener('abort', forwardAbort);
+        }
+
+        if (workerErrors.length > 0) {
+            const unprovenError = workerErrors.find((error) => getUnprovenNativeTerminationDetail(error) !== undefined);
+            throw unprovenError ?? firstError ?? workerErrors[0];
+        }
     }
 
     await validateRenderedImagePageFiles(pageFiles);

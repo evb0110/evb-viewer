@@ -1184,6 +1184,9 @@ export default {
         fileNamePageSelection: 'Seiten {count}-ausgewählt_{first}-bis-{last}_id-{fingerprint}',
         failed: 'Das Dokument konnte nicht für den Druck vorbereitet werden.',
         failedWithReason: 'Das Dokument konnte nicht für den Druck vorbereitet werden: {reason}',
+        reducedResolutionTitle: 'Druckauflösung zum Speicherschutz reduziert',
+        reducedResolutionDescription:
+            '{pages} Seiten werden mit reduzierter Auflösung gedruckt, damit der Browser im Speicherlimit bleibt. Für volle Auflösung kleinere Seitenbereiche drucken.',
     },
     menu: {
         noRecentFiles: 'Keine zuletzt verwendeten Dateien',

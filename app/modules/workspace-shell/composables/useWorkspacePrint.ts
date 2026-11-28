@@ -643,7 +643,21 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         await printRenderedContentInHiddenFrame(
             async (targetDocument, renderSignal) => {
                 const {renderPdfPagesForBrowserPrint} = await import('@app/utils/pdfPrint');
-                await renderPdfPagesForBrowserPrint(targetDocument, printablePdf, createPrintSignalOptions(renderSignal));
+                await renderPdfPagesForBrowserPrint(targetDocument, printablePdf, {
+                    ...createPrintSignalOptions(renderSignal),
+                    onDpiAdjusted: (adjustment) => {
+                        if (printRunOwner && !isPrintRunCurrent(printRunOwner)) {
+                            return;
+                        }
+                        toast.add({
+                            color: 'warning',
+                            title: t('print.reducedResolutionTitle'),
+                            description: t('print.reducedResolutionDescription', {
+                                pages: adjustment.pageCount,
+                            }),
+                        });
+                    },
+                });
             },
             printTitle,
             signal,

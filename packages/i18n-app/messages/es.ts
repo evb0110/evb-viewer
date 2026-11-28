@@ -1171,6 +1171,9 @@ export default {
         fileNamePageSelection: 'páginas {count}-seleccionadas_{first}-a-{last}_id-{fingerprint}',
         failed: 'No se pudo preparar el documento para imprimir.',
         failedWithReason: 'No se pudo preparar el documento para imprimir: {reason}',
+        reducedResolutionTitle: 'Resolución de impresión reducida por seguridad de memoria',
+        reducedResolutionDescription:
+            'Imprimiendo {pages} páginas con resolución reducida para mantener el navegador dentro de los límites de memoria. Para resolución completa, imprime rangos de páginas más pequeños.',
     },
     menu: {
         noRecentFiles: 'No hay archivos recientes',

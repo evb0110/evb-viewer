@@ -6,6 +6,16 @@ const mocks = vi.hoisted(() => ({
     appended: [] as string[],
     broadcasts: [] as unknown[][],
     readdir: vi.fn(async () => [] as string[]),
+    rename: vi.fn(async () => undefined),
+    rm: vi.fn(async () => undefined),
+    stat: vi.fn(async () => ({
+        size: 0,
+        isFile: () => true,
+        mtimeMs: 0,
+    })),
+    statSync: vi.fn(() => {
+        throw new Error('createLogger must not call synchronous statSync');
+    }),
 }));
 
 vi.mock('electron', () => ({
@@ -25,11 +35,7 @@ vi.mock('worker_threads', () => ({
 
 vi.mock('fs', () => ({
     mkdirSync: vi.fn(),
-    statSync: vi.fn(() => ({
-        size: 0,
-        isFile: () => true,
-        mtimeMs: 0,
-    })),
+    statSync: mocks.statSync,
 }));
 vi.mock('fs/promises', () => ({
     appendFile: vi.fn(async (_path: string, payload: string) => {
@@ -37,9 +43,11 @@ vi.mock('fs/promises', () => ({
             mocks.appended.push(payload);
         }
     }),
+    mkdir: vi.fn(async () => undefined),
     readdir: mocks.readdir,
-    rename: vi.fn(async () => undefined),
-    rm: vi.fn(async () => undefined),
+    rename: mocks.rename,
+    rm: mocks.rm,
+    stat: mocks.stat,
 }));
 
 function readRecords() {
@@ -74,6 +82,17 @@ describe('file logger write buffering', () => {
         mocks.broadcasts = [];
         mocks.readdir.mockReset();
         mocks.readdir.mockResolvedValue([]);
+        mocks.rename.mockReset();
+        mocks.rename.mockResolvedValue(undefined);
+        mocks.rm.mockReset();
+        mocks.rm.mockResolvedValue(undefined);
+        mocks.stat.mockReset();
+        mocks.stat.mockResolvedValue({
+            size: 0,
+            isFile: () => true,
+            mtimeMs: 0,
+        });
+        mocks.statSync.mockClear();
         process.env.ELECTRON_FILE_LOG_LEVEL = 'DEBUG';
         process.env.ELECTRON_RENDER_LOG_LEVEL = 'INFO';
         process.env.EVB_FILE_LOG_DIR = '/logs';
@@ -334,5 +353,77 @@ describe('file logger write buffering', () => {
             delete process.env.EVB_LOG_STDOUT;
             delete process.env.EVB_LOG_STDOUT_LEVEL;
         }
+    });
+
+    it('redacts structured data without double JSON.stringify and preserves spaced path redaction', async () => {
+        const {createLogger, flushPendingLogWrites, redactLogData} = await import('@electron/utils/createLogger');
+        const logger = createLogger('single-stringify-test', {broadcastToRenderers: false});
+        // Prime session marker outside the stringify count.
+        logger.info('warmup');
+        await flushPendingLogWrites();
+
+        const stringifySpy = vi.spyOn(JSON, 'stringify');
+        try {
+            logger.info('Page painted', {
+                page: 12,
+                durationMs: 14,
+                phase: 'settled',
+                cached: true,
+            });
+            expect(stringifySpy).toHaveBeenCalledTimes(1);
+        } finally {
+            stringifySpy.mockRestore();
+        }
+
+        const redacted = redactLogData({
+            macPath: '/Users/Jane Doe/My Scans/book.pdf',
+            winPath: 'C:\\Users\\Jane Doe\\My Scans\\book.pdf',
+            nested: {
+                authorization: {
+                    scheme: 'Basic',
+                    credentials: 'top-secret',
+                },
+                safeCount: 3,
+            },
+        });
+        expect(redacted).toEqual({
+            macPath: '/Users/[redacted]',
+            winPath: 'C:\\Users\\[redacted]',
+            nested: {
+                authorization: '[redacted-secret]',
+                safeCount: 3,
+            },
+        });
+        expect(mocks.statSync).not.toHaveBeenCalled();
+    });
+
+    it('tracks written bytes and rotates asynchronously without statSync when exceeding 16 MiB', async () => {
+        let simulatedFileSize = 16 * 1024 * 1024 - 16;
+        mocks.stat.mockImplementation(async () => ({
+            size: simulatedFileSize,
+            isFile: () => true,
+            mtimeMs: 0,
+        }));
+        const {createLogger, flushPendingLogWrites} = await import('@electron/utils/createLogger');
+        const logger = createLogger('rotation-test', {broadcastToRenderers: false});
+
+        logger.info('triggers rotation past 16 MiB');
+        await flushPendingLogWrites();
+
+        expect(mocks.statSync).not.toHaveBeenCalled();
+        expect(mocks.rename).toHaveBeenCalledWith('/logs/app.ndjson', '/logs/app.ndjson.1');
+
+        // Subsequent small writes within the flush window do not re-stat on every line.
+        simulatedFileSize = 128;
+        mocks.stat.mockClear();
+        mocks.rename.mockClear();
+        for (let index = 0; index < 10; index += 1) {
+            logger.info(`steady line ${index}`);
+        }
+        await flushPendingLogWrites();
+
+        expect(mocks.stat).not.toHaveBeenCalled();
+        expect(mocks.rename).not.toHaveBeenCalled();
+        expect(mocks.statSync).not.toHaveBeenCalled();
     });
 });
