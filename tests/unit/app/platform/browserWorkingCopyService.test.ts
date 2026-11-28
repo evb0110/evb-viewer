@@ -1519,4 +1519,117 @@ describe('Chrome extension launch', () => {
         expect(store.writes).toEqual([]);
         expect(await store.documents()).toEqual([]);
     });
+
+    it('consumes a prefetched HTTP response without issuing a second fetch and preserves magic-byte fallback', async () => {
+        const {openBrowserExtensionDocument} = await import('@app/platform/browser-api/openBrowserExtensionDocument');
+        const store = await recordingStore();
+        const sendMessage = chromeRuntime();
+        const pdf = new TextEncoder().encode(`%PDF-1.7\n${'0123456789'.repeat(20_000)}\n%%EOF\n`);
+        const served = servedBody(pdf, store.written);
+        const fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock);
+
+        await openBrowserExtensionDocument({
+            url: DOCUMENT_URL,
+            response: Promise.resolve(
+                new Response(served.body, {
+                    headers: {
+                        'content-type': 'application/pdf',
+                        'content-disposition': 'inline; filename="prefetched.pdf"',
+                    },
+                    status: 200,
+                }),
+            ),
+        });
+
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(sendMessage).not.toHaveBeenCalled();
+        const ref = (history.state as {evbExtensionDocument: string}).evbExtensionDocument;
+        const entry = await serviceState.store!.requireEntry(ref);
+        expect(entry).toMatchObject({kind: 'source', fileName: 'prefetched.pdf', mimeType: 'application/pdf'});
+        expect(sameBytes(await serviceState.store!.read(ref, {maxBytes: pdf.byteLength}), pdf)).toBe(true);
+
+        // A prefetched non-PDF HTML body is still sniffed, cancelled, and handed back to Chrome natively.
+        history.replaceState(null, '');
+        const htmlServed = servedBody(new TextEncoder().encode('<!doctype html><title>Sign in</title>'), store.written);
+        await openBrowserExtensionDocument({
+            url: DOCUMENT_URL,
+            response: Promise.resolve(
+                new Response(htmlServed.body, {
+                    headers: {'content-type': 'application/pdf'},
+                    status: 200,
+                }),
+            ),
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(sendMessage).toHaveBeenCalledExactlyOnceWith({type: expect.any(String), url: DOCUMENT_URL});
+        expect(history.state).toBeNull();
+    });
+
+    it('cancels and aborts an unused prefetched response even before headers arrive when history already remembers a stored document', async () => {
+        const {openBrowserExtensionDocument} = await import('@app/platform/browser-api/openBrowserExtensionDocument');
+        vi.stubGlobal('document', {cookie: '', title: ''});
+        vi.stubGlobal('window', {
+            localStorage: new MemoryStorage(),
+            location,
+            history,
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+        });
+        const store = await recordingStore();
+        const existingRef = await serviceState.store!.createStoredDocument('already-open.pdf', DECRYPTED_PDF, PDF_SOURCE_OPTIONS);
+        history.replaceState({evbExtensionDocument: existingRef}, '');
+        const unusedServed = servedBody(new TextEncoder().encode(`%PDF-1.7\n${'0'.repeat(10_000)}`), store.written);
+        const settledController = new AbortController();
+
+        await openBrowserExtensionDocument({
+            url: DOCUMENT_URL,
+            controller: settledController,
+            response: Promise.resolve(new Response(unusedServed.body, {status: 200})),
+        });
+
+        expect(settledController.signal.aborted).toBe(true);
+        expect(unusedServed.cancelled()).toBe(true);
+
+        // Even if the server has not sent response headers yet, abandoning the prefetch aborts its controller immediately.
+        const pendingController = new AbortController();
+        const pendingHeadersResponse = new Promise<Response>(() => {});
+        await openBrowserExtensionDocument({
+            url: DOCUMENT_URL,
+            controller: pendingController,
+            response: pendingHeadersResponse,
+        });
+        expect(pendingController.signal.aborted).toBe(true);
+    });
+
+    it('falls back to one normal fetch when a matching prefetched response rejects', async () => {
+        const {openBrowserExtensionDocument} = await import('@app/platform/browser-api/openBrowserExtensionDocument');
+        const store = await recordingStore();
+        const sendMessage = chromeRuntime();
+        const pdf = new TextEncoder().encode(`%PDF-1.7\n${'0123456789'.repeat(1_000)}\n%%EOF\n`);
+        const served = servedBody(pdf, store.written);
+        const fetchMock = vi.fn().mockResolvedValue(
+            new Response(served.body, {
+                headers: {
+                    'content-type': 'application/pdf',
+                    'content-disposition': 'inline; filename="retried.pdf"',
+                },
+                status: 200,
+            }),
+        );
+        vi.stubGlobal('fetch', fetchMock);
+
+        const rejectedPrefetch = Promise.reject(new TypeError('early network blip'));
+        void rejectedPrefetch.catch(() => undefined);
+        await openBrowserExtensionDocument({
+            url: DOCUMENT_URL,
+            response: rejectedPrefetch,
+        });
+
+        expect(fetchMock).toHaveBeenCalledExactlyOnceWith(DOCUMENT_URL, {credentials: 'include'});
+        expect(sendMessage).not.toHaveBeenCalled();
+        const ref = (history.state as {evbExtensionDocument: string}).evbExtensionDocument;
+        const entry = await serviceState.store!.requireEntry(ref);
+        expect(entry).toMatchObject({kind: 'source', fileName: 'retried.pdf', mimeType: 'application/pdf'});
+    });
 });
