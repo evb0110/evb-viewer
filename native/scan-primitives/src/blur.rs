@@ -1,6 +1,6 @@
 //! Small deterministic separable Gaussian blur helpers.
 
-use rayon::prelude::*;
+use crate::parallel::prelude::*;
 
 const PARALLEL_BLUR_MIN_PIXELS: usize = 4_096;
 

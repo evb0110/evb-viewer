@@ -1,5 +1,5 @@
+use crate::parallel::{self, prelude::*};
 use crate::{morphology::reconstruct_gray, BinaryImage, GrayImage, RgbImage};
-use rayon::prelude::*;
 
 const X_TERMS: usize = 8;
 const Y_TERMS: usize = 5;
@@ -216,7 +216,7 @@ pub fn normalize_illumination_pair_with_masks(
         || median_luminance(luminance) >= MIN_PAPER_BACKGROUND_LUMINANCE as u8;
     let use_background_for_color =
         color_page_has_paper && paper_background_plausible(luminance, &paper_model);
-    let (mut normalized_luminance, mut normalized_color) = rayon::join(
+    let (mut normalized_luminance, mut normalized_color) = parallel::join(
         || normalize_with_model(luminance, &paper_model),
         || {
             if use_background_for_color {
@@ -227,7 +227,7 @@ pub fn normalize_illumination_pair_with_masks(
         },
     );
     let semantic_corrected = semantic_preservation_alpha.map(|_| {
-        rayon::join(
+        parallel::join(
             || normalize_semantic_luminance(luminance),
             || normalize_semantic_color(luminance, source),
         )

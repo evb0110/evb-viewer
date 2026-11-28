@@ -583,7 +583,7 @@ pub(crate) fn render_page(
         let (right_region, right_half) = iter.next().expect("two-region spread has right half");
         let mut left_timings = PageStageTimings::default();
         let mut right_timings = PageStageTimings::default();
-        let (left_result, right_result) = rayon::join(
+        let (left_result, right_result) = scan_primitives::parallel::join(
             || {
                 render_half(
                     left_region,

@@ -4,8 +4,8 @@ mod report;
 
 use evaluate::{compare_catastrophes, evaluate_corpus};
 use evb_scan_cleanup::calibration::CalibrationConfig;
-use rayon::ThreadPoolBuilder;
 use report::{read_baseline, write_reports};
+use scan_primitives::parallel::ThreadPoolBuilder;
 use std::{env, path::PathBuf, process::ExitCode};
 
 const DEFAULT_THREADS: usize = 1;

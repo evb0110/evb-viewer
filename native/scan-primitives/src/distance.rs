@@ -1,5 +1,5 @@
+use crate::parallel::prelude::*;
 use crate::BinaryImage;
-use rayon::prelude::*;
 use std::collections::VecDeque;
 
 const INF: i64 = i64::MAX / 8;

@@ -1,5 +1,5 @@
 use crate::{io::png::RgbImage, DewarpOptions};
-use rayon::prelude::*;
+use scan_primitives::parallel::{self, prelude::*};
 use scan_primitives::{GrayImage, Point, Projective};
 use thiserror::Error;
 
@@ -500,7 +500,7 @@ where
         return output;
     }
     let row_len = I::row_len(width);
-    let rows_per_batch = rayon::current_num_threads().max(1).saturating_mul(2);
+    let rows_per_batch = parallel::current_num_threads().max(1).saturating_mul(2);
     // Adjacent pixels share quad corners, so each batch maps the shared
     // (width+1) x (rows+1) corner grid once instead of evaluating the warp
     // model four times per pixel, and the mapping runs across rows in

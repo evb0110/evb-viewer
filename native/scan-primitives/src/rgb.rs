@@ -1,4 +1,4 @@
-use rayon::prelude::*;
+use crate::parallel::prelude::*;
 use std::borrow::Cow;
 
 /// Owned tightly packed 8-bit RGB image.
