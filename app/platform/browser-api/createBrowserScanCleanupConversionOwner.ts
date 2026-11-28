@@ -152,13 +152,16 @@ export function createBrowserScanCleanupConversionOwner(detection: ReturnType<ty
                 },
                 source,
                 readSource: async () => {
+                    signal.throwIfAborted();
                     await source.assertCurrent?.();
                     const {blob, instance, byteRevision} = await browserDocumentStore.readableRevision(request.sourcePdfPath, {token});
+                    signal.throwIfAborted();
                     const bytes = await readBoundedRevisionBlobBytes(
                         blob,
                         BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes,
                         request.sourcePdfPath,
                     );
+                    signal.throwIfAborted();
                     await browserDocumentStore.assertDocumentRevisionCurrent(request.sourcePdfPath, token, {
                         strict: true,
                         expectedInstance: instance,

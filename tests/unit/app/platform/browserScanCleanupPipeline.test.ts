@@ -1,4 +1,6 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {createRequestId} from '@contracts/shared';
 import type {IScanCleanupWasmAnalyzeResult} from '@contracts/scan-cleanup/browserScanCleanupWasm';
 import type {TScanCleanupProgress} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {WasmAnalysisPageV3} from '@contracts/scan-cleanup/nativeWire.generated';
@@ -188,8 +190,11 @@ describe('browser scan cleanup runtime scheduling & progress', () => {
             async (type: string, _payload: unknown, opts?: {onEngineIdentity?: (sha: string) => void}) => {
                 opts?.onEngineIdentity?.('page-ops-sha');
                 if (type === 'renderScanCleanupRaster') {
+                    const header = new TextEncoder().encode('P6\n10 10\n255\n');
+                    const ppm = new Uint8Array(header.byteLength + 10 * 10 * 3);
+                    ppm.set(header);
                     return {
-                        data: new Uint8Array(10 * 10 * 3),
+                        data: ppm,
                         report: {width: 10, height: 10},
                     };
                 }
@@ -353,6 +358,612 @@ describe('browser scan cleanup runtime scheduling & progress', () => {
         // Assembling is emitted before output.merge() runs.
         expect(stageAtMerge).toBe('assembling');
     });
+
+    it('defers readSource until assembly, transfers assembled/source buffers without redundant copies, and validates qpdf via Blob', async () => {
+        const {runBrowserScanCleanupConversion} = await import('@app/platform/browser-api/runBrowserScanCleanupConversion');
+        const sourceBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a]);
+        const expectedSha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', sourceBytes)), (byte) =>
+            byte.toString(16).padStart(2, '0'),
+        ).join('');
+        const events: string[] = [];
+        const readSource = vi.fn(async () => {
+            events.push('readSource');
+            return sourceBytes;
+        });
+        const assembledBytes = new Uint8Array([1, 2, 3, 4]);
+        const overlaidBytes = new Uint8Array([5, 6, 7, 8, 9]);
+
+        const sourceBlob = new Blob([sourceBytes]);
+        const inspectedBlobs: unknown[] = [];
+
+        mocks.runBrowserPageOpsWorkerRequest.mockImplementation(
+            async (type: string, payload: {source?: unknown}, opts?: {onEngineIdentity?: (sha: string) => void}) => {
+                opts?.onEngineIdentity?.('page-ops-sha');
+                if (type === 'renderScanCleanupRaster') {
+                    events.push('renderRaster');
+                    const header = new TextEncoder().encode('P6\n10 10\n255\n');
+                    const ppm = new Uint8Array(header.byteLength + 10 * 10 * 3);
+                    ppm.set(header);
+                    return {
+                        data: ppm,
+                        report: {width: 10, height: 10, compatibility: 'exact'},
+                    };
+                }
+                if (type === 'ocrTextVisibility') {
+                    events.push('ocrTextVisibility');
+                    inspectedBlobs.push(payload.source);
+                    return {pages: []};
+                }
+                return {status: 'failed', error: {code: 'unsupported', message: 'unused'}};
+            },
+        );
+        mocks.runBrowserScanCleanupWorkerRequest.mockImplementation(
+            async (_type: string, payload: {page: {sourcePageIndex: number}}, _signal: AbortSignal, onIdentity?: (sha: string) => void) => {
+                onIdentity?.('scan-cleanup-sha');
+                return {
+                    status: 'ok',
+                    result: {
+                        pageMetadata: {
+                            pageNumber: payload.page.sourcePageIndex + 1,
+                            canvasScope: 'document',
+                            layoutClassification: 'single-uncut-page',
+                            layoutConfidence: 0.95,
+                            cutterXPx: null,
+                            rotationDegrees: 0,
+                            excluded: false,
+                            blankOutputsSkipped: 0,
+                            outputCount: 1,
+                            tier1Verdict: 'single-uncut-page',
+                            reconciled: false,
+                            clusterAgreement: 0,
+                        },
+                        outputs: [
+                            {
+                                metadata: {
+                                    half: 'full',
+                                    outputMode: 'bw',
+                                    rotationDegrees: 0,
+                                    skewApplied: false,
+                                    skewDegrees: 0,
+                                    canvasWidthPx: 10,
+                                    canvasHeightPx: 10,
+                                    renderDpi: 150,
+                                    bilevelWritten: false,
+                                    layeredWritten: false,
+                                    contentBox: {x: 0, y: 0, width: 10, height: 10},
+                                },
+                                planes: [
+                                    {
+                                        role: 'composite',
+                                        encoding: 'png',
+                                        width: 10,
+                                        height: 10,
+                                        data: new Uint8Array([1]),
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                };
+            },
+        );
+        mocks.runBrowserPdfCombineWorkerRequest.mockImplementation(
+            async (_type: string, _payload: unknown, _signal: AbortSignal, opts?: {onEngineIdentity?: (sha: string) => void}) => {
+                opts?.onEngineIdentity?.('combine-sha');
+                events.push('combinePdfs');
+                return {data: new Uint8Array([10, 11])};
+            },
+        );
+        mocks.createOrderedPdfMerge.mockReturnValue({
+            append: vi.fn(),
+            merge: async () => {
+                events.push('merge');
+                return assembledBytes;
+            },
+        });
+        mocks.overlayPdfTextLayers.mockImplementation(
+            async (
+                data: Uint8Array,
+                sourceData: Uint8Array,
+                instructions: {provenanceStampHex?: string},
+                opts?: {onEngineIdentity?: (sha: string) => void; transferInput?: boolean},
+            ) => {
+                events.push('overlay');
+                opts?.onEngineIdentity?.('page-ops-sha');
+                expect(data).toBe(assembledBytes);
+                expect(sourceData).toBe(sourceBytes);
+                expect(opts?.transferInput).toBe(true);
+                const stampJson = Buffer.from(instructions.provenanceStampHex ?? '', 'hex').toString('utf8');
+                expect(stampJson).toContain(expectedSha256);
+                return {
+                    data: overlaidBytes,
+                    report: {
+                        accessibilityTagsRemoved: false,
+                        textOmittedSourcePages: [],
+                    },
+                };
+            },
+        );
+        mocks.runBrowserQpdfCommand.mockImplementation(async (_command: string, input: unknown) => {
+            events.push('qpdfCheck');
+            expect(input).toBeInstanceOf(Blob);
+            expect(new Uint8Array(await (input as Blob).arrayBuffer())).toEqual(overlaidBytes);
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+                output: null,
+            };
+        });
+
+        const result = await runBrowserScanCleanupConversion({
+            request: {
+                sourcePdfPath: '/source/deferred.pdf',
+                outputPdfPath: '',
+                options: {
+                    preserveOriginalQuality: false,
+                    layoutMode: 'auto',
+                    outputMode: 'bw',
+                    readingOrder: 'ltr',
+                    thickness: 0,
+                    crop: true,
+                    matchPageSize: false,
+                    pageAlignment: 'top-center',
+                    marginsMm: {leftMm: 5, topMm: 5, rightMm: 5, bottomMm: 5},
+                    despeckle: true,
+                    skipBlankPages: false,
+                    pageOverrides: {},
+                },
+            },
+            source: {
+                ref: '/source/deferred.pdf',
+                revision: 'rev-deferred',
+                pageSizes: [{pageNumber: 1, xPoints: 0, yPoints: 0, widthPoints: 100, heightPoints: 100, rotation: 0}],
+                rasterRows: [],
+                pageOpsEngineSha256: 'page-ops-sha',
+                incompleteRasterPages: new Set(),
+                rasterFacts: reduceScanCleanupRasterRows([]),
+                annotatedPages: new Set(),
+                source: sourceBlob,
+                pdf: {} as never,
+            },
+            readSource,
+            signal: new AbortController().signal,
+            onProgress: () => undefined,
+        });
+
+        expect(readSource).toHaveBeenCalledOnce();
+        expect(events).toEqual([
+            'renderRaster',
+            'renderRaster',
+            'combinePdfs',
+            'merge',
+            'readSource',
+            'overlay',
+            'ocrTextVisibility',
+            'qpdfCheck',
+        ]);
+        expect(inspectedBlobs).toEqual([sourceBlob]);
+        expect(result.pdf).toBeInstanceOf(Blob);
+        expect(new Uint8Array(await result.pdf.arrayBuffer())).toEqual(overlaidBytes);
+    });
+
+    it('defers readSource until assembly in lossless mode, transfers sourceBytes to splitPdfPages, and validates qpdf via Blob', async () => {
+        const {runBrowserScanCleanupConversion} = await import('@app/platform/browser-api/runBrowserScanCleanupConversion');
+        const sourceBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a, 0x4c]);
+        const expectedSha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', sourceBytes)), (byte) =>
+            byte.toString(16).padStart(2, '0'),
+        ).join('');
+        const splitBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x6f, 0x75, 0x74]);
+        const events: string[] = [];
+        let planCalls = 0;
+        const readSource = vi.fn(async () => {
+            events.push('readSource');
+            return sourceBytes;
+        });
+
+        mocks.runBrowserPageOpsWorkerRequest.mockImplementation(
+            async (type: string, _payload: unknown, opts?: {onEngineIdentity?: (sha: string) => void}) => {
+                opts?.onEngineIdentity?.('page-ops-sha');
+                if (type === 'renderScanCleanupRaster') {
+                    events.push('renderRaster');
+                    const header = new TextEncoder().encode('P6\n10 10\n255\n');
+                    const ppm = new Uint8Array(header.byteLength + 10 * 10 * 3);
+                    ppm.set(header);
+                    return {
+                        data: ppm,
+                        report: {width: 10, height: 10, compatibility: 'exact'},
+                    };
+                }
+                return {status: 'failed', error: {code: 'unsupported', message: 'unused'}};
+            },
+        );
+        const analyzedMetadata = {
+            pageNumber: 1,
+            canvasScope: 'document',
+            layoutClassification: 'single-uncut-page',
+            layoutConfidence: 0.95,
+            cutterXPx: null,
+            rotationDegrees: 0,
+            excluded: false,
+            blankOutputsSkipped: 0,
+            outputCount: 1,
+            tier1Verdict: 'single-uncut-page',
+            reconciled: false,
+            clusterAgreement: 0,
+            outputs: [
+                {
+                    half: 'full',
+                    pdfPlacement: {
+                        cropRect: {x: 0, y: 0, width: 100, height: 100},
+                        contentScaled: false,
+                    },
+                },
+            ],
+        };
+        mocks.runBrowserScanCleanupWorkerRequest.mockImplementation(
+            async (type: string, _payload: unknown, _signal: AbortSignal, onIdentity?: (sha: string) => void) => {
+                onIdentity?.('scan-cleanup-sha');
+                if (type === 'plan-analysis') {
+                    planCalls += 1;
+                    if (planCalls === 1) {
+                        return {
+                            status: 'ok',
+                            result: {
+                                kind: 'jobs',
+                                jobs: [{index: 0, view: 'primary', rerun: false}],
+                            },
+                        };
+                    }
+                    return {
+                        status: 'ok',
+                        result: {
+                            kind: 'finished',
+                            pages: [{pageMetadata: analyzedMetadata, pageMetadataJson: JSON.stringify(analyzedMetadata)}],
+                        },
+                    };
+                }
+                events.push('analyzePage');
+                return {
+                    status: 'ok',
+                    result: {
+                        pageMetadata: analyzedMetadata,
+                        pageMetadataJson: JSON.stringify(analyzedMetadata),
+                        reconciliation: null,
+                    },
+                };
+            },
+        );
+        mocks.splitPdfPages.mockImplementation(
+            async (
+                data: Uint8Array,
+                instructions: {provenanceStampHex?: string},
+                opts?: {onEngineIdentity?: (sha: string) => void; transferInput?: boolean},
+            ) => {
+                events.push('splitPages');
+                opts?.onEngineIdentity?.('page-ops-sha');
+                expect(data).toBe(sourceBytes);
+                expect(opts?.transferInput).toBe(true);
+                const stampJson = Buffer.from(instructions.provenanceStampHex ?? '', 'hex').toString('utf8');
+                expect(stampJson).toContain(expectedSha256);
+                return {
+                    data: splitBytes,
+                    pageCount: 1,
+                    report: {accessibilityTagsRemoved: false, textOmittedSourcePages: []},
+                };
+            },
+        );
+        mocks.runBrowserQpdfCommand.mockImplementation(async (_command: string, input: unknown) => {
+            events.push('qpdfCheck');
+            expect(input).toBeInstanceOf(Blob);
+            expect(new Uint8Array(await (input as Blob).arrayBuffer())).toEqual(splitBytes);
+            return {exitCode: 0, stdout: '', stderr: '', output: null};
+        });
+
+        const result = await runBrowserScanCleanupConversion({
+            request: {
+                sourcePdfPath: '/source/lossless.pdf',
+                outputPdfPath: '',
+                options: {
+                    preserveOriginalQuality: true,
+                    layoutMode: 'auto',
+                    outputMode: 'auto',
+                    readingOrder: 'ltr',
+                    thickness: 0,
+                    crop: true,
+                    matchPageSize: false,
+                    pageAlignment: 'top-center',
+                    marginsMm: {leftMm: 5, topMm: 5, rightMm: 5, bottomMm: 5},
+                    despeckle: true,
+                    skipBlankPages: false,
+                    pageOverrides: {},
+                },
+            },
+            source: {
+                ref: '/source/lossless.pdf',
+                revision: 'rev-lossless',
+                pageSizes: [{pageNumber: 1, xPoints: 0, yPoints: 0, widthPoints: 100, heightPoints: 100, rotation: 0}],
+                rasterRows: [],
+                pageOpsEngineSha256: 'page-ops-sha',
+                incompleteRasterPages: new Set(),
+                rasterFacts: reduceScanCleanupRasterRows([]),
+                annotatedPages: new Set(),
+                source: new Blob([sourceBytes]),
+                pdf: {} as never,
+            },
+            readSource,
+            signal: new AbortController().signal,
+            onProgress: () => undefined,
+        });
+
+        expect(readSource).toHaveBeenCalledOnce();
+        expect(events).toEqual(['renderRaster', 'analyzePage', 'readSource', 'splitPages', 'qpdfCheck']);
+        expect(result.pdf).toBeInstanceOf(Blob);
+        expect(new Uint8Array(await result.pdf.arrayBuffer())).toEqual(splitBytes);
+    });
+
+    it('preserves base.source.ppm across base preview and mixed detail fallback while avoiding redundant raster copies', async () => {
+        const {renderBrowserScanCleanupWorkspacePreview} = await import('@app/platform/browser-api/browserScanCleanupJob');
+        const renderedByDpi = new Map<number, Uint8Array>();
+        mocks.runBrowserPageOpsWorkerRequest.mockImplementation(
+            async (type: string, payload: {request?: {dpi?: number}}, opts?: {onEngineIdentity?: (sha: string) => void}) => {
+                opts?.onEngineIdentity?.('page-ops-sha');
+                if (type === 'renderScanCleanupRaster') {
+                    const dpi = payload.request?.dpi ?? 150;
+                    const header = new TextEncoder().encode('P6\n8 8\n255\n');
+                    const ppm = new Uint8Array(header.byteLength + 8 * 8 * 3);
+                    ppm.set(header);
+                    ppm.fill(dpi & 0xff, header.byteLength);
+                    renderedByDpi.set(dpi, ppm);
+                    return {
+                        data: ppm,
+                        report: {width: 8, height: 8, compatibility: 'exact'},
+                    };
+                }
+                return {status: 'failed', error: {code: 'unsupported', message: 'unused'}};
+            },
+        );
+        const transferredInputs: Uint8Array[] = [];
+        mocks.runBrowserScanCleanupWorkerRequest.mockImplementation(
+            async (type: string, payload: {ppm?: Uint8Array; input?: Uint8Array; analysisPlane?: {raster?: Uint8Array}}) => {
+                if (type === 'encode-png') {
+                    transferredInputs.push(payload.ppm!);
+                    return {png: new Uint8Array([0x89, 0x50, 0x4e, 0x47])};
+                }
+                if (type === 'render-preview') {
+                    transferredInputs.push(payload.input!);
+                    if (payload.analysisPlane?.raster) {
+                        transferredInputs.push(payload.analysisPlane.raster);
+                    }
+                    const rect = {xPx: 0, yPx: 0, widthPx: 8, heightPx: 8};
+                    const appliedMargins = {leftPx: 0, topPx: 0, rightPx: 0, bottomPx: 0};
+                    return {
+                        status: 'ok',
+                        result: {
+                            pageMetadataJson: JSON.stringify({
+                                version: 3,
+                                sourcePageIndex: 0,
+                                layoutClassification: 'single-uncut-page',
+                                layoutConfidence: 0.9,
+                                cutterXPx: null,
+                                rotationDegrees: 0,
+                                canvasScope: 'page',
+                                excluded: false,
+                                blankOutputsSkipped: 0,
+                                outputCount: 1,
+                                outputs: [
+                                    {
+                                        half: 'full',
+                                        sourceRegion: rect,
+                                        contentBox: null,
+                                        cropRect: rect,
+                                        appliedMargins,
+                                        inputWidthPx: 8,
+                                        inputHeightPx: 8,
+                                    },
+                                ],
+                                tier1Verdict: 'single-uncut-page',
+                                reconciled: false,
+                                clusterAgreement: 0,
+                            }),
+                            outputs: [
+                                {
+                                    metadataJson: JSON.stringify({
+                                        version: 3,
+                                        sourcePageIndex: 0,
+                                        half: 'full',
+                                        layoutClassification: 'single-uncut-page',
+                                        layoutConfidence: 0.9,
+                                        cutterXPx: null,
+                                        sourceRegion: rect,
+                                        contentBox: null,
+                                        cropRect: rect,
+                                        appliedMargins,
+                                        outputWidthPx: 8,
+                                        outputHeightPx: 8,
+                                        canvasWidthPx: 8,
+                                        canvasHeightPx: 8,
+                                        foldClipLeftPx: 0,
+                                        foldClipRightPx: 0,
+                                        inputWidthPx: 8,
+                                        inputHeightPx: 8,
+                                        skewApplied: false,
+                                        placementOffsetXPx: 0,
+                                        placementOffsetYPx: 0,
+                                        forwardTransform: null,
+                                        inverseTransform: null,
+                                        dewarpModel: null,
+                                        dewarpMapping: null,
+                                        rotationDegrees: 0,
+                                        canvasScope: 'page',
+                                        resamplePasses: 0,
+                                        warnings: [],
+                                        warningEvents: [],
+                                        outputMode: 'mixed',
+                                        renderDpi: 150,
+                                        bilevelWritten: false,
+                                        layeredWritten: false,
+                                    }),
+                                    plane: {
+                                        role: 'composite',
+                                        encoding: 'png',
+                                        width: 8,
+                                        height: 8,
+                                        data: new Uint8Array([1, 2, 3]),
+                                    },
+                                },
+                            ],
+                        },
+                    };
+                }
+                throw new Error(`Unexpected scan cleanup worker request: ${type}`);
+            },
+        );
+
+        const source = cast<import('@app/platform/browser-api/browserScanCleanupJob').IBrowserScanCleanupSource>({
+            ref: 'browser://documents/preview-ownership.pdf',
+            revision: 'drt1:browser:preview-ownership:1',
+            pageSizes: [{pageNumber: 1, xPoints: 0, yPoints: 0, widthPoints: 612, heightPoints: 792, rotation: 0, renderBox: 'cropbox'}],
+            rasterRows: [],
+            incompleteRasterPages: new Set(),
+            pageOpsEngineSha256: 'page-ops-sha',
+            rasterFacts: reduceScanCleanupRasterRows([]),
+            annotatedPages: new Set(),
+            source: new Blob([Uint8Array.of(0x25, 0x50, 0x44, 0x46)]),
+            pdf: {},
+        });
+        const baseOptions = {
+            preserveOriginalQuality: false,
+            layoutMode: 'auto' as const,
+            outputMode: 'mixed' as const,
+            readingOrder: 'ltr' as const,
+            thickness: 0,
+            crop: true,
+            matchPageSize: false,
+            pageAlignment: 'top-center' as const,
+            marginsMm: {leftMm: 5, topMm: 5, rightMm: 5, bottomMm: 5},
+            despeckle: true,
+            skipBlankPages: false,
+            pageOverrides: {},
+        };
+
+        const basePreview = await renderBrowserScanCleanupWorkspacePreview({
+            request: {
+                ownerId: 'owner-1',
+                sourcePdfPath: source.ref,
+                documentRevision: source.revision,
+                requestId: createRequestId('req-base'),
+                pageNumber: requirePageNumber(1),
+                options: baseOptions,
+            },
+            source,
+            signal: new AbortController().signal,
+            base: null,
+            emitRaw: () => undefined,
+        });
+        expect(basePreview.base).not.toBeNull();
+        // Base preview keeps base.source.ppm unshared with the worker transfer payload.
+        expect(transferredInputs).not.toContain(basePreview.base!.source.ppm);
+
+        // Detail fallback (mixed mode) renders a fresh high-DPI raster and transfers it directly
+        // without copying, while keeping base.source.ppm untouched.
+        transferredInputs.length = 0;
+        renderedByDpi.clear();
+        await renderBrowserScanCleanupWorkspacePreview({
+            request: {
+                ownerId: 'owner-1',
+                sourcePdfPath: source.ref,
+                documentRevision: source.revision,
+                requestId: createRequestId('req-detail'),
+                pageNumber: requirePageNumber(1),
+                options: baseOptions,
+                detail: {
+                    outputMode: 'mixed',
+                    viewports: {
+                        full: {
+                            xNormalized: 0.25,
+                            yNormalized: 0.25,
+                            widthNormalized: 0.25,
+                            heightNormalized: 0.25,
+                            rotationDegrees: 0,
+                        },
+                    },
+                },
+            },
+            source,
+            signal: new AbortController().signal,
+            base: basePreview.base,
+            emitRaw: () => undefined,
+        });
+        expect(transferredInputs).not.toContain(basePreview.base!.source.ppm);
+        expect(basePreview.base!.source.ppm.byteLength).toBeGreaterThan(0);
+        // Fresh high-DPI detail raster was transferred directly without cloning.
+        const detailRaster = [...renderedByDpi.entries()].find(([dpi]) => dpi > 150)?.[1];
+        expect(detailRaster).toBeDefined();
+        expect(transferredInputs).toContain(detailRaster);
+    });
+
+    it('accepts worker P6 PPM rasters zero-copy on the main thread and rejects mismatched payloads', async () => {
+        const {renderPageRaster} = await import('@app/platform/browser-api/browserScanCleanupJob');
+        const header = new TextEncoder().encode('P6\n4 3\n255\n');
+        const workerPpm = new Uint8Array(header.byteLength + 4 * 3 * 3);
+        workerPpm.set(header);
+        workerPpm.fill(0x7a, header.byteLength);
+
+        mocks.runBrowserPageOpsWorkerRequest.mockResolvedValueOnce({
+            data: workerPpm,
+            report: {width: 4, height: 3, compatibility: 'exact'},
+        });
+
+        const raster = await renderPageRaster(
+            cast({
+                ref: 'browser://documents/zero-copy-p6.pdf',
+                revision: 'drt1:browser:zero-copy-p6:1',
+                source: new Blob([Uint8Array.of(1, 2, 3)]),
+                pageSizes: [],
+                rasterRows: [],
+                incompleteRasterPages: new Set(),
+                pageOpsEngineSha256: null,
+                rasterFacts: reduceScanCleanupRasterRows([]),
+                annotatedPages: new Set(),
+                pdf: {},
+            }),
+            makeRasterCachePageSize({pageNumber: 1}),
+            300,
+            4_000_000,
+            new AbortController().signal,
+        );
+
+        expect(raster.ppm).toBe(workerPpm);
+        expect(raster.ppm.buffer).toBe(workerPpm.buffer);
+
+        const corruptHeader = workerPpm.slice();
+        corruptHeader[1] = 0x35; // P5 instead of P6
+        mocks.runBrowserPageOpsWorkerRequest.mockResolvedValueOnce({
+            data: corruptHeader,
+            report: {width: 4, height: 3, compatibility: 'exact'},
+        });
+        await expect(
+            renderPageRaster(
+                cast({
+                    ref: 'browser://documents/zero-copy-p6.pdf',
+                    revision: 'drt1:browser:zero-copy-p6:1',
+                    source: new Blob([Uint8Array.of(1, 2, 3)]),
+                    pageSizes: [],
+                    rasterRows: [],
+                    incompleteRasterPages: new Set(),
+                    pageOpsEngineSha256: null,
+                    rasterFacts: reduceScanCleanupRasterRows([]),
+                    annotatedPages: new Set(),
+                    pdf: {},
+                }),
+                makeRasterCachePageSize({pageNumber: 1}),
+                300,
+                4_000_000,
+                new AbortController().signal,
+            ),
+        ).rejects.toThrow('Scan cleanup page raster does not match its size');
+    });
 });
 
 function makeRasterCachePageSize(overrides: Partial<IPdfPageSize> = {}): IPdfPageSize {
@@ -478,8 +1089,12 @@ describe('stale OPFS Blob refresh on NotReadableError', () => {
         const notReadable = new Error('The requested file could not be read.');
         notReadable.name = 'NotReadableError';
 
+        const retryHeader = new TextEncoder().encode('P6\n4 4\n255\n');
+        const retryPpm = new Uint8Array(retryHeader.byteLength + 4 * 4 * 3);
+        retryPpm.set(retryHeader);
+        retryPpm.fill(128, retryHeader.byteLength);
         mocks.runBrowserPageOpsWorkerRequest.mockRejectedValueOnce(notReadable).mockResolvedValueOnce({
-            data: new Uint8Array(4 * 4 * 3).fill(128),
+            data: retryPpm,
             report: {width: 4, height: 4, compatibility: 'exact'},
         });
 
