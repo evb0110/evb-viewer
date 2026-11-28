@@ -22,8 +22,9 @@ import type {
     TDjvuEngineWorkerRequest,
 } from '@electron/features/djvu/main/djvuEngineProtocol';
 
-const {engineDir} = workerData as IDjvuEngineWorkerData;
+const {engineDir, wasmModule} = workerData as IDjvuEngineWorkerData & {wasmModule?: WebAssembly.Module};
 const MAX_CACHED_DOCS = 2;
+const ENGINE_HIGH_WATER_HEAP_BYTES = 256 * 1024 * 1024;
 const DIRM_TYPE_MASK = 0x3f;
 const DIRM_PAGE_FLAG = 1;
 const CHUNK_HEADER_BYTES = 8;
@@ -33,17 +34,31 @@ async function readBytes(filePath: string) {
     return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 }
 
-const engine = createDjvuLibreEngine({
-    loadEngine: async () => {
-        const [imported, module] = await Promise.all([
+let cachedEnginePromise: Promise<{factory: TDjvuLibreModuleFactory; module: WebAssembly.Module}> | null = null;
+
+function loadCachedDjvuEngine() {
+    if (!cachedEnginePromise) {
+        const pending = Promise.all([
             import(pathToFileURL(join(engineDir, 'evb-djvulibre.mjs')).href) as Promise<{default: TDjvuLibreModuleFactory}>,
-            readBytes(join(engineDir, 'evb-djvulibre.wasm')).then((bytes) => WebAssembly.compile(bytes)),
-        ]);
-        return {
+            wasmModule instanceof WebAssembly.Module
+                ? Promise.resolve(wasmModule)
+                : readBytes(join(engineDir, 'evb-djvulibre.wasm')).then((bytes) => WebAssembly.compile(bytes)),
+        ]).then(([imported, module]) => ({
             factory: imported.default,
             module,
-        };
-    },
+        }));
+        pending.catch(() => {
+            if (cachedEnginePromise === pending) {
+                cachedEnginePromise = null;
+            }
+        });
+        cachedEnginePromise = pending;
+    }
+    return cachedEnginePromise;
+}
+
+const engine = createDjvuLibreEngine({
+    loadEngine: loadCachedDjvuEngine,
 });
 
 interface IOpenDiskDjvuDoc {
@@ -489,12 +504,24 @@ async function handleRequest(request: TDjvuEngineWorkerRequest): Promise<unknown
     }
 }
 
+function recycleEngineIfAboveHighWater() {
+    if (engine.getHeapBytes() <= ENGINE_HIGH_WATER_HEAP_BYTES) {
+        return;
+    }
+    for (const entry of openDocs.values()) {
+        entry.close();
+    }
+    openDocs.clear();
+    engine.dispose();
+}
+
 let queue: Promise<void> = Promise.resolve();
 
 parentPort!.on('message', (request: TDjvuEngineWorkerRequest) => {
     queue = queue.then(async () => {
         try {
             const result = await handleRequest(request);
+            recycleEngineIfAboveHighWater();
             parentPort!.postMessage({
                 id: request.id,
                 ok: true,
@@ -502,6 +529,7 @@ parentPort!.on('message', (request: TDjvuEngineWorkerRequest) => {
                 result,
             } satisfies TDjvuEngineWorkerReply);
         } catch (error) {
+            recycleEngineIfAboveHighWater();
             parentPort!.postMessage({
                 id: request.id,
                 ok: false,

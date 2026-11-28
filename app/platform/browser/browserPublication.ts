@@ -2,7 +2,7 @@ import {contentOf, sameWitness} from '@document-store/contentWitness';
 import type {IPublicationPort, IPublishSource} from '@document-store/documentDirectory';
 import {isRecord} from '@contracts/runtimeGuards';
 import {fileHandleStore} from '@app/platform/browser/browserFileHandleStore';
-import {blobContentWitness} from '@app/platform/browser/browserStorePort';
+import {blobContentWitness, openStoreFileBlob} from '@app/platform/browser/browserStorePort';
 import {runBrowserLock} from '@app/platform/browser/runBrowserLock';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {getErrorMessage} from '@app/utils/error';
@@ -78,8 +78,20 @@ async function requireFileHandle(destination: string) {
 /** A picked file's metadata fact, its size and modification time, in the form desktop files use. Reading it reads no bytes. */
 export const fileFact = (file: File) => `file-v1:${file.size}:${BigInt(file.lastModified) * 1_000_000n}`;
 
-/** The published bytes a chunk at a time, each an ArrayBuffer of its own, as file writers and Blobs take them. */
+/** The published bytes a chunk at a time, each an ArrayBuffer of its own, reading OPFS File slices directly when available. */
 async function* sourceChunks(source: IPublishSource) {
+    const file = await openStoreFileBlob(source.file);
+    if (file && file.size >= source.length) {
+        for (let offset = 0; offset < source.length; offset += PUBLISH_CHUNK_BYTES) {
+            const end = Math.min(source.length, offset + PUBLISH_CHUNK_BYTES);
+            const buffer = await file.slice(offset, end).arrayBuffer();
+            if (buffer.byteLength !== end - offset) {
+                throw new Error(`Published source ended at ${offset + buffer.byteLength} of ${source.length} bytes`);
+            }
+            yield buffer;
+        }
+        return;
+    }
     for (let offset = 0; offset < source.length; offset += PUBLISH_CHUNK_BYTES) {
         const chunk = await source.file.readAt(offset, Math.min(PUBLISH_CHUNK_BYTES, source.length - offset));
         yield chunk.byteOffset === 0 && chunk.byteLength === chunk.buffer.byteLength && chunk.buffer instanceof ArrayBuffer
@@ -88,7 +100,10 @@ async function* sourceChunks(source: IPublishSource) {
     }
 }
 
-/** The published bytes as a Blob whose parts the browser may keep on disk; no single buffer holds them. */
+/**
+ * The published bytes as an independent Blob snapshot whose lifetime survives tab close or later OPFS edits.
+ * Chunks are sliced directly from the OPFS File (no worker `readAt` RPCs) and wrapped one bounded chunk at a time.
+ */
 export async function publishSourceBlob(source: IPublishSource, type: string) {
     const parts: Blob[] = [];
     for await (const chunk of sourceChunks(source)) {

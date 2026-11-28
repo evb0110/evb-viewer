@@ -16,6 +16,7 @@ import type {
     IDjvuRenderPageOptions,
 } from '@djvu-core/djvuLibreTypes';
 import {buildDjvuPageComponentMap, resolveDjvuOutlineUrlToPageIndex} from '@djvu-core/djvuOutline';
+import {compileWasmWithDeadline, handlePrecompiledWasmModuleMessage} from '@app/platform/browser/loadWasmWithDeadline';
 import {getErrorMessage} from '@app/utils/error';
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -114,69 +115,51 @@ export type TBrowserDjvuWorkerResponse =
           errorName?: string;
       };
 
-async function fetchBytesWithStallTimeout(url: URL, timeoutMs: number): Promise<Uint8Array> {
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const arm = () => {
-        if (timer !== null) {
-            clearTimeout(timer);
-        }
-        timer = setTimeout(() => {
-            const error = new Error(`DjVuLibre WASM download stalled: no data arrived for ${timeoutMs}ms`);
-            error.name = 'TimeoutError';
-            controller.abort(error);
-        }, timeoutMs);
-    };
-    arm();
-    try {
-        const response = await fetch(url, {signal: controller.signal});
-        if (!response.ok) {
-            throw new Error(`Failed to load DjVuLibre WASM from ${url.pathname}: HTTP ${response.status}`);
-        }
-        const reader = response.body?.getReader();
-        if (!reader) {
-            return new Uint8Array(await response.arrayBuffer());
-        }
-        const chunks: Uint8Array[] = [];
-        let total = 0;
-        for (let step = await reader.read(); !step.done; step = await reader.read()) {
-            arm();
-            chunks.push(step.value);
-            total += step.value.byteLength;
-        }
-        const combined = new Uint8Array(total);
-        let offset = 0;
-        for (const chunk of chunks) {
-            combined.set(chunk, offset);
-            offset += chunk.byteLength;
-        }
-        return combined;
-    } catch (error) {
-        throw controller.signal.aborted && controller.signal.reason instanceof Error ? controller.signal.reason : error;
-    } finally {
-        if (timer !== null) {
-            clearTimeout(timer);
-        }
+let cachedFactoryPromise: Promise<TDjvuLibreModuleFactory> | null = null;
+let cachedModulePromise: Promise<WebAssembly.Module> | null = null;
+
+function loadDjvuFactory(): Promise<TDjvuLibreModuleFactory> {
+    if (!cachedFactoryPromise) {
+        const moduleUrl = new URL('/wasm/evb-djvulibre.mjs', self.location.href).href;
+        const pending = (import(/* @vite-ignore */ moduleUrl) as Promise<{default: TDjvuLibreModuleFactory}>).then(
+            (imported) => imported.default,
+        );
+        pending.catch(() => {
+            if (cachedFactoryPromise === pending) {
+                cachedFactoryPromise = null;
+            }
+        });
+        cachedFactoryPromise = pending;
     }
+    return cachedFactoryPromise;
+}
+
+function loadDjvuWasmModule(): Promise<WebAssembly.Module> {
+    if (!cachedModulePromise) {
+        const wasmUrl = new URL(`/wasm/evb-djvulibre.wasm?revision=${DJVU_WASM_REVISION}`, self.location.href).href;
+        const pending = compileWasmWithDeadline(wasmUrl, DJVU_FETCH_STALL_TIMEOUT_MS);
+        pending.catch(() => {
+            if (cachedModulePromise === pending) {
+                cachedModulePromise = null;
+            }
+        });
+        cachedModulePromise = pending;
+    }
+    return cachedModulePromise;
 }
 
 const engine = createDjvuLibreEngine({
     loadEngine: async () => {
-        const moduleUrl = new URL('/wasm/evb-djvulibre.mjs', self.location.href).href;
-        const wasmUrl = new URL(`/wasm/evb-djvulibre.wasm?revision=${DJVU_WASM_REVISION}`, self.location.href);
-        const [imported, wasmBytes] = await Promise.all([
-            import(/* @vite-ignore */ moduleUrl) as Promise<{default: TDjvuLibreModuleFactory}>,
-            fetchBytesWithStallTimeout(wasmUrl, DJVU_FETCH_STALL_TIMEOUT_MS),
-        ]);
-        const module = await WebAssembly.compile(wasmBytes as BufferSource);
+        const [factory, module] = await Promise.all([loadDjvuFactory(), loadDjvuWasmModule()]);
         return {
-            factory: imported.default,
+            factory,
             module,
         };
     },
 });
 
 let activeDoc: IDjvuLibreDocument | null = null;
+let activeOpenState: {initBytes: Uint8Array; hasComponents: boolean} | null = null;
 let cachedDocInfo: IDjvuDocInfo | null = null;
 let cachedPageComponentMap: Map<string, number> | null = null;
 let componentPort: MessagePort | null = null;
@@ -243,11 +226,28 @@ function attachComponentPort(port: MessagePort) {
     };
 }
 
-function requireDoc(): IDjvuLibreDocument {
+async function ensureActiveDoc(): Promise<IDjvuLibreDocument> {
     if (!activeDoc) {
-        throw new Error('No DjVu document is open in this worker');
+        if (!activeOpenState) {
+            throw new Error('No DjVu document is open in this worker');
+        }
+        activeDoc = await engine.openDocument({
+            initBytes: activeOpenState.initBytes,
+            ...(activeOpenState.hasComponents ? {readComponentAsync: requestComponentFromHost} : {}),
+        });
     }
     return activeDoc;
+}
+
+function recycleEngineIfAboveHighWater(): void {
+    if (engine.getHeapBytes() <= DJVU_WORKER_HIGH_WATER_HEAP_BYTES) {
+        return;
+    }
+    if (activeDoc) {
+        activeDoc.close();
+        activeDoc = null;
+    }
+    engine.dispose();
 }
 
 async function ensureDocInfo(doc: IDjvuLibreDocument): Promise<IDjvuDocInfo> {
@@ -280,6 +280,10 @@ async function handleRequest(
                 activeDoc.close();
                 activeDoc = null;
             }
+            activeOpenState = null;
+            if (engine.getHeapBytes() > DJVU_WORKER_HIGH_WATER_HEAP_BYTES) {
+                engine.dispose();
+            }
             cachedDocInfo = null;
             cachedPageComponentMap = null;
             if (ports[0]) {
@@ -287,97 +291,108 @@ async function handleRequest(
             } else {
                 closeComponentPort();
             }
+            const initBytes = new Uint8Array(request.initBytes);
+            activeOpenState = {initBytes, hasComponents: request.hasComponents};
             activeDoc = await engine.openDocument({
-                initBytes: new Uint8Array(request.initBytes),
+                initBytes,
                 ...(request.hasComponents ? {readComponentAsync: requestComponentFromHost} : {}),
             });
             return {data: null};
         }
         case 'getComponentDirectory': {
-            const directory: IDjvuComponentDirectory | null = await requireDoc().getComponentDirectory();
+            const directory: IDjvuComponentDirectory | null = await (await ensureActiveDoc()).getComponentDirectory();
             return {data: directory};
         }
         case 'getDocInfo': {
-            const info = await ensureDocInfo(requireDoc());
+            const info = await ensureDocInfo(await ensureActiveDoc());
             return {data: info};
         }
         case 'getPageInfo': {
-            const info: IDjvuPageInfo = await requireDoc().getPageInfo(request.pageNumber);
+            const info: IDjvuPageInfo = await (await ensureActiveDoc()).getPageInfo(request.pageNumber);
             return {data: info};
         }
         case 'getPageLayerSummary': {
-            const summary: IDjvuPageLayerSummary = await requireDoc().getPageLayerSummary(
-                request.pageNumber,
-                request.defaultForegroundSubsample,
-            );
+            const summary: IDjvuPageLayerSummary = await (
+                await ensureActiveDoc()
+            ).getPageLayerSummary(request.pageNumber, request.defaultForegroundSubsample);
             return {data: summary};
         }
         case 'renderPage': {
-            const doc = requireDoc();
+            const doc = await ensureActiveDoc();
             const rendered: IDjvuRenderedPage = await doc.renderPage(request.pageNumber, request.options);
-            if (engine.getHeapBytes() > DJVU_WORKER_HIGH_WATER_HEAP_BYTES) {
-                doc.clearCache();
-            }
+            recycleEngineIfAboveHighWater();
             return {
                 data: rendered,
                 transfer: toTransferable(rendered.bytes),
             };
         }
         case 'renderMaskPbm': {
-            const pbm = await requireDoc().renderMaskPbm(request.pageNumber);
+            const pbm = await (await ensureActiveDoc()).renderMaskPbm(request.pageNumber);
+            recycleEngineIfAboveHighWater();
             return {
                 data: pbm,
                 ...(pbm ? {transfer: toTransferable(pbm)} : {}),
             };
         }
         case 'renderBackgroundRgb': {
-            const bg = await requireDoc().renderBackgroundRgb(request.pageNumber);
+            const bg = await (await ensureActiveDoc()).renderBackgroundRgb(request.pageNumber);
+            recycleEngineIfAboveHighWater();
             return {
                 data: bg,
                 ...(bg ? {transfer: toTransferable(bg.rgb)} : {}),
             };
         }
         case 'renderPagePpm': {
-            const doc = requireDoc();
+            const doc = await ensureActiveDoc();
             const result = await doc.renderPagePpm(request.pageNumber, request.options);
-            if (engine.getHeapBytes() > DJVU_WORKER_HIGH_WATER_HEAP_BYTES) {
-                doc.clearCache();
-            }
+            recycleEngineIfAboveHighWater();
             return {
                 data: result,
                 ...(result ? {transfer: toTransferable(result.ppm)} : {}),
             };
         }
         case 'getOutline': {
-            const outline: IDjvuOutlineRawItem[] = await requireDoc().getOutline();
+            const outline: IDjvuOutlineRawItem[] = await (await ensureActiveDoc()).getOutline();
             return {data: outline};
         }
         case 'getPageNumberByUrl': {
-            const doc = requireDoc();
+            const doc = await ensureActiveDoc();
             const info = await ensureDocInfo(doc);
             const pageIndex = resolveDjvuOutlineUrlToPageIndex(request.url, cachedPageComponentMap ?? undefined, info.pageCount);
             return {data: pageIndex === null ? null : pageIndex + 1};
         }
         case 'getPageText': {
-            const text: IDjvuPageTextRaw = await requireDoc().getPageText(request.pageNumber, {includeZones: request.includeZones ?? true});
+            const text: IDjvuPageTextRaw = await (
+                await ensureActiveDoc()
+            ).getPageText(request.pageNumber, {
+                includeZones: request.includeZones ?? true,
+            });
             return {data: text};
         }
         case 'pageHasText': {
-            const hasText = await requireDoc().pageHasText(request.pageNumber);
+            const hasText = await (await ensureActiveDoc()).pageHasText(request.pageNumber);
             return {data: hasText};
         }
         case 'getMetadata': {
-            const metadata = await requireDoc().getMetadata();
+            const metadata = await (await ensureActiveDoc()).getMetadata();
             return {data: metadata};
         }
         case 'clearCache': {
-            requireDoc().clearCache();
+            if (activeDoc) {
+                activeDoc.clearCache();
+            } else if (!activeOpenState) {
+                throw new Error('No DjVu document is open in this worker');
+            }
+            recycleEngineIfAboveHighWater();
             return {data: null};
         }
     }
 }
 
 self.addEventListener('message', (event: MessageEvent<TBrowserDjvuWorkerRequest>) => {
+    if (handlePrecompiledWasmModuleMessage(event.data)) {
+        return;
+    }
     const request = event.data;
     if (!request || typeof request !== 'object' || typeof request.id !== 'number') {
         return;

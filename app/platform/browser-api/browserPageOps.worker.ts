@@ -33,7 +33,8 @@ import {SCAN_CLEANUP_MAX_DIMENSION_PX} from '@contracts/scan-cleanup/inputLimits
 import {createPpmRaster} from '@ocr-core/ppmRaster';
 import {getErrorMessage} from '@app/utils/error';
 
-const COPY_CHUNK_BYTES = 4 * 1024 * 1024;
+const COPY_CHUNK_BYTES = 1024 * 1024;
+const COPY_YIELD_BYTES = 16 * 1024 * 1024;
 
 type TPageStructureSink = IPageStructureFiles['sink'] & {
     /** Makes the output durable; returns its bytes when it has no file. */
@@ -117,16 +118,23 @@ async function handlePageStructureRequest(
         const result = await runPageStructureEdit(edit, {
             sources: sources.map((blob) => createSyncBlobSource(blob, reader)),
             sink,
-            // Read asynchronously: each read ends a task, which releases its buffer.
+            // Copy stream ranges with bounded FileReaderSync chunks, yielding periodically on huge files.
             async copy(copies) {
+                let copiedSinceYield = 0;
                 for (const {source, from, length, at} of copies) {
+                    const blob = sources[source]!;
                     for (let done = 0; done < length; done += COPY_CHUNK_BYTES) {
-                        const end = from + Math.min(length, done + COPY_CHUNK_BYTES);
-                        const bytes = new Uint8Array(await sources[source]!.slice(from + done, end).arrayBuffer());
-                        if (bytes.byteLength !== end - from - done) {
+                        const chunkLength = Math.min(length - done, COPY_CHUNK_BYTES);
+                        const bytes = new Uint8Array(reader.readAsArrayBuffer(blob.slice(from + done, from + done + chunkLength)));
+                        if (bytes.byteLength !== chunkLength) {
                             throw new Error('The document ended before its cross-reference said');
                         }
                         sink.write(bytes, at + done);
+                        copiedSinceYield += chunkLength;
+                        if (copiedSinceYield >= COPY_YIELD_BYTES) {
+                            copiedSinceYield = 0;
+                            await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                        }
                     }
                 }
             },

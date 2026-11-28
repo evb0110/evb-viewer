@@ -1281,5 +1281,36 @@ describe('DjVuLibre WASM hardening (memory limits, text zones, legacy formats)',
             },
             DJVU_TEST_TIMEOUT_MS,
         );
+        it(
+            'reuses a precompiled WebAssembly.Module passed via workerData without recompiling evb-djvulibre.wasm from disk',
+            async () => {
+                const wasmOnlyDir = join(tempDir, 'djvu-precompiled-dir');
+                await mkdir(wasmOnlyDir, {recursive: true});
+                await writeFile(join(wasmOnlyDir, 'evb-djvulibre.mjs'), await readFile(resolve('public/wasm/evb-djvulibre.mjs')));
+                // Intentionally omit evb-djvulibre.wasm from wasmOnlyDir so any attempt to read/compile from disk fails.
+                const precompiled = await WebAssembly.compile(new Uint8Array(await readFile(resolve('public/wasm/evb-djvulibre.wasm'))));
+                const worker = new Worker(workerPath, {
+                    workerData: {engineDir: wasmOnlyDir, wasmModule: precompiled},
+                });
+                try {
+                    const reply = await new Promise<TDjvuEngineWorkerReply>((resolveReply, rejectReply) => {
+                        worker.once('message', resolveReply);
+                        worker.once('error', rejectReply);
+                        worker.postMessage({
+                            id: 1,
+                            type: 'getDocInfo',
+                            djvuPath: resolve('tests/fixtures/djvu/sources/photo-art.djvu'),
+                        } satisfies TDjvuEngineWorkerRequest);
+                    });
+                    expect(reply.ok).toBe(true);
+                    if (reply.ok) {
+                        expect((reply.result as {pageCount: number}).pageCount).toBe(1);
+                    }
+                } finally {
+                    await worker.terminate();
+                }
+            },
+            DJVU_TEST_TIMEOUT_MS,
+        );
     });
 });
