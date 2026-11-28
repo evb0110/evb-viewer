@@ -247,6 +247,33 @@ describe('ddjvuConversion (DjVuLibre WASM + evb-pdf-image-combine)', () => {
         expect(mocks.runPageStructureCommand).toHaveBeenCalledTimes(1);
     });
 
+    it('forwards onTerminationProof from renderDjvuPageToImage into runDjvuEngine', async () => {
+        const outputPath = join(tempDir, 'leased.ppm');
+        const onTerminationProof = vi.fn();
+        mocks.runDjvuEngine.mockImplementationOnce(
+            async (request: {outputPath: string}, engineOptions?: {onTerminationProof?: unknown; signal?: AbortSignal}) => {
+                expect(engineOptions?.onTerminationProof).toBe(onTerminationProof);
+                await writeFile(request.outputPath, Buffer.from('P6\n1 1\n255\n\x00\x00\x00', 'binary'));
+                return {
+                    width: 1,
+                    height: 1,
+                    present: true,
+                };
+            },
+        );
+
+        const result = await renderDjvuPageToImage('/tmp/book.djvu', outputPath, 1, 'job-leased', {
+            format: 'ppm',
+            onTerminationProof,
+        });
+
+        expect(result).toEqual({
+            success: true,
+            outputPath,
+            fileSize: 14,
+        });
+    });
+
     it('cancels active WASM conversion jobs and registered child processes by parent job prefix', async () => {
         const started = Promise.withResolvers<undefined>();
         let observedSignal: AbortSignal | undefined;

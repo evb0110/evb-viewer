@@ -7,6 +7,7 @@ interface IFakeWorkerControl {
     worker: FakeWorker;
     posted: unknown[];
     exited: boolean;
+    terminateCalled: boolean;
     terminateDeferred: PromiseWithResolvers<number>;
     emitExit: (code?: number) => void;
     emitError: (error: Error) => void;
@@ -24,10 +25,13 @@ class FakeWorker extends EventEmitter {
     public constructor() {
         super();
         const terminateDeferred = Promise.withResolvers<number>();
+        // Prevent Node/Vitest unhandled rejection noise when tests reject before the abort grace escalates.
+        void terminateDeferred.promise.catch(() => undefined);
         const control: IFakeWorkerControl = {
             worker: this,
             posted: [],
             exited: false,
+            terminateCalled: false,
             terminateDeferred,
             emitExit: (code = 0) => {
                 if (control.exited) {
@@ -52,6 +56,7 @@ class FakeWorker extends EventEmitter {
     }
 
     public terminate() {
+        this.control.terminateCalled = true;
         return this.control.terminateDeferred.promise.then((code) => {
             if (workerControls.autoExitOnTerminate) {
                 this.control.emitExit(code);
@@ -379,5 +384,105 @@ describe('djvuEnginePool termination settlement and broker admission (P0-2 / G-0
         );
         expect(leasedProofs).toHaveLength(1);
         await expect(leasedProofs[0]).resolves.toBe(true);
+    });
+
+    it('preserves a warm worker when an aborted decode settles cooperatively within the grace window', async () => {
+        const jobBrokerModule = await import('@electron/resources/jobBroker');
+        vi.spyOn(jobBrokerModule, 'getConfiguredMainJobBroker').mockReturnValue(null);
+
+        const {runDjvuEngine} = await import('@electron/features/djvu/main/djvuEnginePool');
+        const controller = new AbortController();
+        const proofs: Array<Promise<boolean>> = [];
+
+        const firstRequest = runDjvuEngine(
+            {type: 'hasText', djvuPath: '/tmp/scroll-page-1.djvu'},
+            {signal: controller.signal, onTerminationProof: (proof) => proofs.push(proof)},
+        );
+        await vi.waitFor(() => expect(workerControls.spawned).toHaveLength(1));
+        const warmWorker = workerControls.spawned[0]!;
+        const firstPosted = warmWorker.posted[0] as {id: number};
+
+        // Queued request aborts immediately without disturbing the active worker.
+        const queuedAbort = new AbortController();
+        const queuedRequest = runDjvuEngine({type: 'hasText', djvuPath: '/tmp/scroll-queued.djvu'}, {signal: queuedAbort.signal});
+        queuedAbort.abort(new DOMException('Queued scroll cancel', 'AbortError'));
+        await expect(queuedRequest).rejects.toThrow('Queued scroll cancel');
+        expect(warmWorker.terminateCalled).toBe(false);
+
+        // Aborting the in-flight request waits cooperatively without terminating the warm worker.
+        let firstSettled = false;
+        void firstRequest.then(
+            () => {
+                firstSettled = true;
+            },
+            () => {
+                firstSettled = true;
+            },
+        );
+        controller.abort(new DOMException('Scroll abort', 'AbortError'));
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(firstSettled).toBe(false);
+        expect(warmWorker.terminateCalled).toBe(false);
+
+        // Worker finishes its current decode step within the grace window: caller rejects with
+        // AbortError, no termination proof is emitted, and the same warm worker handles the next page.
+        warmWorker.replyOk(firstPosted.id, true);
+        await expect(firstRequest).rejects.toThrow('Scroll abort');
+        expect(warmWorker.terminateCalled).toBe(false);
+        expect(proofs).toHaveLength(0);
+
+        const secondRequest = runDjvuEngine({type: 'hasText', djvuPath: '/tmp/scroll-page-2.djvu'});
+        await vi.waitFor(() => expect(warmWorker.posted).toHaveLength(2));
+        expect(workerControls.spawned).toHaveLength(1);
+        const secondPosted = warmWorker.posted[1] as {id: number};
+        warmWorker.replyOk(secondPosted.id, false);
+        await expect(secondRequest).resolves.toBe(false);
+    });
+
+    it('escalates cooperative abort to hard termination after the grace window expires', async () => {
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
+        try {
+            const jobBrokerModule = await import('@electron/resources/jobBroker');
+            vi.spyOn(jobBrokerModule, 'getConfiguredMainJobBroker').mockReturnValue(null);
+
+            const {DJVU_ENGINE_ABORT_GRACE_MS, runDjvuEngine} = await import('@electron/features/djvu/main/djvuEnginePool');
+            const controller = new AbortController();
+            const proofs: Array<Promise<boolean>> = [];
+
+            const stuckRequest = runDjvuEngine(
+                {type: 'hasText', djvuPath: '/tmp/stuck-decode.djvu'},
+                {signal: controller.signal, onTerminationProof: (proof) => proofs.push(proof)},
+            );
+            await vi.waitFor(() => expect(workerControls.spawned).toHaveLength(1));
+            const stuckWorker = workerControls.spawned[0]!;
+
+            controller.abort(new DOMException('Hard abort', 'AbortError'));
+            await vi.advanceTimersByTimeAsync(DJVU_ENGINE_ABORT_GRACE_MS - 1);
+            expect(stuckWorker.terminateCalled).toBe(false);
+
+            await vi.advanceTimersByTimeAsync(1);
+            expect(stuckWorker.terminateCalled).toBe(true);
+            expect(proofs).toHaveLength(1);
+
+            stuckWorker.terminateDeferred.resolve(1);
+            await expect(stuckRequest).rejects.toThrow('Hard abort');
+            await expect(proofs[0]).resolves.toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('scales DjVu engine pool size safely across host resource tiers while keeping low/2-core/8-GiB at 1', async () => {
+        const {resolveDjvuEnginePoolSize} = await import('@electron/features/djvu/main/djvuEnginePool');
+        const GIB = 1024 ** 3;
+
+        expect(resolveDjvuEnginePoolSize({tier: 'low', logicalCpus: 2, totalRamBytes: 4 * GIB})).toBe(1);
+        expect(resolveDjvuEnginePoolSize({tier: 'low', logicalCpus: 4, totalRamBytes: 8 * GIB})).toBe(1);
+        expect(resolveDjvuEnginePoolSize({tier: 'high', logicalCpus: 2, totalRamBytes: 16 * GIB})).toBe(1);
+        expect(resolveDjvuEnginePoolSize({tier: 'high', logicalCpus: 8, totalRamBytes: 8 * GIB})).toBe(1);
+        expect(resolveDjvuEnginePoolSize({tier: 'medium', logicalCpus: 6, totalRamBytes: 16 * GIB})).toBe(2);
+        expect(resolveDjvuEnginePoolSize({tier: 'high', logicalCpus: 8, totalRamBytes: 16 * GIB})).toBe(3);
+        expect(resolveDjvuEnginePoolSize({tier: 'high', logicalCpus: 12, totalRamBytes: 32 * GIB})).toBe(4);
     });
 });
