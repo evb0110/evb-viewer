@@ -2979,4 +2979,487 @@ describe('JobBroker', () => {
         expect(secondCopyGranted).toBe(true);
         secondCopy.release();
     });
+
+    it('lets memory-heavier interactive work burst CPU and process slots on 2c/4GiB while staying inside bulk static memory', async () => {
+        const MIB = 1024 * 1024;
+        const capacity = resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low'));
+        // Omit readSystemMemoryInfo here so static bulk memory ceiling checks are exercised in isolation.
+        const broker = new JobBroker(capacity, {
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+        });
+
+        const conversion = await broker.acquire(
+            createRequest({
+                ownerId: 'scan-cleanup:1:conversion',
+                kind: 'scan-cleanup',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 640_000_000,
+                    nativeProcesses: 1,
+                    ioWeight: 3,
+                },
+            }),
+        );
+
+        // Visible 640 MB preview bursts CPU/process via interactiveReserve while charging bulk memory.
+        const preview = await broker.acquire(
+            createRequest({
+                ownerId: 'scan-cleanup:2:preview',
+                kind: 'scan-cleanup-preview',
+                priority: 'visible',
+                admissionClass: 'interactive',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 640_000_000,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }),
+        );
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 2,
+            queued: 0,
+            used: {
+                cpuTokens: 2,
+                estimatedResidentBytes: 1_280_000_000,
+                nativeProcesses: 2,
+                ioWeight: 4,
+            },
+            usedBulk: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 1_280_000_000,
+                nativeProcesses: 1,
+                ioWeight: 4,
+            },
+        });
+
+        // A heavy interactive request that would push bulk static memory past 2 GiB must queue
+        // even when it is the sole heavy interactive job (never drawing from interactiveReserve.estimatedResidentBytes).
+        preview.release();
+        const heavyBulk = await broker.acquire(
+            createRequest({
+                ownerId: 'ocr:retained',
+                kind: 'ocr-engine-retained-heap',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 0,
+                    estimatedResidentBytes: 1_000 * MIB,
+                    nativeProcesses: 0,
+                    ioWeight: 0,
+                },
+            }),
+        );
+        let staticCappedGranted = false;
+        const staticCappedAbort = new AbortController();
+        const staticCappedPromise = broker
+            .acquire(
+                createRequest({
+                    ownerId: 'scan-cleanup:3:preview',
+                    kind: 'scan-cleanup-preview',
+                    priority: 'visible',
+                    admissionClass: 'interactive',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 640_000_000,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
+                    signal: staticCappedAbort.signal,
+                }),
+            )
+            .then((lease) => {
+                staticCappedGranted = true;
+                return lease;
+            });
+        await flushMicrotasks();
+        expect(staticCappedGranted).toBe(false);
+        staticCappedAbort.abort();
+        await expect(staticCappedPromise).rejects.toThrow();
+        heavyBulk.release();
+
+        // Shrinking a heavy interactive lease into the small interactive memory limit reconciles usedBulk cleanly.
+        const shrinkablePreview = await broker.acquire(
+            createRequest({
+                ownerId: 'scan-cleanup:4:preview',
+                kind: 'scan-cleanup-preview',
+                priority: 'visible',
+                admissionClass: 'interactive',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 640_000_000,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }),
+        );
+        expect(
+            shrinkablePreview.shrink({
+                cpuTokens: 1,
+                estimatedResidentBytes: 128 * MIB,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            }),
+        ).toBe(true);
+        expect(broker.getSnapshot().usedBulk).toMatchObject({
+            estimatedResidentBytes: 640_000_000,
+            ioWeight: 3,
+        });
+
+        shrinkablePreview.release();
+        conversion.release();
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+            used: {cpuTokens: 0, estimatedResidentBytes: 0, nativeProcesses: 0, ioWeight: 0},
+            usedBulk: {cpuTokens: 0, estimatedResidentBytes: 0, nativeProcesses: 0, ioWeight: 0},
+        });
+
+        // Interactive requests still reject when non-memory limits are exceeded or memory is disallowed.
+        const zeroMemoryInteractiveBroker = new JobBroker(capacity, {
+            maxInteractiveJobResources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 0,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+            interactiveReserve: {
+                cpuTokens: 2,
+                estimatedResidentBytes: 0,
+                nativeProcesses: 2,
+                ioWeight: 2,
+            },
+        });
+        await expect(
+            zeroMemoryInteractiveBroker.acquire(
+                createRequest({
+                    admissionClass: 'interactive',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 64 * MIB,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
+                }),
+            ),
+        ).rejects.toThrow('exceeds broker interactive job limit');
+    });
+
+    it('preserves interactive PDF opens regardless of preview and Save validation admission order', async () => {
+        const MIB = 1024 * 1024;
+        // 1. On 2c/4GiB during detection (ioWeight: 2), at most one heavy preview bursts CPU/process
+        // so both pdf-working-copy and native-pdf-preview remain immediately admissible.
+        const twoCoreBroker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low')), {
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+        });
+        const detection = await twoCoreBroker.acquire(
+            createRequest({
+                ownerId: 'scan-cleanup:1:detect',
+                kind: 'scan-cleanup-detect-all',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 640_000_000,
+                    nativeProcesses: 1,
+                    ioWeight: 2,
+                },
+            }),
+        );
+        const firstPreview = await twoCoreBroker.acquire(
+            createRequest({
+                ownerId: 'scan-cleanup:1:preview',
+                kind: 'scan-cleanup-preview',
+                priority: 'visible',
+                admissionClass: 'interactive',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 640_000_000,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }),
+        );
+        let secondPreviewGranted = false;
+        const secondPreviewPromise = twoCoreBroker
+            .acquire(
+                createRequest({
+                    ownerId: 'scan-cleanup:2:preview',
+                    kind: 'scan-cleanup-preview',
+                    priority: 'visible',
+                    admissionClass: 'interactive',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 640_000_000,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
+                }),
+            )
+            .then((lease) => {
+                secondPreviewGranted = true;
+                return lease;
+            });
+        await flushMicrotasks();
+        expect(secondPreviewGranted).toBe(false);
+
+        const workingCopy = await twoCoreBroker.acquire(
+            createRequest({
+                ownerId: 'pdf-open:1',
+                kind: 'pdf-working-copy',
+                priority: 'foreground',
+                admissionClass: 'interactive',
+                resources: {
+                    cpuTokens: 0,
+                    estimatedResidentBytes: 64 * MIB,
+                    nativeProcesses: 0,
+                    ioWeight: 1,
+                },
+            }),
+        );
+        const nativePdfPreview = await twoCoreBroker.acquire(
+            createRequest({
+                ownerId: 'pdf-open:1',
+                kind: 'native-pdf-preview',
+                priority: 'visible',
+                admissionClass: 'interactive',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 128 * MIB,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }),
+        );
+        expect(secondPreviewGranted).toBe(false);
+
+        nativePdfPreview.release();
+        firstPreview.release();
+        const secondPreview = await secondPreviewPromise;
+        expect(secondPreviewGranted).toBe(true);
+        workingCopy.release();
+        secondPreview.release();
+        detection.release();
+
+        // 2. On 4c/4GiB, starting two heavy previews before Save validation (ioWeight: 4)
+        // must keep Save queued behind bulk I/O instead of saturating interactiveReserve.ioWeight.
+        const fourCoreBroker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(4, 4 * GIB, 'low')), {
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+        });
+        const previewA = await fourCoreBroker.acquire(
+            createRequest({
+                ownerId: 'scan-cleanup:1:preview',
+                kind: 'scan-cleanup-preview',
+                priority: 'visible',
+                admissionClass: 'interactive',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 640_000_000,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }),
+        );
+        const previewB = await fourCoreBroker.acquire(
+            createRequest({
+                ownerId: 'scan-cleanup:2:preview',
+                kind: 'scan-cleanup-preview',
+                priority: 'visible',
+                admissionClass: 'interactive',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 640_000_000,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }),
+        );
+        let saveGranted = false;
+        const savePromise = fourCoreBroker
+            .acquire(
+                createRequest({
+                    ownerId: 'document-save:1',
+                    kind: 'document-save-utility',
+                    priority: 'user',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 256 * MIB,
+                        nativeProcesses: 1,
+                        ioWeight: 4,
+                    },
+                }),
+            )
+            .then((lease) => {
+                saveGranted = true;
+                return lease;
+            });
+        await flushMicrotasks();
+        expect(saveGranted).toBe(false);
+
+        const pdfOpen = await fourCoreBroker.acquire(
+            createRequest({
+                ownerId: 'pdf-open:2',
+                kind: 'pdf-working-copy',
+                priority: 'foreground',
+                admissionClass: 'interactive',
+                resources: {
+                    cpuTokens: 0,
+                    estimatedResidentBytes: 64 * MIB,
+                    nativeProcesses: 0,
+                    ioWeight: 1,
+                },
+            }),
+        );
+        pdfOpen.release();
+        previewA.release();
+        previewB.release();
+        const saveLease = await savePromise;
+        expect(saveGranted).toBe(true);
+        saveLease.release();
+
+        // 3. On 2c/4GiB under tight live RAM (950 MiB available), a memory-blocked visible preview
+        // waiting during Save validation OR conversion must NOT head-of-line block a 64 MiB PDF open.
+        for (const activeBulk of [
+            {
+                kind: 'document-save-utility',
+                resources: {cpuTokens: 1, estimatedResidentBytes: 256 * MIB, nativeProcesses: 1, ioWeight: 4},
+            },
+            {
+                kind: 'scan-cleanup',
+                resources: {cpuTokens: 1, estimatedResidentBytes: 640_000_000, nativeProcesses: 1, ioWeight: 3},
+            },
+        ]) {
+            let now = 0;
+            const tightBroker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low')), {
+                now: () => now,
+                maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+                interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+                readSystemMemoryInfo: () => ({
+                    totalBytes: 4 * GIB,
+                    availableBytes: 950 * MIB,
+                    freeBytes: 256 * MIB,
+                }),
+                memoryPressurePollIntervalMs: 0,
+                pendingAllocationSettleMs: 1_000,
+            });
+            const bulk = await tightBroker.acquire(
+                createRequest({
+                    ownerId: 'bulk-owner',
+                    kind: activeBulk.kind,
+                    priority: 'user',
+                    resources: activeBulk.resources,
+                }),
+            );
+            now += 2_000;
+            const previewAbort = new AbortController();
+            const blockedPreview = tightBroker.acquire(
+                createRequest({
+                    ownerId: 'scan-cleanup:1:preview',
+                    kind: 'scan-cleanup-preview',
+                    priority: 'visible',
+                    admissionClass: 'interactive',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 640_000_000,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
+                    signal: previewAbort.signal,
+                }),
+            );
+            await flushMicrotasks();
+            expect(tightBroker.getSnapshot().queued).toBe(1);
+
+            const immediatePdfOpen = await tightBroker.acquire(
+                createRequest({
+                    ownerId: 'pdf-open:3',
+                    kind: 'pdf-working-copy',
+                    priority: 'foreground',
+                    admissionClass: 'interactive',
+                    resources: {
+                        cpuTokens: 0,
+                        estimatedResidentBytes: 64 * MIB,
+                        nativeProcesses: 0,
+                        ioWeight: 1,
+                    },
+                }),
+            );
+            immediatePdfOpen.release();
+            previewAbort.abort();
+            await expect(blockedPreview).rejects.toThrow();
+            bulk.release();
+        }
+    });
+
+    it('keeps the bulk live-memory safety floor for heavy interactive previews on 2c/4GiB', async () => {
+        const MIB = 1024 * 1024;
+        let now = 0;
+        let availableBytes = 950 * MIB;
+        const capacity = resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low'));
+        const broker = new JobBroker(capacity, {
+            now: () => now,
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+            readSystemMemoryInfo: () => ({
+                totalBytes: 4 * GIB,
+                availableBytes,
+                freeBytes: 256 * MIB,
+            }),
+            memoryPressurePollIntervalMs: 0,
+            pendingAllocationSettleMs: 1_000,
+        });
+
+        // A settled PDF working-copy keeps the broker non-idle with 0 pending bytes.
+        const workingCopy = await broker.acquire(
+            createRequest({
+                ownerId: 'pdf-open:1',
+                kind: 'pdf-working-copy',
+                priority: 'foreground',
+                admissionClass: 'interactive',
+                resources: {
+                    cpuTokens: 0,
+                    estimatedResidentBytes: 64 * MIB,
+                    nativeProcesses: 0,
+                    ioWeight: 1,
+                },
+            }),
+        );
+        now += 2_000;
+
+        // At 950 MiB available, bulk live floor (512 MiB) leaves 438 MiB (< 610 MiB preview),
+        // whereas the 256 MiB small-interactive floor would have wrongly admitted it (694 MiB >= 610 MiB).
+        let previewGranted = false;
+        const previewPromise = broker
+            .acquire(
+                createRequest({
+                    ownerId: 'scan-cleanup:1:preview',
+                    kind: 'scan-cleanup-preview',
+                    priority: 'visible',
+                    admissionClass: 'interactive',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 640_000_000,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
+                }),
+            )
+            .then((lease) => {
+                previewGranted = true;
+                return lease;
+            });
+        await flushMicrotasks();
+        expect(previewGranted).toBe(false);
+
+        // Once live available RAM clears the 512 MiB bulk floor + 610 MiB preview, recheck admits it.
+        availableBytes = 1_200 * MIB;
+        broker.recheck();
+        const preview = await previewPromise;
+        expect(previewGranted).toBe(true);
+
+        preview.release();
+        workingCopy.release();
+    });
 });
