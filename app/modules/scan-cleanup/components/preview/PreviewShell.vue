@@ -164,6 +164,7 @@
                     </template>
                 </AppTooltip>
                 <ScanCleanupSegmented
+                    v-if="!lossless"
                     :model-value="effectiveViewMode"
                     :items="viewModes"
                     :disabled="disabled"
@@ -1115,25 +1116,17 @@ const liveStageStatus = computed(() => {
 const skeletonLiveStageStatus = computed(() => (activity?.run === true ? liveStageStatus.value : null));
 const viewportCaptionHidden = computed(() => liveStageStatus.value === null && canvasNotice.value === '');
 const viewportCaptionNoticeKind = computed(() => (liveStageStatus.value !== null ? 'cleaning' : canvasNoticeKind.value));
-const viewModes = computed(() =>
-    lossless
-        ? [
-              {
-                  value: 'original' as const,
-                  label: t('scanCleanup.preview.preview'),
-              },
-          ]
-        : [
-              {
-                  value: 'original' as const,
-                  label: t('scanCleanup.preview.original'),
-              },
-              {
-                  value: 'cleaned' as const,
-                  label: t('scanCleanup.preview.cleaned'),
-              },
-          ],
-);
+// Original images output is the source itself, so it has nothing to compare.
+const viewModes = computed(() => [
+    {
+        value: 'original' as const,
+        label: t('scanCleanup.preview.original'),
+    },
+    {
+        value: 'cleaned' as const,
+        label: t('scanCleanup.preview.cleaned'),
+    },
+]);
 const dragOutputSnapshot = ref<IRenderedScanCleanupOutput[] | null>(null);
 
 const {selectedPictureLayer, selectedZone, updateSelectedPictureLayer, zoneCount, zoneKind} = useScanCleanupZoneEditor({

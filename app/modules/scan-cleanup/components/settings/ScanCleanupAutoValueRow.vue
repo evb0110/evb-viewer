@@ -1,8 +1,5 @@
 <template>
-    <div
-        class="scan-cleanup-auto-value-row"
-        :class="{'is-disabled': disabled}"
-    >
+    <div class="scan-cleanup-auto-value-row">
         <div class="scan-cleanup-auto-value-header">
             <span>{{ label }}</span>
             <span
@@ -28,7 +25,6 @@
                         type="button"
                         class="scan-cleanup-auto-value-reset"
                         :aria-label="t('scanCleanup.settings.returnToAutomatic')"
-                        :disabled="disabled"
                         @click="emit('reset')"
                     >
                         <UIcon
@@ -45,22 +41,12 @@
         >
             <slot name="entry" />
         </div>
-        <p
-            v-if="reserveHint || hint"
-            class="scan-cleanup-auto-value-hint"
-            >{{ hint }}&nbsp;</p
-        >
     </div>
 </template>
 
 <script setup lang="ts">
 defineProps<{
-    disabled?: boolean;
-    hint?: string | undefined;
     label: string;
-    // Rows whose hint arrives asynchronously (detection results) keep the line
-    // reserved, so the surrounding settings never move when it appears.
-    reserveHint?: boolean;
     state: 'auto' | 'manual' | 'mixed';
     valueText?: string | undefined;
 }>();
@@ -133,21 +119,7 @@ const mixedLabel = computed(() => t('scanCleanup.settings.mixed').replace(/^—\
     outline-offset: var(--app-space-xs);
 }
 
-.scan-cleanup-auto-value-reset:disabled {
-    cursor: not-allowed;
-}
-
 .scan-cleanup-auto-value-entry {
     min-width: 0;
-}
-
-.scan-cleanup-auto-value-hint {
-    margin: 0;
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-kicker);
-}
-
-.scan-cleanup-auto-value-row.is-disabled {
-    opacity: var(--app-scan-disabled-opacity);
 }
 </style>

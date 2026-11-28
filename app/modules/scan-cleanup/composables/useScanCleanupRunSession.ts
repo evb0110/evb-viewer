@@ -6,7 +6,7 @@ import type {
     TScanCleanupOutputHalf,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {TDocumentRef} from '@contracts/documentRef';
-import {requirePageNumber} from '@contracts/pageNumbers';
+import {parsePageNumber, requirePageNumber} from '@contracts/pageNumbers';
 import type {IScanCleanupConversionEvidence} from '@app/modules/scan-cleanup/composables/useScanCleanupDetectionSession';
 import type {ComputedRef, Ref} from 'vue';
 import type {TScanCleanupPlacementAnchorsByPage} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
@@ -41,6 +41,9 @@ import {formatFailurePresentationDescription} from '@app/composables/useFailureT
 // compatibility path, even if a misconfigured or expired handoff leaves the
 // id absent.
 const DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
+// A run covers the whole document (`null`, never allocated as 1..N) or the
+// pages the rail's Pages tab names.
+type TRunTarget = readonly number[] | null;
 interface IUseScanCleanupRunSessionOptions {
     active: () => boolean;
     beforeRun: (stopWait: Promise<void>) => Promise<void> | void;
@@ -69,7 +72,8 @@ interface IUseScanCleanupRunSessionOptions {
         pageNumbers: readonly number[] | null,
         options?: {includeLegacyRequestFields?: boolean},
     ) => IScanCleanupConversionEvidence;
-    sourcePageNumbers: ComputedRef<number[] | null>;
+    /** The Pages tab's pages, which its footer button cleans up on their own. */
+    selectionPageNumbers: ComputedRef<readonly number[]>;
     settings: IScanCleanupOptions;
     sourcePath: ComputedRef<TDocumentRef | null>;
     totalPages: ComputedRef<number>;
@@ -145,19 +149,23 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             : description;
     });
     const errorCode = computed(() => getScanCleanupRunErrorCode(...runIdentity()));
-    const runPageCount = computed(() => options.sourcePageNumbers.value?.length ?? Math.max(1, Math.trunc(options.totalPages.value)));
-    const hasIncludedPage = computed(() => {
-        const selected = options.sourcePageNumbers.value;
-        if (selected !== null) {
-            return selected.some(
-                (page) =>
-                    !getScanCleanupPageOverride(
-                        options.settings.pageOverrides,
-                        requirePageNumber(page, Math.max(1, options.totalPages.value)),
-                    ).excluded,
-            );
+    // Every eligibility rule below is asked per run target, so an excluded
+    // selected page never disables the whole-document run.
+    const documentPageCount = () => Math.max(1, Math.trunc(options.totalPages.value));
+    const runPageCountFor = (target: TRunTarget) => target?.length ?? documentPageCount();
+    // A restored tab carries its selected page before the document reports its
+    // length, so a selection is read against the live page count and pages
+    // outside it simply do not count yet.
+    const documentPageOf = (page: number) => parsePageNumber(page, options.totalPages.value);
+    const targetWithinDocument = (target: TRunTarget) => target === null || target.every((page) => documentPageOf(page) !== null);
+    function hasIncludedPageFor(target: TRunTarget) {
+        if (target !== null) {
+            return target.some((page) => {
+                const pageNumber = documentPageOf(page);
+                return pageNumber !== null && !getScanCleanupPageOverride(options.settings.pageOverrides, pageNumber).excluded;
+            });
         }
-        const totalPages = runPageCount.value;
+        const totalPages = documentPageCount();
         const defaultExcluded = options.settings.pageOverrideDefaults?.excluded === true;
         let includedPages = defaultExcluded ? 0 : totalPages;
         for (const [key, override] of Object.entries(options.settings.pageOverrides)) {
@@ -167,7 +175,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             }
         }
         return includedPages > 0;
-    });
+    }
     const marginsAreValid = computed(() =>
         Object.values(options.settings.marginsMm).every((margin) => Number.isFinite(margin) && margin >= 0 && margin <= 25),
     );
@@ -191,7 +199,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     const placementAnchorCalibrationError = computed(() =>
         options.detectionStatus.value === 'completed' ? (options.placementAnchorCalibrationError?.value ?? '') : '',
     );
-    const missingInkPlacementAnchorPage = computed(() => {
+    function missingInkPlacementAnchorPageFor(requested: TRunTarget) {
         const resolvedOptions = options.resolvedOptions?.value ?? options.settings;
         if (options.detectionStatus.value !== 'completed' || !usesScanCleanupInkAlignment(resolvedOptions)) {
             return null;
@@ -199,7 +207,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         if (options.placementAnchorSummary?.value !== null && options.placementAnchorSummary?.value !== undefined) {
             return null;
         }
-        const requested = options.sourcePageNumbers.value;
         if (requested === null) {
             // Xlarge runs carry their bounded document calibration through the
             // detection state. Small full runs retain every page map, so only
@@ -208,11 +215,8 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         }
         const evidenceByPage = options.resolveConversionEvidence(requested).pagePlanEvidenceByPage;
         for (const pageNumber of requested) {
-            const pageOverride = getScanCleanupPageOverride(
-                resolvedOptions.pageOverrides,
-                requirePageNumber(pageNumber, Math.max(1, options.totalPages.value)),
-            );
-            if (pageOverride.excluded) {
+            const documentPage = documentPageOf(pageNumber);
+            if (documentPage === null || getScanCleanupPageOverride(resolvedOptions.pageOverrides, documentPage).excluded) {
                 continue;
             }
             const evidence = evidenceByPage.get(pageNumber);
@@ -244,18 +248,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             }
         }
         return null;
-    });
-    const isInkPlacementAnchorMissing = () => missingInkPlacementAnchorPage.value !== null;
-    const progress = computed(
-        () =>
-            scanCleanupRun.jobState?.progress ?? {
-                stage: 'queued' as const,
-                completedUnits: 0,
-                totalUnits: runPageCount.value,
-                percent: 0,
-                completedPageNumbers: [],
-            },
-    );
+    }
     const processedPages = computed(() =>
         resolveScanCleanupProcessedPages(
             scanCleanupRun.jobState,
@@ -274,31 +267,36 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             options.previewTotalPages(),
         ),
     );
-    const canRun = computed(
-        () =>
+    function canRunFor(target: TRunTarget) {
+        return (
             Boolean(options.sourcePath.value) &&
             options.documentSettingsReady.value &&
             !isRunning.value &&
             !otherDocumentRunning.value &&
-            hasIncludedPage.value &&
+            targetWithinDocument(target) &&
+            hasIncludedPageFor(target) &&
             marginsAreValid.value &&
             !placementAnchorCalibrationPending.value &&
             placementAnchorCalibrationError.value === '' &&
             !inkPlacementCapacityExceeded.value &&
-            missingInkPlacementAnchorPage.value === null &&
-            resolveScanCleanupSupport(getScanCleanupCapability()).conversion,
-    );
-    // Only ever read on the run affordance, which an engaged run replaces with
+            missingInkPlacementAnchorPageFor(target) === null &&
+            resolveScanCleanupSupport(getScanCleanupCapability()).conversion
+        );
+    }
+    // Only ever read on a run affordance, which an engaged run replaces with
     // the cancel affordance, so the transition explains itself in the meter
     // rather than here.
-    const runDisabledReason = computed(() => {
+    function runDisabledReasonFor(target: TRunTarget) {
         if (!options.sourcePath.value) {
             return t('scanCleanup.runDisabled.noSource');
         }
         if (!options.documentSettingsReady.value) {
             return t('scanCleanup.preview.loading');
         }
-        if (!hasIncludedPage.value) {
+        if (!targetWithinDocument(target)) {
+            return t('scanCleanup.preview.loading');
+        }
+        if (!hasIncludedPageFor(target)) {
             return t('scanCleanup.runDisabled.noIncludedPages');
         }
         if (!marginsAreValid.value) {
@@ -313,7 +311,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         if (inkPlacementCapacityExceeded.value) {
             return t('scanCleanup.errors.inkPlacementTooLarge');
         }
-        if (isInkPlacementAnchorMissing()) {
+        if (missingInkPlacementAnchorPageFor(target) !== null) {
             return t('scanCleanup.errors.inkPlacementMissing');
         }
         if (!resolveScanCleanupSupport(getScanCleanupCapability()).conversion) {
@@ -323,16 +321,19 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             return t('scanCleanup.runDisabled.otherDocumentRunning');
         }
         return '';
+    }
+    const canRun = computed(() => canRunFor(null));
+    const runDisabledReason = computed(() => runDisabledReasonFor(null));
+    const canRunSelection = computed(() => canRunFor(options.selectionPageNumbers.value));
+    const selectionRunDisabledReason = computed(() => runDisabledReasonFor(options.selectionPageNumbers.value));
+    const selectionRunLabel = computed(() => {
+        const pages = options.selectionPageNumbers.value;
+        return pages.length === 1
+            ? t('scanCleanup.cleanUpPage', {page: pages[0] ?? 1})
+            : t('scanCleanup.cleanUpPages', {count: pages.length});
     });
-    const runLabel = computed(() =>
-        options.sourcePageNumbers.value === null
-            ? t('scanCleanup.cleanUp')
-            : options.sourcePageNumbers.value.length === 1
-              ? t('scanCleanup.cleanUpPage', {page: options.sourcePageNumbers.value[0] ?? 1})
-              : t('scanCleanup.cleanUpPages', {count: options.sourcePageNumbers.value.length}),
-    );
 
-    async function run() {
+    async function start(target: TRunTarget) {
         if (!options.sourcePath.value) {
             return;
         }
@@ -359,7 +360,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             );
             return;
         }
-        if (isInkPlacementAnchorMissing()) {
+        if (missingInkPlacementAnchorPageFor(target) !== null) {
             reportScanCleanupRunError(
                 options.ownerId,
                 t('scanCleanup.errors.inkPlacementMissing'),
@@ -369,18 +370,19 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             );
             return;
         }
-        if (!canRun.value) {
+        if (!canRunFor(target)) {
             return;
         }
         // User-authored settings and selection belong to the click that began
         // the run. Detection evidence does not: page verdicts can still arrive
         // while the background job is settling, and snapshotting those maps
         // here silently discarded the newest usable page plans.
-        const requestedPageNumbers = options.sourcePageNumbers.value;
+        const requestedPageNumbers = target === null ? null : [...target];
+        const requestRunPageCount = runPageCountFor(requestedPageNumbers);
         const requestSourcePdfPath = options.sourcePath.value;
         const requestDocumentRevision = options.documentRevision.value;
         const requestOptions = options.resolvedOptions?.value ?? toPlainScanCleanupOptions(options.settings);
-        const requestedSourcePageNumbers = options.sourcePageNumbers.value === null ? null : [...options.sourcePageNumbers.value];
+        const isInkPlacementAnchorMissing = () => missingInkPlacementAnchorPageFor(requestedPageNumbers) !== null;
         const buildRequest = () => {
             // Detection may finish while the run waits for its terminal state.
             // Read the opaque handoff id at request-build time so a large result
@@ -388,7 +390,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             const detectionResultStoreId = options.detectionResultStoreId?.value ?? null;
             const placementAnchorSummary = options.placementAnchorSummary?.value ?? null;
             const legacyDetectionFields =
-                detectionResultStoreId === null && runPageCount.value <= DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
+                detectionResultStoreId === null && requestRunPageCount <= DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
                     ? (options.resolveConversionEvidence(requestedPageNumbers, {includeLegacyRequestFields: true}).legacyRequestFields ??
                       {})
                     : {};
@@ -421,7 +423,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 ownerId: options.ownerId,
                 documentRevision: requestDocumentRevision,
                 options: requestOptions,
-                ...(requestedSourcePageNumbers === null ? {} : {sourcePageNumbers: requestedSourcePageNumbers}),
+                ...(requestedPageNumbers === null ? {} : {sourcePageNumbers: requestedPageNumbers}),
                 ...(detectionResultStoreId === null ? {} : {detectionResultStoreId}),
                 ...(placementAnchorSummary === null ? {} : {placementAnchorSummary}),
                 ...legacyDetectionFields,
@@ -508,7 +510,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 return;
             }
             const detectionResultStoreId = () => options.detectionResultStoreId?.value ?? null;
-            if (runPageCount.value > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT && detectionResultStoreId() === null) {
+            if (requestRunPageCount > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT && detectionResultStoreId() === null) {
                 await refreshDetectionOnce();
                 if (detectionResultStoreId() === null) {
                     reportScanCleanupRunError(
@@ -538,7 +540,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 const pagePlanEvidenceMissing =
                     requestedPageNumbers === null
                         ? detectionEvidenceComplete === undefined
-                            ? evidence.pagePlanEvidenceCount < runPageCount.value
+                            ? evidence.pagePlanEvidenceCount < requestRunPageCount
                             : !detectionEvidenceComplete
                         : requestedPageNumbers.some((pageNumber) => !evidence.pagePlanEvidenceByPage.has(pageNumber));
                 if (pagePlanEvidenceMissing) {
@@ -558,7 +560,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 // complete page map as the proof of coverage.
                 const missingAutomaticModeDecisions =
                     requestedPageNumbers === null
-                        ? !(detectionEvidenceComplete ?? evidence.recommendedOutputModeCount >= runPageCount.value)
+                        ? !(detectionEvidenceComplete ?? evidence.recommendedOutputModeCount >= requestRunPageCount)
                         : requestedPageNumbers.some((pageNumber) => {
                               const pageOverride = getScanCleanupPageOverride(
                                   requestOptions.pageOverrides,
@@ -624,6 +626,11 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         }
     }
 
+    // The toolbar always cleans up the whole document; the Pages tab footer
+    // cleans up its own pages. Both share the one lifecycle above.
+    const run = () => start(null);
+    const runSelection = () => start(options.selectionPageNumbers.value);
+
     async function requestActiveJobCancellation(jobId: NonNullable<typeof scanCleanupRun.activeJobId>) {
         const outcome = await cancelScanCleanup();
         if (scanCleanupRun.activeJobId !== jobId) {
@@ -677,19 +684,23 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         cancelRequested,
         cancelStatusText,
         canRun,
+        canRunSelection,
         dismissError,
         error,
         errorCode,
         finishing,
         isRunning,
         processedPages,
-        progress,
         // The job's progress once it exists; the click that precedes it is
         // described by the transition instead of a placeholder count.
         jobProgress: computed(() => (scanCleanupRun.ownerId === options.ownerId ? (scanCleanupRun.jobState?.progress ?? null) : null)),
-        runLabel,
+        // The toolbar's action, whatever the rail shows: the whole document.
+        runLabel: computed(() => t('scanCleanup.cleanUp')),
         runDisabledReason,
         run,
+        runSelection,
+        selectionRunDisabledReason,
+        selectionRunLabel,
         starting: computed(() => transition.value === 'starting-cleanup'),
         waitingForDetection: computed(() => transition.value === 'waiting-for-detection'),
     };

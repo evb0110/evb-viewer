@@ -43,12 +43,12 @@
                     :alignment-items="alignmentItems"
                     :apply-scope-items="applyScopeItems"
                     :blank-page-count="blankPageCount"
+                    :can-run-selection="canRunSelection"
                     :changed-settings="changedSettings"
                     :content-boxes="scopeContentBoxes"
-                    :customized-counts="scopeCustomizedCounts"
                     :excluded="scopeExcluded"
-                    :has-scope-overrides="hasScopeOverrides"
-                    :highlighted-scope="highlightedScope"
+                    :has-document-overrides="hasDocumentOverrides"
+                    :has-page-overrides="hasPageTabOverrides"
                     :layout="scopeLayout"
                     :layout-items="scopeLayoutItems"
                     :manual-split="scopeManualSplit"
@@ -66,19 +66,24 @@
                     :reading-order-items="readingOrderItems"
                     :rotation="scopeRotation"
                     :rotation-items="scopeRotationItems"
-                    :scope="settingsScope"
                     :selected-count="selectedPages.size"
+                    :selection-run-disabled-reason="selectionRunDisabledReason"
+                    :selection-run-label="selectionRunLabel"
                     :settings="settings"
+                    :show-reading-order="showReadingOrder"
+                    :tab="settingsTab"
                     :thickness-label="thicknessLabel"
                     :total-pages="previewTotalPages"
                     @reset-content-boxes="resetScopeContentBoxes"
                     @reset-control-override="resetControlOverride"
                     @reset-manual-split="resetScopeManualSplit"
                     @reset-manual-skew="resetScopeManualSkew"
-                    @reset-scope-overrides="resetScopeOverrides"
+                    @reset-page-overrides="resetPageTabOverrides"
                     @reset-settings="resetSettingsToDefaults"
                     @margin-interaction="marginBoundaryVisible = $event"
+                    @run-selection="runSelection"
                     @thickness-input="handleThicknessInput"
+                    @update-document-output="updateDocumentOutput"
                     @update-inclusion="handleScopeInclusion"
                     @update-layout="handleScopeLayout"
                     @update-margin="updateScopeMargins"
@@ -88,7 +93,7 @@
                     @update-placement="updateScopePlacement"
                     @update-rotation="handleScopeRotation"
                     @update-setting="updateDocumentSetting"
-                    @update:scope="setSettingsScope"
+                    @update:tab="setSettingsTab"
                 />
             </fieldset>
 
@@ -195,7 +200,6 @@ import {
     DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
     getScanCleanupPageOverride,
     isDefaultScanCleanupPageOverride,
-    isScanCleanupPageOverrideInherited,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     resolveScanCleanupMarginsMm,
@@ -209,7 +213,7 @@ import ScanCleanupThumbnailRail from '@app/modules/scan-cleanup/components/ScanC
 import ScanCleanupToolbar from '@app/modules/scan-cleanup/components/ScanCleanupToolbar.vue';
 import ScanCleanupSettingsPanel from '@app/modules/scan-cleanup/components/settings/ScanCleanupSettingsPanel.vue';
 import {useScanCleanupWorkspaceSession} from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
-import type {IScanCleanupPageFacts} from '@app/modules/scan-cleanup/runtime/describeScanCleanupPage';
+import {scanCleanupOutputModeLabel, type IScanCleanupPageFacts} from '@app/modules/scan-cleanup/runtime/describeScanCleanupPage';
 import {
     resolveScanCleanupMixedValue,
     updateScanCleanupPageOverrideRotation,
@@ -305,15 +309,16 @@ watch(
 const {
     applyLeaderOverrides,
     currentPageOverride,
-    highlightedScope,
+    inspectPage: inspectSelectionPage,
     leader: selectionLeader,
+    pageTabPageNumbers,
     resetControlOverride,
-    resetScopeOverrides,
+    resetPageTabOverrides,
     selectedPages,
     selectPage,
     setMarginsLinked: setScopeMarginsLinked,
-    setSettingsScope,
-    settingsScope,
+    setSettingsTab,
+    settingsTab,
     updateCurrentManualContentBox,
     updateCurrentManualSplit,
     updateCurrentManualZones,
@@ -334,6 +339,7 @@ const {
     cancelRequested: detectionCancelRequested,
     confidenceByPage: detectedLayoutConfidenceByPage,
     detectAllPages,
+    detectionResultStoreId,
     error: detectionError,
     errorCode: detectionErrorCode,
     layoutDetectionComplete,
@@ -369,6 +375,7 @@ const {
     cancelRequested,
     cancelStatusText,
     canRun,
+    canRunSelection,
     dismissError: dismissRunError,
     error: runError,
     finishing,
@@ -377,6 +384,9 @@ const {
     runLabel,
     runDisabledReason,
     run,
+    runSelection,
+    selectionRunDisabledReason,
+    selectionRunLabel,
     waitingForDetection,
 } = workspaceSession.run;
 // A failed analysis is told once, when this workspace is the one on screen: an
@@ -492,20 +502,13 @@ function resetSettingsToDefaults() {
     editDocumentSettings([], () => resetScanCleanupOptionsToDefaults(settings));
 }
 
-const scopePageNumbers = computed<readonly number[]>(() =>
-    settingsScope.value === 'all'
-        ? []
-        : settingsScope.value === 'page'
-          ? [selectionLeader.value]
-          : [...selectedPages.value].sort((left, right) => left - right),
-);
+// The Document tab edits the values pages inherit, so only the Pages tab has
+// pages of its own to read and mark.
+const documentTab = computed(() => settingsTab.value === 'document');
+const singlePageTab = computed(() => !documentTab.value && selectedPages.value.size < 2);
+const scopePageNumbers = computed<readonly number[]>(() => (documentTab.value ? [] : pageTabPageNumbers.value));
 function getPageOverride(page: number) {
-    return getScanCleanupPageOverride(
-        settings.pageOverrides,
-        requirePageNumber(page, Math.max(1, previewTotalPages.value)),
-        settings.pageOverrideDefaults,
-        settings.marginsMm,
-    );
+    return getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(page), settings.pageOverrideDefaults, settings.marginsMm);
 }
 function existingOverridePages() {
     return Object.keys(settings.pageOverrides)
@@ -522,66 +525,62 @@ function resolveAllPageOverrideValue<T>(defaultValue: T, read: (override: Return
     }
     return resolveScanCleanupMixedValue(values);
 }
-const scopeCustomizedCounts = computed(() => {
-    const customizedPages = new Set(
-        Object.keys(settings.pageOverrides)
-            .map(Number)
-            .filter((page) => Number.isInteger(page) && page >= 1 && page <= previewTotalPages.value)
-            .filter((page) => !isScanCleanupPageOverrideInherited(settings.pageOverrides, getPageOverride(page))),
-    );
-    return {
-        all: isDefaultScanCleanupPageOverride(allScopeDefaultOverride.value) ? customizedPages.size : previewTotalPages.value,
-        page: customizedPages.has(selectionLeader.value) ? 1 : 0,
-        selected: [...selectedPages.value].filter((page) => customizedPages.has(page)).length,
-    };
-});
 const scopeLayout = computed(() =>
-    settingsScope.value === 'all'
+    documentTab.value
         ? resolveScanCleanupMixedValue([settings.layoutMode])
         : resolveScanCleanupMixedValue(scopePageOverrides.value.map((override) => override.layoutOverride)),
 );
 const scopeRotation = computed(() =>
-    settingsScope.value === 'all'
+    documentTab.value
         ? resolveScanCleanupMixedValue([allScopeDefaultOverride.value.rotationDegrees])
         : resolveScanCleanupMixedValue(scopePageOverrides.value.map((override) => override.rotationDegrees)),
 );
-const scopeOutputModeOverride = computed(() =>
-    settingsScope.value === 'all'
-        ? resolveAllPageOverrideValue(undefined, (override) => override.outputModeOverride)
-        : resolveScanCleanupMixedValue(scopePageOverrides.value.map((override) => override.outputModeOverride)),
-);
+// A page whose mode matches the one pages inherit, which a copy to all pages
+// may have set, follows the document; only a different mode is its own.
+const scopeOutputModeOverride = computed(() => {
+    if (documentTab.value) {
+        return resolveAllPageOverrideValue(undefined, (override) => override.outputModeOverride);
+    }
+    const inherited = allScopeDefaultOverride.value.outputModeOverride;
+    return resolveScanCleanupMixedValue(
+        scopePageOverrides.value.map((override) => (override.outputModeOverride === inherited ? undefined : override.outputModeOverride)),
+    );
+});
 const scopeExcluded = computed(() =>
-    settingsScope.value === 'all'
+    documentTab.value
         ? resolveScanCleanupMixedValue([allScopeDefaultOverride.value.excluded])
         : resolveScanCleanupMixedValue(scopePageOverrides.value.map((override) => override.excluded)),
 );
 const scopeManualSplit = computed(() =>
-    settingsScope.value === 'all'
+    documentTab.value
         ? resolveAllPageOverrideValue(null, (override) => override.manualSplit)
         : resolveScanCleanupMixedValue(scopePageOverrides.value.map((override) => override.manualSplit)),
 );
 const scopeManualSkew = computed(() =>
-    settingsScope.value === 'all'
+    documentTab.value
         ? resolveAllPageOverrideValue(undefined, (override) => override.manualSkewDegrees)
         : resolveScanCleanupMixedValue(scopePageOverrides.value.map((override) => override.manualSkewDegrees)),
 );
-const scopeDetectedSkewDegrees = computed(() =>
-    settingsScope.value === 'page' ? previewMetadataByPage.get(selectionLeader.value)?.detectedSkewDegrees : undefined,
-);
+// A preview rendered with a manual angle reports that angle as detected, so it
+// cannot seed the stepper after the page returns to Automatic.
+const scopeDetectedSkewDegrees = computed(() => {
+    const metadata = singlePageTab.value ? previewMetadataByPage.get(selectionLeader.value) : undefined;
+    return metadata && metadata.manualSkew !== true ? metadata.detectedSkewDegrees : undefined;
+});
 const scopeContentBoxes = computed(() =>
-    settingsScope.value === 'all'
+    documentTab.value
         ? resolveAllPageOverrideValue({}, (override) => override.manualContentBoxes ?? {})
         : resolveScanCleanupMixedValue(scopePageOverrides.value.map((override) => override.manualContentBoxes ?? {})),
 );
 const scopeMargins = computed(() =>
-    settingsScope.value === 'all'
+    documentTab.value
         ? resolveScanCleanupMixedValue([resolveScanCleanupMarginsMm(settings.marginsMm, allScopeDefaultOverride.value)])
         : resolveScanCleanupMixedValue(
               scopePageOverrides.value.map((override) => resolveScanCleanupMarginsMm(settings.marginsMm, override)),
           ),
 );
 const scopePlacementAlignment = computed(() =>
-    settingsScope.value === 'all'
+    documentTab.value
         ? resolveScanCleanupMixedValue(
               (['full', 'left', 'right'] as const).map((half) =>
                   resolveScanCleanupOutputPlacement(settings.pageAlignment, allScopeDefaultOverride.value, half),
@@ -596,7 +595,7 @@ const scopePlacementAlignment = computed(() =>
           ),
 );
 const scopeMarginsLinked = computed(() => documentMarginsLinked.value);
-// Only the Page and Selected scopes mark a control as overridden: All edits the
+// Only the Pages tab marks a control as overridden: the Document tab edits the
 // defaults that every page without its own setting follows.
 const scopeOverrideCounts = computed(() => {
     const counts = {
@@ -607,9 +606,10 @@ const scopeOverrideCounts = computed(() => {
         placement: 0,
         rotation: 0,
     };
-    if (settingsScope.value === 'all') {
+    if (documentTab.value) {
         return counts;
     }
+    const documentRotation = allScopeDefaultOverride.value.rotationDegrees;
     const pages = scopePageNumbers.value;
     for (const page of pages) {
         if (!Number.isSafeInteger(page) || page < 1 || page > previewTotalPages.value) {
@@ -619,10 +619,10 @@ const scopeOverrideCounts = computed(() => {
         if (resolveScanCleanupPageLayout(settings.layoutMode, override.layoutOverride) !== settings.layoutMode) {
             counts.layout += 1;
         }
-        if (override.rotationDegrees !== DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.rotationDegrees) {
+        if (override.rotationDegrees !== documentRotation) {
             counts.rotation += 1;
         }
-        if (override.outputModeOverride !== undefined) {
+        if (override.outputModeOverride !== allScopeDefaultOverride.value.outputModeOverride) {
             counts.outputMode += 1;
         }
         if (override.excluded !== DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.excluded) {
@@ -637,19 +637,38 @@ const scopeOverrideCounts = computed(() => {
     }
     return counts;
 });
-const hasScopeOverrides = computed(() => {
-    if (settingsScope.value === 'all') {
-        return Object.keys(settings.pageOverrides).length > 0 || !isDefaultScanCleanupPageOverride(allScopeDefaultOverride.value);
+const hasDocumentOverrides = computed(
+    () => Object.keys(settings.pageOverrides).length > 0 || !isDefaultScanCleanupPageOverride(allScopeDefaultOverride.value),
+);
+const hasPageTabOverrides = computed(() => pageTabPageNumbers.value.some((page) => settings.pageOverrides[String(page)] !== undefined));
+// Reading order only decides which half of a cut page comes first, so it shows
+// once a page is, or may be, cut into two: by the layout settings, a manual
+// cutter, or detection. A large document's detection keeps only a bounded
+// window of verdicts, so pages it has not reported may be spreads when they
+// inherit Auto or were set back to Auto on their own.
+const showReadingOrder = computed(() => {
+    if (settings.layoutMode === 'force-two-page' || settings.pageOverrideDefaults?.layoutOverride === 'spread') {
+        return true;
     }
-    for (const page of scopePageNumbers.value) {
-        if (settings.pageOverrides[String(page)] !== undefined) {
+    if (Object.values(settings.pageOverrides).some((override) => override.layoutOverride === 'spread' || override.manualSplit !== null)) {
+        return true;
+    }
+    const layoutByPage = authoritativeLayoutByPage.value;
+    for (const classification of layoutByPage.values()) {
+        if (classification === 'two-page-spread') {
             return true;
         }
     }
-    return false;
+    if (settings.layoutMode !== 'auto' || detectionResultStoreId.value === null || layoutByPage.size >= previewTotalPages.value) {
+        return false;
+    }
+    return (
+        (settings.pageOverrideDefaults?.layoutOverride ?? 'auto') === 'auto' ||
+        existingOverridePages().some((page) => !layoutByPage.has(page) && settings.pageOverrides[String(page)]?.layoutOverride === 'auto')
+    );
 });
 const scopeLayoutItems = computed(() =>
-    settingsScope.value === 'all'
+    documentTab.value
         ? layoutItems.value
         : [
               ...(scopeLayout.value.mixed
@@ -698,6 +717,22 @@ const scopeRotationItems = computed(() => [
         label: t('scanCleanup.settings.rotationDegrees', {value}),
     })),
 ]);
+// A single page names the mode it inherits, so "Follow document" says what it
+// follows: the page defaults a copy to all pages set, else the document's
+// mode. Several pages, or an Auto page detection has not decided yet, cannot
+// name one, and an unresolved Auto is never presented as B&W.
+const inheritedOutputMode = computed(() =>
+    singlePageTab.value
+        ? resolveScanCleanupEffectiveOutputMode({
+              options: {
+                  outputMode: settings.outputMode,
+                  preserveOriginalQuality: false,
+              },
+              pageOverride: allScopeDefaultOverride.value,
+              detectedOutputMode: recommendedOutputModeByPage.value.get(selectionLeader.value),
+          })
+        : undefined,
+);
 const scopeOutputModeOverrideItems = computed(() => [
     ...(scopeOutputModeOverride.value.mixed
         ? [
@@ -710,7 +745,12 @@ const scopeOutputModeOverrideItems = computed(() => [
         : []),
     {
         value: 'auto' as const,
-        label: t('scanCleanup.pages.outputModeFollowDocument'),
+        label:
+            inheritedOutputMode.value === undefined
+                ? t('scanCleanup.pages.outputModeFollowDocument')
+                : t('scanCleanup.pages.outputModeFollowDocumentWithMode', {
+                      mode: scanCleanupOutputModeLabel(t, inheritedOutputMode.value),
+                  }),
     },
     {
         value: 'bw' as const,
@@ -761,18 +801,14 @@ const applyScopeItems = computed(() => {
     ];
 });
 
-// The rail's warning marker opens the page in Page scope, where its findings
-// and the controls that fix them are.
 function inspectPage(page: number) {
-    if (isRunning.value) {
-        return;
+    if (!isRunning.value) {
+        inspectSelectionPage(page);
     }
-    selectPage(page, 'single', [page]);
-    setSettingsScope('page');
 }
 
 const pageFacts = computed<IScanCleanupPageFacts | null>(() => {
-    if (settingsScope.value !== 'page') {
+    if (!singlePageTab.value) {
         return null;
     }
     const page = selectionLeader.value;
@@ -796,8 +832,28 @@ function updateDocumentSetting(key: keyof IScanCleanupOptions, value: IScanClean
     editDocumentSettings([], () => Object.assign(settings, {[key]: value}));
 }
 
+// Original images and a raster mode are one choice in the rail, stored as
+// `preserveOriginalQuality` beside the raster mode it leaves untouched.
+function updateDocumentOutput(value: string | number) {
+    const output = String(value);
+    if (output === 'original') {
+        editDocumentSettings([], () => {
+            settings.preserveOriginalQuality = true;
+        });
+        return;
+    }
+    if (outputItems.value.some((item) => item.value === output)) {
+        editDocumentSettings([], () => {
+            settings.preserveOriginalQuality = false;
+            settings.outputMode = output as IScanCleanupOptions['outputMode'];
+        });
+    }
+}
+
 function useMixedOutput() {
-    settings.preserveOriginalQuality = false;
+    editDocumentSettings([], () => {
+        settings.preserveOriginalQuality = false;
+    });
     updatePageOverride(previewPage.value, {
         ...currentPageOverride.value,
         outputModeOverride: 'mixed',
@@ -806,7 +862,7 @@ function useMixedOutput() {
 
 function handleScopeLayout(value: string | number) {
     const layout = String(value);
-    if (settingsScope.value === 'all') {
+    if (documentTab.value) {
         updateScopeLayout(layout as IScanCleanupOptions['layoutMode']);
         return;
     }
@@ -817,17 +873,16 @@ function handleScopeLayout(value: string | number) {
 
 function handleScopeOutputMode(value: string | number) {
     const outputMode = String(value);
-    if (['auto', 'bw', 'mixed', 'grayscale', 'color'].includes(outputMode)) {
-        updateScopeOverrides((current) => {
-            if (outputMode === 'auto') {
-                const {outputModeOverride: _outputModeOverride, ...withoutOutputMode} = current;
-                return withoutOutputMode;
-            }
-            return {
-                ...current,
-                outputModeOverride: outputMode as TScanCleanupOutputMode,
-            };
-        });
+    // "Follow document" is the output reset: both return to the inherited mode.
+    if (outputMode === 'auto') {
+        resetControlOverride('output-mode');
+        return;
+    }
+    if (['bw', 'mixed', 'grayscale', 'color'].includes(outputMode)) {
+        updateScopeOverrides((current) => ({
+            ...current,
+            outputModeOverride: outputMode as TScanCleanupOutputMode,
+        }));
     }
 }
 

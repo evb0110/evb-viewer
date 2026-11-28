@@ -20,15 +20,15 @@ describe('message formatting', () => {
         expect(formatTranslationLeaf(leaf, {count: 3}, 'en')).toBe('3 files');
     });
 
-    it('formats the Russian scan cleanup selection message with the correct case', () => {
-        const selected = LOCALE_MESSAGES.ru.scanCleanup.settings.scope.selected;
+    it('formats the Russian scan cleanup page count with the correct case', () => {
+        const selected = LOCALE_MESSAGES.ru.scanCleanup.pages.count;
 
-        expect(formatTranslationLeaf(selected, {count: 1}, 'ru')).toBe('Выбрана 1');
-        expect(formatTranslationLeaf(selected, {count: 2}, 'ru')).toBe('Выбрано 2');
-        expect(formatTranslationLeaf(selected, {count: 5}, 'ru')).toBe('Выбрано 5');
-        expect(formatTranslationLeaf(selected, {count: 21}, 'ru')).toBe('Выбрана 21');
-        expect(formatTranslationLeaf(selected, {count: 22}, 'ru')).toBe('Выбрано 22');
-        expect(formatTranslationLeaf(selected, {count: 25}, 'ru')).toBe('Выбрано 25');
+        expect(formatTranslationLeaf(selected, {count: 1}, 'ru')).toBe('1 исходная страница');
+        expect(formatTranslationLeaf(selected, {count: 2}, 'ru')).toBe('2 исходные страницы');
+        expect(formatTranslationLeaf(selected, {count: 5}, 'ru')).toBe('5 исходных страниц');
+        expect(formatTranslationLeaf(selected, {count: 21}, 'ru')).toBe('21 исходная страница');
+        expect(formatTranslationLeaf(selected, {count: 22}, 'ru')).toBe('22 исходные страницы');
+        expect(formatTranslationLeaf(selected, {count: 25}, 'ru')).toBe('25 исходных страниц');
     });
 
     it('names a single page in the singular where a count can be one', () => {

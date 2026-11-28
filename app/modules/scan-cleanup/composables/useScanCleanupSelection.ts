@@ -14,7 +14,7 @@ import type {
 import type {Ref} from 'vue';
 import {isEqual} from 'es-toolkit/predicate';
 import {omit, omitBy} from 'es-toolkit/object';
-import {tryOnScopeDispose, useTimeoutFn} from '@vueuse/core';
+import {tryOnScopeDispose} from '@vueuse/core';
 import {cloneScanCleanupPreferenceValue} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     attachScanCleanupPageOverrideDefaults,
@@ -50,7 +50,6 @@ interface IUseScanCleanupSelectionOptions {
     marginsLinked: Ref<boolean>;
     updateDocumentMargin?: (target: TScanCleanupMarginTarget, value: number) => void;
     setDocumentMarginsLinked?: (linked: boolean) => void;
-    resetPageOverrides?: () => void;
     /** Writes a new leader, the preview page, to the tab's view state. */
     saveLeader?: () => void;
 }
@@ -61,7 +60,11 @@ interface IScanCleanupDocumentReplacement {
     pageMapping?: TScanCleanupPageOutputMapping | null;
 }
 
-export type TScanCleanupSettingsScope = 'all' | 'page' | 'selected';
+/**
+ * The rail's two tabs. Document edits the values every page inherits; Pages
+ * edits the selected pages, or the leader alone when one page is selected.
+ */
+export type TScanCleanupSettingsTab = 'document' | 'pages';
 export type TScanCleanupOverrideControl = 'layout' | 'output-mode' | 'rotation' | 'inclusion' | 'margins' | 'placement';
 
 // Shared document-level preferences (`layoutMode`, `pageAlignment`) span open
@@ -85,17 +88,14 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     });
     const anchor = ref(options.initialPage);
     const selectedPages = shallowRef<ReadonlySet<number>>(new Set([options.initialPage]));
-    const settingsScope = ref<TScanCleanupSettingsScope>('all');
-    const highlightedScope = ref<TScanCleanupSettingsScope | null>(null);
-    const highlightReset = useTimeoutFn(
-        () => {
-            highlightedScope.value = null;
-        },
-        250,
-        {immediate: false},
-    );
+    const settingsTab = ref<TScanCleanupSettingsTab>('document');
     const currentPageOverride = computed(() => getPageOverride(leader.value));
     const selectedPageNumbers = computed(() => [...selectedPages.value].sort((left, right) => left - right));
+    // The pages the Pages tab edits, resets and cleans up: the selection when
+    // it holds several pages, otherwise the page on screen.
+    const pageTabPageNumbers = computed<readonly number[]>(() =>
+        selectedPages.value.size >= 2 ? selectedPageNumbers.value : [leader.value],
+    );
 
     function getPageOverride(page: number) {
         return getScanCleanupPageOverride(
@@ -115,10 +115,6 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         return Object.keys(settings.pageOverrides)
             .map(Number)
             .filter((page) => Number.isSafeInteger(page) && page >= 1 && page <= totalPages);
-    }
-
-    function scopeTargetPages() {
-        return settingsScope.value === 'page' ? [leader.value] : selectedPageNumbers.value;
     }
 
     // Override edits join the document's undo history where the workspace provides it.
@@ -209,7 +205,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         });
     }
 
-    // An All-scope edit sets the page defaults first.
+    // A Document-tab edit sets the page defaults first.
     function updateOverrides(pages: Iterable<number>, update: TScanCleanupPageOverrideUpdate, defaults?: IScanCleanupPageOverride) {
         const selected = [...new Set(pages)];
         recordOverrideEdit(selected, () => {
@@ -228,10 +224,10 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     }
 
     function updateScopeOverrides(update: TScanCleanupPageOverrideUpdate, updateExisting: TScanCleanupPageOverrideUpdate = update) {
-        if (settingsScope.value === 'all') {
+        if (settingsTab.value === 'document') {
             updateOverrides(existingOverridePages(), updateExisting, update(allScopeDefaultOverride(), leader.value));
         } else {
-            updateOverrides(scopeTargetPages(), update);
+            updateOverrides(pageTabPageNumbers.value, update);
         }
     }
 
@@ -259,7 +255,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     }
 
     function updateScopeMargins(target: TScanCleanupMarginTarget, value: number) {
-        if (settingsScope.value === 'all') {
+        if (settingsTab.value === 'document') {
             recordOverrideEdit(Object.keys(settings.pageOverrides).map(Number), () => {
                 setPageOverrideDefaults(omit(allScopeDefaultOverride(), ['marginsMm']));
                 if (options.updateDocumentMargin) {
@@ -270,11 +266,11 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
             });
             return;
         }
-        updatePageMargins(target, value, scopeTargetPages());
+        updatePageMargins(target, value, pageTabPageNumbers.value);
     }
 
     function updateScopeLayout(value: IScanCleanupOptions['layoutMode'] | TScanCleanupPageLayoutOverride) {
-        if (settingsScope.value === 'all') {
+        if (settingsTab.value === 'document') {
             if (!['auto', 'force-single', 'force-two-page'].includes(value)) {
                 return;
             }
@@ -305,7 +301,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     }
 
     function setMarginsLinked(linked: boolean) {
-        if (settingsScope.value === 'all') {
+        if (settingsTab.value === 'document') {
             if (!linked) {
                 if (options.setDocumentMarginsLinked) {
                     options.setDocumentMarginsLinked(false);
@@ -329,9 +325,9 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
             });
             return;
         }
-        // Page and Selected scopes equalize their own pages' margins, like
-        // every other margin edit there; the document's stay as they are.
-        const pages = scopeTargetPages();
+        // The Pages tab equalizes its own pages' margins, like every other
+        // margin edit there; the document's stay as they are.
+        const pages = pageTabPageNumbers.value;
         const effective = resolveScanCleanupMixedValue(
             pages.map((page) => resolveScanCleanupMarginsMm(settings.marginsMm, getPageOverride(page))),
         );
@@ -366,10 +362,20 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
                 };
             }
             if (control === 'rotation') {
-                return updateScanCleanupPageOverrideRotation(current, DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.rotationDegrees);
+                // Back to the document's rotation, not to 0°: a real angle
+                // change still clears the geometry drawn at the old angle.
+                return updateScanCleanupPageOverrideRotation(current, allScopeDefaultOverride().rotationDegrees);
             }
             if (control === 'output-mode') {
-                return omit(current, ['outputModeOverride']);
+                // Back to the mode pages inherit, which a copy to all pages
+                // may have set, like a reset page; not to the document's.
+                const inherited = allScopeDefaultOverride().outputModeOverride;
+                return inherited === undefined
+                    ? omit(current, ['outputModeOverride'])
+                    : {
+                          ...current,
+                          outputModeOverride: inherited,
+                      };
             }
             if (control === 'inclusion') {
                 return {
@@ -385,7 +391,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     }
 
     function updateScopePlacement(value: TScanCleanupPageAlignment) {
-        if (settingsScope.value === 'all') {
+        if (settingsTab.value === 'document') {
             const pages = Object.keys(settings.pageOverrides).map(Number);
             const removeMatchingPlacement = (current: IScanCleanupPageOverride) => ({
                 ...current,
@@ -400,7 +406,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
             });
             return;
         }
-        updateOverrides(scopeTargetPages(), (current) => ({
+        updateOverrides(pageTabPageNumbers.value, (current) => ({
             ...current,
             placementOverrides: {
                 ...current.placementOverrides,
@@ -471,33 +477,25 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         });
     }
 
-    function resetScopeOverrides() {
-        if (settingsScope.value === 'all') {
-            if (options.resetPageOverrides) {
-                options.resetPageOverrides();
-            } else {
-                setPageOverrideDefaults(createScanCleanupPageOverride(), {});
+    // The Pages tab's pages follow the document again: their own entries go,
+    // as one undoable edit, rather than being pinned to the built-in values.
+    function resetPageTabOverrides() {
+        const pages = pageTabPageNumbers.value;
+        recordOverrideEdit(pages, () => {
+            for (const page of pages) {
+                Reflect.deleteProperty(settings.pageOverrides, String(page));
             }
-            return;
-        }
-        updateOverrides(scopeTargetPages(), () => createScanCleanupPageOverride());
+        });
     }
 
-    function setSettingsScope(value: TScanCleanupSettingsScope) {
-        if (value === 'selected' && selectedPages.value.size < 2) {
-            return;
-        }
-        settingsScope.value = value;
+    function setSettingsTab(value: TScanCleanupSettingsTab) {
+        settingsTab.value = value;
     }
 
-    function highlightSettingsScope(value: TScanCleanupSettingsScope) {
-        settingsScope.value = value;
-        highlightedScope.value = value;
-        highlightReset.start();
-    }
-
+    // Only a deliberate multi-page selection changes the tab: a plain click,
+    // an arrow key or preview navigation keeps the tab the user chose, and
+    // narrowing back to one page stays on it.
     function selectPage(page: number, intent: TScanCleanupSelectionIntent, orderedPages: TScanCleanupOrderedPages) {
-        const previousCount = selectedPages.value.size;
         const selection = resolveScanCleanupSelection(
             {
                 anchor: anchor.value,
@@ -512,10 +510,15 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         leader.value = selection.leader;
         selectedPages.value = selection.selectedPages;
         if (intent !== 'single' && selection.selectedPages.size >= 2) {
-            highlightSettingsScope('selected');
-        } else if (previousCount >= 2 && selection.selectedPages.size <= 1) {
-            highlightSettingsScope('page');
+            settingsTab.value = 'pages';
         }
+    }
+
+    // A thumbnail's warning marker opens that page on the Pages tab, where its
+    // findings and the controls that fix them are.
+    function inspectPage(page: number) {
+        selectPage(page, 'single', [page]);
+        settingsTab.value = 'pages';
     }
 
     function resetSelection(pageCount: number, page: number) {
@@ -524,8 +527,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         anchor.value = nextPage;
         leader.value = nextPage;
         selectedPages.value = new Set([nextPage]);
-        settingsScope.value = 'all';
-        highlightedScope.value = null;
+        settingsTab.value = 'document';
     }
 
     function resetToLeader(pageCount: number) {
@@ -585,24 +587,24 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         leader.value = mappedLeader;
         anchor.value = mappedAnchor;
         selectedPages.value = new Set(mappedSelectedPages as number[]);
-        highlightedScope.value = null;
     }
 
     return {
         applyLeaderOverrides,
         currentPageOverride,
-        highlightedScope,
+        inspectPage,
         leader,
+        pageTabPageNumbers,
         reconcileDocumentReplacement,
         reconcilePageCount,
         resetControlOverride,
-        resetScopeOverrides,
+        resetPageTabOverrides,
         resetToLeader,
         selectedPages,
         selectPage,
         setMarginsLinked,
-        setSettingsScope,
-        settingsScope,
+        setSettingsTab,
+        settingsTab,
         updateCurrentManualContentBox,
         updateCurrentManualSplit,
         updateCurrentManualZones,

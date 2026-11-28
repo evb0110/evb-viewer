@@ -9,7 +9,7 @@ import {PDFBool, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream} from 'p
 import {describe, expect, it, onTestFinished} from 'vitest';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {clickAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {
     dismissScanCleanupFirstRunGuidance,
@@ -352,13 +352,12 @@ async function cleanScan(sourcePath: string, options: {blackAndWhite: boolean}) 
         {timeout: 120_000},
     );
     if (options.blackAndWhite) {
-        const blackAndWhite = '[role="radiogroup"][aria-label="Output"] [role="radio"][aria-label="Black and white"]';
-        await clickAsUser(session.page, blackAndWhite);
-        await waitForFunctionInPage(
+        await clickAsUser(session.page, '[data-document-output]');
+        await clickFoundAsUser(
             session.page,
-            (selector: string) => document.querySelector(selector)?.getAttribute('aria-checked') === 'true',
-            {timeout: 5_000},
-            blackAndWhite,
+            () => [...document.querySelectorAll('[role="option"]')].find((el) => el.textContent?.trim() === 'Black and white'),
+            undefined,
+            {description: 'Black and white output'},
         );
     }
     await waitForFunctionInPage(

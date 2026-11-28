@@ -87,7 +87,13 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             page: options.initialPreviewPage?.(),
             viewMode: options.initialPreviewViewMode?.(),
         };
-        const session = workspaceSession.value!;
+        const session = workspaceSession.value! as Record<string, unknown> & {
+            selectedPages?: Ref<ReadonlySet<number>>;
+            selectionLeader: Ref<number>;
+            selectPage: (page: number) => void;
+            settingsTab?: Ref<'document' | 'pages'>;
+        };
+        const settingsTab = session.settingsTab ?? ref<'document' | 'pages'>('document');
         return {
             settings: {
                 alignmentItems: session.alignmentItems,
@@ -109,15 +115,23 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             selection: {
                 applyLeaderOverrides: session.applyLeaderOverrides,
                 currentPageOverride: session.currentPageOverride,
-                highlightedScope: session.highlightedScope ?? ref(null),
+                pageTabPageNumbers:
+                    session.pageTabPageNumbers ??
+                    computed(() => Array.from(unref(session.selectedPages) ?? [unref(session.selectionLeader)])),
+                inspectPage:
+                    session.inspectPage ??
+                    ((page: number) => {
+                        session.selectPage(page);
+                        settingsTab.value = 'pages';
+                    }),
                 leader: session.selectionLeader,
                 resetControlOverride: session.resetControlOverride ?? vi.fn(),
-                resetScopeOverrides: session.resetScopeOverrides ?? vi.fn(),
+                resetPageTabOverrides: session.resetPageTabOverrides ?? vi.fn(),
                 selectedPages: session.selectedPages,
                 selectPage: session.selectPage,
                 setMarginsLinked: session.setSelectionMarginsLinked ?? vi.fn(),
-                setSettingsScope: session.setSettingsScope ?? vi.fn(),
-                settingsScope: session.settingsScope ?? ref('all'),
+                setSettingsTab: session.setSettingsTab ?? vi.fn(),
+                settingsTab,
                 updateCurrentManualContentBox: session.updateCurrentManualContentBox,
                 updateCurrentManualSplit: session.updateCurrentManualSplit,
                 updateCurrentManualZones: session.updateCurrentManualZones ?? vi.fn(),
@@ -137,6 +151,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
                 cancelRequested: session.detectionCancelRequested,
                 confidenceByPage: computed(() => unref(session.detectedLayoutConfidenceByPage) ?? new Map()),
                 detectAllPages: session.detectAllPages,
+                detectionResultStoreId: session.detectionResultStoreId ?? ref(null),
                 error: session.detectionError,
                 outputEstimate: session.outputEstimate,
                 pending: session.detectionPending,
@@ -167,6 +182,10 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
                 cancel: session.cancel,
                 cancelRequested: session.cancelRequested,
                 canRun: session.canRun,
+                canRunSelection: session.canRunSelection ?? ref(false),
+                selectionRunDisabledReason: session.selectionRunDisabledReason ?? ref(''),
+                selectionRunLabel: session.selectionRunLabel ?? ref('Clean up selection'),
+                runSelection: session.runSelection ?? vi.fn(),
                 inlineError: session.inlineError,
                 isRunning: session.isRunning,
                 ownerId: session.ownerId,
@@ -258,6 +277,7 @@ const translations: Record<string, string> = {
     'scanCleanup.output.preserveOriginalQuality': 'Preserve original quality (no rasterization)',
     'scanCleanup.output.losslessDisabledOptions': 'Raster cleanup options are unavailable in this mode.',
     'scanCleanup.pages.outputModeFollowDocument': 'Follow document setting',
+    'scanCleanup.pages.outputModeFollowDocumentWithMode': 'Follow document · {mode}',
     'scanCleanup.pages.outputModeLosslessControlHint':
         'Per-page output mode is unavailable because preserving original quality forces color.',
     'scanCleanup.imageOnly': EN_MESSAGES.scanCleanup.imageOnly,
@@ -267,6 +287,7 @@ const translations: Record<string, string> = {
     'scanCleanup.button': 'Scan cleanup',
     'scanCleanup.description': 'Clean scanned pages.',
     'scanCleanup.done': 'Done',
+    'scanCleanup.settings.title': 'Settings',
     'scanCleanup.settings.scope.label': 'Settings scope',
     'scanCleanup.settings.scope.all': 'All pages',
     'scanCleanup.settings.scope.page': 'Page {page}',
@@ -963,7 +984,13 @@ function settingsPanelProps(
         readingOrderItems: [],
         rotation: single(0),
         rotationItems: [],
-        scope,
+        tab: scope === 'all' ? 'document' : 'pages',
+        canRunSelection: false,
+        hasDocumentOverrides: false,
+        hasPageOverrides: false,
+        selectionRunDisabledReason: '',
+        selectionRunLabel: 'Clean up selection',
+        showReadingOrder: true,
         selectedCount: 1,
         settings,
         thicknessLabel: '0',
@@ -1387,6 +1414,114 @@ afterEach(() => {
 });
 
 describe('Scan cleanup components', () => {
+    it('does not reuse a manually rendered skew as an automatic detection', async () => {
+        const session = createWorkspaceEntrySession({
+            settingsTab: ref('pages'),
+            previewMetadataByPage: reactive(new Map([[1, {manualSkew: true, detectedSkewDegrees: 8}]])),
+        });
+        session.settings.pageOverrides = {'1': createScanCleanupPageOverride({manualSkewDegrees: 8})};
+        Object.assign(session, {
+            updateScopeOverrides: () => {
+                session.settings.pageOverrides = {};
+            },
+        });
+        workspaceSession.value = session;
+        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {sourcePath: null, totalPages: 2})));
+        await nextTick();
+        harness.host.querySelector<HTMLButtonElement>('.scan-cleanup-auto-value-reset')?.click();
+        await nextTick();
+        expect(harness.host.querySelector<HTMLInputElement>('[aria-label="Deskew angle (-15° to 15°)"]')?.value).toBe('0');
+    });
+
+    it('offers copying page settings to selected pages with multiple pages selected', async () => {
+        workspaceSession.value = createWorkspaceEntrySession({
+            settingsTab: ref('pages'),
+            selectedPages: ref(new Set([1, 2])),
+        });
+        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {sourcePath: null, totalPages: 2})));
+        await nextTick();
+        expect(harness.host.querySelector('[data-copy-page-settings]')).not.toBeNull();
+        expect(harness.host.querySelector('[data-copy-page-settings]')?.parentElement?.textContent).toContain('Selected pages');
+    });
+
+    it('hides reading order for forced single pages with bounded detection', async () => {
+        const session = createWorkspaceEntrySession({
+            detectionResultStoreId: ref('large-document'),
+            authoritativeLayoutByPage: reactive(new Map([[1, 'single-uncut-page']])),
+            previewTotalPages: ref(500),
+        });
+        session.settings.layoutMode = 'force-single';
+        workspaceSession.value = session;
+        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {sourcePath: null, totalPages: 500})));
+        await nextTick();
+        expect(harness.host.querySelector('[aria-label="scanCleanup.layout.readingOrder"]')).toBeNull();
+        expect(harness.host.textContent).not.toContain('scanCleanup.layout.readingOrder');
+    });
+
+    it('shows reading order for an unreported automatic page after copying single layout to a large document', async () => {
+        const session = createWorkspaceEntrySession({
+            detectionResultStoreId: ref('large-document'),
+            authoritativeLayoutByPage: reactive(new Map([[1100, 'single-uncut-page']])),
+            previewTotalPages: ref(1200),
+        });
+        Object.assign(session.settings, {
+            pageOverrideDefaults: createScanCleanupPageOverride({layoutOverride: 'single'}),
+            pageOverrides: {'1': createScanCleanupPageOverride({layoutOverride: 'auto'})},
+        });
+        workspaceSession.value = session;
+        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {sourcePath: null, totalPages: 1200})));
+        await nextTick();
+        expect(harness.host.textContent).toContain('scanCleanup.layout.readingOrder');
+    });
+
+    it('follows copied output defaults without showing a page override', async () => {
+        const harness = await mountRealWorkspace('copied-output-default');
+        const {settings, selection} = harness.session;
+        settings.values.outputMode = 'grayscale';
+        selection.updatePageOverride(1, createScanCleanupPageOverride({outputModeOverride: 'color'}));
+        selection.applyLeaderOverrides('all');
+        selection.selectPage(2, 'single', [1, 2]);
+        selection.setSettingsTab('pages');
+        await nextTick();
+        const select = harness.host.querySelector<HTMLSelectElement>('[data-page-output]')!;
+        expect(select.value).toBe('auto');
+        expect(select.selectedOptions[0]?.textContent).toBe('Follow document · Color');
+        expect(harness.host.querySelector('[data-override-marker="output-mode"]')).toBeNull();
+        select.value = 'auto';
+        select.dispatchEvent(new Event('change', {bubbles: true}));
+        await nextTick();
+        expect(select.value).toBe('auto');
+        expect(select.selectedOptions[0]?.textContent).toBe('Follow document · Color');
+        expect(harness.host.querySelector('[data-override-marker="output-mode"]')).toBeNull();
+        select.value = 'grayscale';
+        select.dispatchEvent(new Event('change', {bubbles: true}));
+        await nextTick();
+        expect(select.value).toBe('grayscale');
+        expect(select.selectedOptions[0]?.textContent).toBe('Grayscale');
+        expect(harness.host.querySelector('[data-override-marker="output-mode"]')).not.toBeNull();
+        select.value = 'auto';
+        select.dispatchEvent(new Event('change', {bubbles: true}));
+        await nextTick();
+        expect(select.value).toBe('auto');
+        expect(select.selectedOptions[0]?.textContent).toBe('Follow document · Color');
+        expect(harness.host.querySelector('[data-override-marker="output-mode"]')).toBeNull();
+        expect(
+            getScanCleanupPageOverride(settings.values.pageOverrides, requirePageNumber(2), settings.values.pageOverrideDefaults)
+                .outputModeOverride,
+        ).toBe('color');
+    });
+
+    it('hides bilevel controls when the only page overrides automatic output to color', async () => {
+        const session = createWorkspaceEntrySession({previewTotalPages: ref(1)});
+        session.settings.outputMode = 'auto';
+        session.settings.pageOverrides = {'1': createScanCleanupPageOverride({outputModeOverride: 'color'})};
+        workspaceSession.value = session;
+        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {sourcePath: null, totalPages: 1})));
+        await nextTick();
+        expect(harness.host.querySelector('[aria-label="Text thickness"]')).toBeNull();
+        expect(harness.host.querySelector('select:has(option[value="cautious"])')).toBeNull();
+    });
+
     it('advances the step elapsed clock beside its ETA without new progress for six seconds', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-10-29T00:00:00Z'));
@@ -1420,16 +1555,16 @@ describe('Scan cleanup components', () => {
         const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
         try {
             const selectionLeader = ref(1);
-            const settingsScope = ref<'all' | 'page'>('all');
+            const settingsTab = ref<'document' | 'pages'>('document');
             workspaceSession.value = createWorkspaceEntrySession({
                 detectionPending: ref(false),
                 selectionLeader,
-                settingsScope,
+                settingsTab,
                 selectPage: (page: number) => {
                     selectionLeader.value = page;
                 },
-                setSettingsScope: (scope: 'all' | 'page') => {
-                    settingsScope.value = scope;
+                setSettingsTab: (tab: 'document' | 'pages') => {
+                    settingsTab.value = tab;
                 },
                 detectedLayoutConfidenceByPage: reactive(new Map([[2, 0.4]])),
                 authoritativeLayoutByPage: reactive(new Map([[2, 'two-page-spread']])),
@@ -1465,8 +1600,8 @@ describe('Scan cleanup components', () => {
             expect(warning).not.toBeNull();
             warning!.click();
             await nextTick();
-            expect(harness.host.querySelector('[data-settings-scope="page"]')?.getAttribute('aria-checked')).toBe('true');
-            expect(harness.host.querySelector('[data-settings-scope="page"]')?.getAttribute('aria-label')).toBe('Page 2');
+            expect(harness.host.querySelector('[data-settings-tab="pages"]')?.getAttribute('aria-checked')).toBe('true');
+            expect(harness.host.querySelector('[data-settings-tab-panel="pages"]')).not.toBeNull();
             const findings = harness.host.querySelector('[data-page-findings="2"]');
             expect(findings?.textContent).toContain('low layout confidence');
             expect(findings?.textContent).toContain('Text appears sideways');
@@ -1496,6 +1631,7 @@ describe('Scan cleanup components', () => {
             defineComponent(
                 () => () =>
                     h(ScanCleanupPageFindings, {
+                        part: 'details',
                         pageNumber: 2,
                         facts: {
                             classification: diagnostics.layoutClassification,
@@ -1613,6 +1749,7 @@ describe('Scan cleanup components', () => {
             defineComponent(
                 () => () =>
                     h(ScanCleanupPageFindings, {
+                        part: 'details',
                         pageNumber: 2,
                         facts: {
                             classification: diagnostics.layoutClassification,
@@ -1656,7 +1793,7 @@ describe('Scan cleanup components', () => {
             settings.values.pageOverrideDefaults = createScanCleanupPageOverride({marginsMm: inherited});
         });
         settings.values.pageOverrides['2'] = createScanCleanupPageOverride({rotationDegrees: 90});
-        selection.setSettingsScope('all');
+        selection.setSettingsTab('document');
         settings.setMarginsLinked(true);
         await nextTick();
         const margin = harness.host.querySelector<HTMLInputElement>('[data-margin-side="all"]')!;
@@ -1695,7 +1832,7 @@ describe('Scan cleanup components', () => {
                 bottomMm: 14,
             },
         });
-        selection.setSettingsScope('page');
+        selection.setSettingsTab('pages');
         await nextTick();
         const link = harness.host.querySelector<HTMLButtonElement>('[data-margins-link]')!;
         expect(link.getAttribute('aria-checked')).toBe('false');
@@ -1723,7 +1860,7 @@ describe('Scan cleanup components', () => {
         if (scope === 'selected') {
             harness.session.selection.selectPage(2, 'toggle', [1, 2]);
         }
-        harness.session.selection.setSettingsScope(scope);
+        harness.session.selection.setSettingsTab(scope === 'all' ? 'document' : 'pages');
         await nextTick();
         const row = Array.from(harness.host.querySelectorAll('.scan-cleanup-auto-value-row')).find((element) =>
             element.textContent?.includes('Deskew angle'),
@@ -2052,7 +2189,7 @@ describe('Scan cleanup components', () => {
 
         expect(harness.host.querySelector('[data-auto-value-state="auto"]')?.textContent?.trim()).toBe('Automatic');
         expect(harness.host.querySelector('.scan-cleanup-auto-value-reset')).toBeNull();
-        expect(harness.host.textContent).toContain('Detected angle: 1.2°');
+        expect(harness.host.textContent).not.toContain('Detected angle: 1.2°');
 
         state.value = 'manual';
         await nextTick();
@@ -2600,21 +2737,14 @@ describe('Scan cleanup components', () => {
         expect(readerState.surfaceMode.value).toBe('scan-cleanup');
         expect(harness.host.querySelector('.scan-cleanup-surface')).not.toBeNull();
         expect(harness.host.querySelector<HTMLElement>('[data-reader]')?.style.display).toBe('none');
-        const losslessToggle = Array.from(harness.host.querySelectorAll('label'))
-            .find((label) => label.textContent?.includes('Preserve original quality'))
-            ?.querySelector<HTMLInputElement>('input');
-        expect(losslessToggle).not.toBeUndefined();
-        losslessToggle!.checked = true;
-        losslessToggle!.dispatchEvent(new Event('change', {bubbles: true}));
+        const outputSelect = harness.host.querySelector<HTMLSelectElement>('[data-document-output]')!;
+        expect(outputSelect).not.toBeNull();
+        outputSelect.value = 'original';
+        outputSelect.dispatchEvent(new Event('change', {bubbles: true}));
         await nextTick();
-        const outputModeOptions = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('[aria-label="Output mode"] [role="radio"]'));
-        expect(outputModeOptions).toHaveLength(4);
-        expect(outputModeOptions[0]?.textContent).toContain('Auto');
-        expect(outputModeOptions.every((option) => option.disabled)).toBe(true);
         expect(harness.host.textContent).toContain('Raster cleanup options are unavailable in this mode.');
-        expect(harness.host.querySelector('.scan-cleanup-footnote')).toBeNull();
-        losslessToggle!.checked = false;
-        losslessToggle!.dispatchEvent(new Event('change', {bubbles: true}));
+        outputSelect.value = 'auto';
+        outputSelect.dispatchEvent(new Event('change', {bubbles: true}));
         await nextTick();
         expect(workspaceSessionInitial.value).toEqual({
             page: 31,
@@ -2695,7 +2825,7 @@ describe('Scan cleanup components', () => {
             viewMode: 'original',
         });
         expect(harness.host.querySelector('[role="tablist"]')).toBeNull();
-        expect(harness.host.querySelector('[role="radiogroup"][aria-label="Settings scope"]')).not.toBeNull();
+        expect(harness.host.querySelector('[role="radiogroup"][aria-label="Settings"]')).not.toBeNull();
         expect(harness.host.querySelector('[data-settings-scope="selected"]')).toBeNull();
         window.dispatchEvent(
             new KeyboardEvent('keydown', {
@@ -2905,6 +3035,7 @@ describe('Scan cleanup components', () => {
             despeckle: false,
             skipBlankPages: false,
             pageOverrides,
+            pageOverrideDefaults: createScanCleanupPageOverride({rotationDegrees: 90}),
         });
         const resetPageOverrides = vi.fn();
         const documentMarginsLinked = ref(true);
@@ -2914,13 +3045,12 @@ describe('Scan cleanup components', () => {
             marginsLinked: documentMarginsLinked,
             settings,
             editDocumentSettings: (_pages, change) => change(),
-            resetPageOverrides,
         });
         selection.selectPage(2, 'toggle', [1, 2, 3]);
-        selection.setSettingsScope('all');
+        selection.setSettingsTab('document');
         const applyLeaderOverrides = vi.fn(selection.applyLeaderOverrides);
         const updateScopeMargins = vi.fn(selection.updateScopeMargins);
-        const resetScopeOverrides = vi.fn(selection.resetScopeOverrides);
+        const resetScopeOverrides = vi.fn(selection.resetPageTabOverrides);
         workspaceSession.value = {
             ownerId: 'component-test-owner',
             documentMarginsLinked,
@@ -2985,9 +3115,9 @@ describe('Scan cleanup components', () => {
             selectedPages: selection.selectedPages,
             selectionLeader: selection.leader,
             selectPage: selection.selectPage,
-            setSettingsScope: selection.setSettingsScope,
-            settingsScope: selection.settingsScope,
-            resetScopeOverrides,
+            setSettingsTab: selection.setSettingsTab,
+            settingsTab: selection.settingsTab,
+            resetPageTabOverrides: resetScopeOverrides,
             settings,
             thicknessLabel: ref('0'),
             updateCurrentManualContentBox: selection.updateCurrentManualContentBox,
@@ -3009,7 +3139,7 @@ describe('Scan cleanup components', () => {
             ),
         );
 
-        const scopeGroup = harness.host.querySelector('[role="radiogroup"][aria-label="Settings scope"]');
+        const scopeGroup = harness.host.querySelector('[role="radiogroup"][aria-label="Settings"]');
         expect(scopeGroup).not.toBeNull();
         expect(harness.host.querySelector('[role="tablist"]')).toBeNull();
         expect(harness.host.querySelectorAll('[aria-label="Page layout"]')).toHaveLength(1);
@@ -3028,9 +3158,9 @@ describe('Scan cleanup components', () => {
             pageAlignment: settings.pageAlignment,
         };
 
-        harness.host.querySelector<HTMLButtonElement>('[data-settings-scope="selected"]')?.click();
+        harness.host.querySelector<HTMLButtonElement>('[data-settings-tab="pages"]')?.click();
         await nextTick();
-        expect(selection.settingsScope.value).toBe('selected');
+        expect(selection.settingsTab.value).toBe('pages');
         expect(harness.host.textContent).toContain('— Mixed');
         const outputMode = harness.host.querySelector<HTMLSelectElement>('[aria-label="Output mode for pages"]')!;
         const placement = harness.host.querySelector<HTMLElement>('[role="radiogroup"][aria-label="Content placement"]')!;
@@ -3062,12 +3192,14 @@ describe('Scan cleanup components', () => {
             harness.host.querySelector('[aria-label="Page layout"]')?.closest('.scan-cleanup-selection-field')?.textContent,
         ).not.toContain('— Mixed');
 
-        harness.host.querySelector<HTMLButtonElement>('[data-settings-scope="page"]')?.click();
+        selection.selectPage(2, 'single', [1, 2, 3]);
         await nextTick();
-        expect(selection.settingsScope.value).toBe('page');
-        expect(harness.host.querySelector('[data-customized-scope="page"]')?.getAttribute('aria-label')).toBe(
-            'This page has custom settings',
-        );
+        expect(selection.settingsTab.value).toBe('pages');
+        expect(harness.host.querySelector('[data-override-marker="rotation"]')).not.toBeNull();
+        harness.host.querySelector<HTMLButtonElement>('[data-reset-override="rotation"]')?.click();
+        await nextTick();
+        expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2), settings.pageOverrideDefaults).rotationDegrees).toBe(90);
+        expect(harness.host.querySelector('[data-override-marker="rotation"]')).toBeNull();
         expect(harness.host.querySelector('[aria-label="Output mode for pages"]')).not.toBeNull();
         layout.value = 'keep-left';
         layout.dispatchEvent(new Event('change', {bubbles: true}));
@@ -3076,8 +3208,7 @@ describe('Scan cleanup components', () => {
         expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2), undefined).layoutOverride).toBe('keep-left');
         settings.preserveOriginalQuality = true;
         await nextTick();
-        expect(harness.host.querySelector<HTMLSelectElement>('[aria-label="Output mode for pages"]')?.disabled).toBe(true);
-        expect(harness.host.textContent).toContain('Per-page output mode is unavailable because preserving original quality forces color.');
+        expect(harness.host.querySelector('[aria-label="Output mode for pages"]')).toBeNull();
         settings.preserveOriginalQuality = false;
         await nextTick();
 
@@ -3107,22 +3238,15 @@ describe('Scan cleanup components', () => {
             .find((item) => item.textContent === 'Every other page')
             ?.click();
         expect(applyLeaderOverrides).toHaveBeenCalledWith('every-other');
-        const resetOverridesButton = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button')).find(
-            (button) => button.textContent?.trim() === 'Reset this page…',
-        );
-        expect(resetOverridesButton).not.toBeUndefined();
-        expect(resetOverridesButton?.closest('.scan-thumbnail-rail-header')).toBeNull();
-        harness.host.querySelector<HTMLButtonElement>('.scan-cleanup-reset-confirmation button:last-child')?.click();
+        const resetOverridesButton = harness.host.querySelector<HTMLButtonElement>('[data-reset-pages]');
+        expect(resetOverridesButton).not.toBeNull();
+        resetOverridesButton?.click();
         expect(resetScopeOverrides).toHaveBeenCalledOnce();
         expect(resetPageOverrides).not.toHaveBeenCalled();
         expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(1), undefined).layoutOverride).toBe('keep-right');
         expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2), undefined).layoutOverride).toBe('auto');
         await nextTick();
-        expect(
-            Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button')).some(
-                (button) => button.textContent?.trim() === 'Reset this page…',
-            ),
-        ).toBe(false);
+        expect(harness.host.querySelector('[data-reset-pages]')).toBeNull();
     });
 
     it('keeps a canceled detection provisional until a later re-detection completes', async () => {
@@ -4458,8 +4582,7 @@ describe('Scan cleanup components', () => {
             );
             await nextTick();
 
-            const comparison = harness.host.querySelectorAll<HTMLElement>('[role="radiogroup"]')[0]!;
-            expect(Array.from(comparison.querySelectorAll('[role="radio"]')).map((option) => option.textContent)).toEqual(['Preview']);
+            expect(harness.host.querySelector('[role="radiogroup"]')).toBeNull();
             expect(harness.host.querySelector('.raw-preview')).not.toBeNull();
             expect(harness.host.querySelector('.cleaned-outputs')).toBeNull();
             expect(harness.host.querySelectorAll('.lossless-crop-overlay')).toHaveLength(2);
@@ -7817,7 +7940,7 @@ describe('Scan cleanup components', () => {
         expect(meter?.querySelector<HTMLElement>('[data-state="active"] .scan-cleanup-activity-fill')?.style.width).toBe('30.2%');
     });
 
-    it('keeps the thickness control mounted when output modes change', async () => {
+    it('shows the thickness control only for bilevel output', async () => {
         const settings = reactive({
             preserveOriginalQuality: false,
             layoutMode: 'auto' as const,
@@ -7845,7 +7968,7 @@ describe('Scan cleanup components', () => {
         for (const mode of ['grayscale', 'color', 'bw'] as const) {
             settings.outputMode = mode;
             await nextTick();
-            expect(harness.host.querySelector('[aria-label="Text thickness"]')).toBe(slider);
+            expect(harness.host.querySelector('[aria-label="Text thickness"]') !== null).toBe(mode === 'bw');
         }
     });
 
@@ -7876,8 +7999,8 @@ describe('Scan cleanup components', () => {
             }),
         );
         const disabled = () => ({
-            thickness: harness.host.querySelector('[aria-label="Text thickness"]')?.getAttribute('disabled') === 'true',
-            despeckle: harness.host.querySelector<HTMLSelectElement>('select:has(option[value="cautious"])')?.disabled,
+            thickness: harness.host.querySelector('[aria-label="Text thickness"]') === null,
+            despeckle: harness.host.querySelector<HTMLSelectElement>('select:has(option[value="cautious"])') === null,
         });
         expect(disabled()).toEqual({
             thickness: true,
@@ -8058,9 +8181,18 @@ describe('Scan cleanup components', () => {
             mixed: false,
             value: undefined,
         });
+        const updateManualSkew = vi.fn();
         const harness = mount(
             defineComponent({
-                setup: () => () => h(ScanCleanupSettingsPanel, settingsPanelProps(settings, 'page', {manualSkew: manualSkew.value})),
+                setup: () => () =>
+                    h(
+                        ScanCleanupSettingsPanel,
+                        settingsPanelProps(settings, 'page', {
+                            manualSkew: manualSkew.value,
+                            detectedSkewDegrees: 2.34,
+                            onUpdateManualSkew: updateManualSkew,
+                        }),
+                    ),
             }),
         );
 
@@ -8068,7 +8200,15 @@ describe('Scan cleanup components', () => {
         expect(entry()).not.toBeNull();
         // Automatic used to bind null, and a null number field steps to its
         // minimum: the first press landed on -15° and never came back.
-        expect(entry()?.value).toBe('0');
+        expect(entry()?.value).toBe('2.3');
+        entry()?.dispatchEvent(new Event('blur'));
+        await nextTick();
+        expect(updateManualSkew).not.toHaveBeenCalled();
+        entry()!.value = '0';
+        entry()!.dispatchEvent(new Event('input', {bubbles: true}));
+        entry()!.dispatchEvent(new Event('change', {bubbles: true}));
+        await nextTick();
+        expect(updateManualSkew).toHaveBeenCalledWith(0);
         expect(entry()?.getAttribute('placeholder')).toBeNull();
 
         manualSkew.value = {

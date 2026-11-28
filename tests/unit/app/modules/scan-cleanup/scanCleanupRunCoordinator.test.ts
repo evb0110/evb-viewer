@@ -1296,6 +1296,51 @@ describe('scan cleanup run coordinator', () => {
         }
     });
 
+    it('handles a restored selection before the document page count loads', async () => {
+        const {useScanCleanupRunSession} = await import('@app/modules/scan-cleanup/composables/useScanCleanupRunSession');
+        const totalPages = ref(0);
+        const app = createApp({
+            setup() {
+                const session = useScanCleanupRunSession({
+                    active: () => true,
+                    beforeRun: () => undefined,
+                    detectionError: ref(''),
+                    detectionErrorCode: ref(null),
+                    detectionPending: computed(() => false),
+                    detectionStatus: computed(() => 'completed'),
+                    documentRevision: computed(() => ownerContext.documentRevision),
+                    documentSettingsReady: computed(() => true),
+                    ownerId: ownerContext.ownerId,
+                    placementAnchorsByPage: computed(() => new Map()),
+                    previewTotalPages: () => totalPages.value,
+                    refreshDetection: async () => undefined,
+                    resolveConversionEvidence: () => ({
+                        pagePlanEvidenceByPage: new Map(),
+                        pagePlanEvidenceCount: 0,
+                        recommendedOutputModeByPage: new Map(),
+                        recommendedOutputModeCount: 0,
+                    }),
+                    selectionPageNumbers: computed(() => [3]),
+                    settings: createScanCleanupOptions(),
+                    sourcePath: computed(() => requireDocumentRef('/source/book.pdf')),
+                    totalPages: computed(() => totalPages.value),
+                    waitForDetectionBeforeRun: async () => undefined,
+                });
+                expect(() => {
+                    expect(session.canRunSelection.value).toBe(false);
+                    void session.selectionRunDisabledReason.value;
+                    void session.canRun.value;
+                    void session.runDisabledReason.value;
+                }).not.toThrow();
+                totalPages.value = 4;
+                expect(session.canRunSelection.value).toBe(true);
+                return () => null;
+            },
+        });
+        app.mount(document.createElement('div'));
+        app.unmount();
+    });
+
     it.each(['failed', 'canceled'] as const)('routes a %s run using the workspace visibility at the time of the toast', async (status) => {
         const toastAdd = vi.fn<IFailureToastTarget['add']>();
         let emit: (state: TScanCleanupJobState) => void = () => undefined;
@@ -1332,7 +1377,7 @@ describe('scan cleanup run coordinator', () => {
                         recommendedOutputModeCount: 0,
                     }),
                     settings: createScanCleanupOptions(),
-                    sourcePageNumbers: computed(() => null),
+                    selectionPageNumbers: computed(() => [1]),
                     sourcePath: computed(() => sourcePath),
                     totalPages: computed(() => 1),
                     waitForDetectionBeforeRun: async () => undefined,

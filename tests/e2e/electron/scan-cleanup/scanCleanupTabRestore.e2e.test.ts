@@ -47,12 +47,12 @@ async function setMargin(page: Page, value: string) {
 
 async function selectPageTwoSettings(page: Page) {
     await clickAsUser(page, `${cleanupThumbnail(2)} .scan-thumbnail-label-band`);
-    await clickAsUser(page, '[data-settings-scope="page"]');
+    await clickAsUser(page, '[data-settings-tab="pages"]');
     await page.waitForSelector(linkedMargin, {visible: true});
 }
 
 async function setPageTwoMarginOverride(page: Page) {
-    await clickAsUser(page, '[data-settings-scope="all"]');
+    await clickAsUser(page, '[data-settings-tab="document"]');
     await setMargin(page, '9');
     await selectPageTwoSettings(page);
     expect(await page.$eval(linkedMargin, (input) => input.value)).toBe('9');
@@ -144,7 +144,7 @@ describe('scan cleanup tab restore', () => {
             page,
             '[data-document-thumbnail-item]:has(.scan-thumbnail-overlay[data-page-number="2"]) .scan-thumbnail-label-band',
         );
-        await clickAsUser(page, '[data-settings-scope="page"]');
+        await clickAsUser(page, '[data-settings-tab="pages"]');
         const rotation = '[role="radiogroup"][aria-label="Rotation"] [role="radio"][aria-label="90°"]';
         await clickAsUser(page, rotation);
         await page.waitForSelector(`${rotation}[aria-checked="true"]`);
@@ -162,7 +162,7 @@ describe('scan cleanup tab restore', () => {
             page,
             '[data-document-thumbnail-item]:has(.scan-thumbnail-overlay[data-page-number="2"]) .scan-thumbnail-label-band',
         );
-        await clickAsUser(page, '[data-settings-scope="page"]');
+        await clickAsUser(page, '[data-settings-tab="pages"]');
         const restored = await page.evaluate(
             (selector: string) => ({
                 rotation: document.querySelector(selector)?.getAttribute('aria-checked'),

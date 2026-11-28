@@ -176,7 +176,7 @@ describe('scan cleanup copied spread evidence', () => {
             {timeout: 120_000},
         );
 
-        await clickAsUser(session.page, '[role="radio"][aria-label="Page 1"]');
+        await clickAsUser(session.page, '[data-settings-tab="pages"]');
         await clickAsUser(session.page, '[role="combobox"][aria-label="Page layout"]');
         await clickText(session, '[role="option"]', 'Two-page spread');
         await waitForFunctionInPage(
@@ -254,7 +254,7 @@ describe('scan cleanup copied spread evidence', () => {
             {timeout: 120_000},
         );
 
-        await clickAsUser(session.page, '[role="radio"][aria-label="All pages"]');
+        await clickAsUser(session.page, '[data-settings-tab="document"]');
         await waitForFunctionInPage(
             session.page,
             () => {

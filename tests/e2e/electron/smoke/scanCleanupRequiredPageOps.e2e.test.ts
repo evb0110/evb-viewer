@@ -153,28 +153,13 @@ describe('scan cleanup required page ops', () => {
             );
             await openCleanup(session);
             await waitForSettledDetection(session);
-            const quality = await session.page.evaluate(() => {
-                const label = [...document.querySelectorAll('label')].find((node) => node.textContent?.trim() === 'Keep original images');
-                const checkbox = document.getElementById(label?.htmlFor ?? '');
-                if (!checkbox) {
-                    throw new Error('Keep original images checkbox is missing');
-                }
-                return checkbox.getAttribute('aria-checked') === 'true';
-            });
-            if (quality) {
-                await clickFoundAsUser(
-                    session.page,
-                    () => [...document.querySelectorAll('label')].find((node) => node.textContent?.trim() === 'Keep original images'),
-                    undefined,
-                    {description: 'Keep original images'},
-                );
-                await waitForSettledDetection(session);
-            }
-            // Page plans must not depend on the output mode. The first document
-            // switches to grayscale after detection measured its plans; the
-            // second measures them again after the switch. Both cleanups must
-            // still place every page identically.
-            await clickAsUser(session.page, '[role="radio"][aria-label="Grayscale"]');
+            await clickAsUser(session.page, '[data-document-output]');
+            await clickFoundAsUser(
+                session.page,
+                () => [...document.querySelectorAll('[role="option"]')].find((el) => el.textContent?.trim() === 'Grayscale'),
+                undefined,
+                {description: 'Grayscale output'},
+            );
             if (path === plainPath) {
                 await waitForSettledDetection(session);
                 await clickAsUser(session.page, '.scan-thumbnail-redetect');
@@ -302,33 +287,15 @@ describe('scan cleanup required page ops', () => {
                 }
             }
 
-            const radios = await session.page.$$('[role="radio"]');
-            const radio = (
-                await Promise.all(
-                    radios.map(async (element) => ({
-                        element,
-                        visible: await element.isVisible(),
-                        text: await element.evaluate((node) => node.textContent?.trim() ?? ''),
-                        disabled: await element.evaluate((node) => (node as HTMLButtonElement).disabled),
-                        label: await element.evaluate((node) => node.getAttribute('aria-label')),
-                    })),
-                )
-            ).find(
-                (candidate) => candidate.visible && !candidate.disabled && (candidate.text === mode || candidate.label === mode),
-            )?.element;
-            expect(radio, `visible ${mode} option`).toBeTruthy();
-            await clickAsUser(session.page, radio!);
-            await waitForFunctionInPage(
+            await clickAsUser(session.page, '[data-document-output]');
+            await clickFoundAsUser(
                 session.page,
-                (label: string) =>
-                    Array.from(document.querySelectorAll<HTMLElement>('[role="radio"][aria-label]')).some(
-                        (element) => element.getAttribute('aria-label') === label && element.getAttribute('aria-checked') === 'true',
-                    ),
-                {timeout: 5_000},
+                (label: string) => [...document.querySelectorAll('[role="option"]')].find((el) => el.textContent?.trim() === label),
                 mode,
+                {description: mode},
             );
 
-            for (const label of ['Keep original images', 'Match page size with other pages']) {
+            for (const label of ['Match page size with other pages']) {
                 const checked = await session.page.evaluate((text: string) => {
                     const fieldLabel = [...document.querySelectorAll('label')].find((node) => node.textContent?.trim() === text);
                     const checkbox = document.getElementById(fieldLabel?.htmlFor ?? '');

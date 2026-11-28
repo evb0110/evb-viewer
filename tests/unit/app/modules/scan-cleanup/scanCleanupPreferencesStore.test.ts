@@ -1521,7 +1521,7 @@ describe('scan cleanup renderer preference store', () => {
 
             // Page-scope relinking restores both unequal margins and the
             // unlinked switch on undo.
-            selection.setSettingsScope('page');
+            selection.setSettingsTab('pages');
             selection.setMarginsLinked(false);
             selection.updateScopeMargins('topMm', 12);
             selection.updateScopeMargins('leftMm', 6);

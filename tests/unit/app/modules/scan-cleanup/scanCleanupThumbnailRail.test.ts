@@ -925,7 +925,7 @@ describe('ScanCleanupThumbnailRail', () => {
             documentOutputMode: 'bw',
             preserveOriginalQuality: true,
         });
-        expect(pageRow(lossless.host, 2).querySelector('.scan-thumbnail-status')?.textContent).toBe('Color');
+        expect(pageRow(lossless.host, 2).querySelector('.scan-thumbnail-status')?.textContent).toBe('');
     });
 
     it('keeps an explicit override in the status line while fresh recommendations arrive', async () => {

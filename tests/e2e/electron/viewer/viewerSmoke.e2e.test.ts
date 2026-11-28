@@ -2233,22 +2233,11 @@ describe('Electron E2E - Viewer Smoke', () => {
             visible: true,
         });
         await dismissScanCleanupFirstRunGuidance(session.page);
-        const settingsScopeState = await session.page.evaluate(() => {
-            const group = document.querySelector<HTMLElement>('[role="radiogroup"][aria-label="Settings scope"]');
-            const active = group?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]');
-            return {
-                activeScope: active?.dataset.settingsScope ?? null,
-                hasTabs: document.querySelector('.scan-cleanup-options-rail [role="tablist"]') !== null,
-            };
-        });
-        expect(settingsScopeState).toEqual({
-            activeScope: 'all',
-            hasTabs: false,
-        });
+        expect(await session.page.$eval('[data-settings-tab="document"]', (tab) => tab.getAttribute('aria-checked'))).toBe('true');
         expect(await session.page.$('[role="combobox"][aria-label="Output mode"]')).toBeNull();
-        await clickAsUser(session.page, '[role="radio"][aria-label="Page 1"]');
+        await clickAsUser(session.page, '[data-settings-tab="pages"]');
         await session.page.waitForSelector('[role="combobox"][aria-label="Output mode"]', {visible: true});
-        await clickAsUser(session.page, '[role="radio"][aria-label="All pages"]');
+        await clickAsUser(session.page, '[data-settings-tab="document"]');
         expect(await session.page.$('[role="combobox"][aria-label="Output mode"]')).toBeNull();
         const headerBottomEdges = await session.page.$$eval(
             '.scan-thumbnail-rail-header, .preview-header, .scan-cleanup-settings-header',
@@ -2407,7 +2396,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         const documentTopMargin = await session.page.$eval('input[data-margin-side="topMm"]', (input) =>
             Number((input as HTMLInputElement).value),
         );
-        await clickAsUser(session.page, '[data-settings-scope="page"]');
+        await clickAsUser(session.page, '[data-settings-tab="pages"]');
         await clickAsUser(session.page, 'input[data-margin-side="topMm"]', {count: 3});
         await session.page.type('input[data-margin-side="topMm"]', String(Math.max(0, documentTopMargin - 7)));
         await session.page.keyboard.press('Enter');
@@ -2601,22 +2590,12 @@ describe('Electron E2E - Viewer Smoke', () => {
             visible: true,
         });
         await dismissScanCleanupFirstRunGuidance(session.page);
+        await clickAsUser(session.page, '[data-document-output]');
         await clickFoundAsUser(
             session.page,
-            () =>
-                Array.from(document.querySelectorAll<HTMLButtonElement>('button[role="radio"]')).find(
-                    (button) => button.getAttribute('aria-label') === 'Color' || (button.textContent ?? '').trim() === 'Color',
-                ),
-            null,
-            {description: 'Scan Cleanup color output control'},
-        );
-        await waitForFunctionInPage(
-            session.page,
-            () =>
-                Array.from(document.querySelectorAll<HTMLButtonElement>('button[role="radio"]')).some(
-                    (button) => button.getAttribute('aria-label') === 'Color' && button.getAttribute('aria-checked') === 'true',
-                ),
-            {timeout: 10_000},
+            () => [...document.querySelectorAll('[role="option"]')].find((el) => el.textContent?.trim() === 'Color'),
+            undefined,
+            {description: 'Color output'},
         );
         await session.page.waitForSelector('.preview-result-layer img.cleaned-image.preview-pixel:not(.is-outgoing):not(.is-incoming)', {
             timeout: 60_000,

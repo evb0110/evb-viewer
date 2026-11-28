@@ -41,22 +41,13 @@ export default {
         settings: {
             title: 'Réglages',
             changedFromDefaults: 'Modifié par rapport aux valeurs par défaut : {settings}',
-            scope: {
-                label: 'Portée des paramètres',
-                all: 'Toutes les pages',
+            tabs: {
+                document: 'Document',
                 page: 'Page {page}',
-                selected: plural({
-                    one: '{count} sélectionnée',
-                    other: '{count} sélectionnées',
-                }),
+                pages: '{count} pages',
+            },
+            scope: {
                 pageCustomized: 'Cette page comporte des réglages personnalisés',
-                allContext: 'S’applique à toutes les pages.',
-                allContextCustomized: 'S’applique à toutes les pages, sauf là où une page a ses propres réglages.',
-                pageContext: 'S’applique uniquement à la page {page}.',
-                selectedContext: plural({
-                    one: 'S’applique uniquement à la page sélectionnée.',
-                    other: 'S’applique uniquement aux {count} pages sélectionnées.',
-                }),
             },
             applyThisPageTo: 'Copier les réglages de cette page vers…',
             rotation: 'Rotation',
@@ -70,20 +61,16 @@ export default {
             manual: 'Manuel',
             manualSkew: 'Angle de redressement',
             manualSkewRange: 'de {min}° à {max}°',
-            detectedSkew: 'Détectée : {angle}°',
             returnToAutomatic: 'Revenir au mode automatique',
             contentPlacement: 'Placement de contenu',
             inkNeedsContentBoxes:
                 'Le redressement automatique remplace le contenu détecté : le placement selon l’encre bascule sur « en haut, centré ».',
-            resetScope: {
-                all: 'Réinitialiser tous les réglages propres…',
-                page: 'Réinitialiser cette page…',
-                selected: 'Réinitialiser les pages sélectionnées…',
-                confirm: 'Réinitialiser les réglages propres correspondants ?',
-                allBody: 'Tous les réglages propres à une page de ce document seront effacés.',
-                pageBody: 'Les réglages propres à la page {page} seront effacés.',
-                selectedBody: 'Les réglages propres aux {count} pages sélectionnées seront effacés.',
+            resetDocument: {
+                confirm: 'Tout rétablir aux valeurs par défaut ?',
+                body: 'Tous les réglages, y compris ceux propres à chaque page, seront rétablis à leurs valeurs par défaut. Cette action est irréversible.',
             },
+            resetPage: 'Réinitialiser la page',
+            resetPages: 'Réinitialiser {count} pages',
             applyScopes: {
                 menuLabel: 'Copier vers',
                 allPages: 'Toutes les pages',
@@ -93,8 +80,8 @@ export default {
             },
         },
         groups: {
-            pageSettings: 'Paramètres des pages',
-            documentSettings: 'Paramètres du document',
+            layout: 'Mise en page',
+            cropAndSize: 'Recadrage et taille',
         },
         layout: {
             label: 'Mise en page',
@@ -107,9 +94,9 @@ export default {
         },
         output: {
             label: 'Sortie',
-            preserveOriginalQuality: 'Conserver les images d’origine',
+            preserveOriginalQuality: 'Images d’origine',
             losslessDisabledOptions:
-                'Les pages gardent leurs images numérisées et sont seulement divisées, recadrées et pivotées. Le nettoyage, la conversion des couleurs et le redressement sont désactivés.',
+                'Les images numérisées des pages restent inchangées. La séparation des doubles pages, la rotation, le recadrage et la taille des pages restent appliqués.',
             autoShort: 'Auto',
             autoDescription: 'Auto — recommandé page par page',
             pageLabel: 'Mode de sortie',
@@ -224,16 +211,8 @@ export default {
             lowConfidenceHint:
                 'Détectée comme « {classification} » avec une faible fiabilité : vérifiez cette page et définissez manuellement sa mise en page si elle est incorrecte.',
             textAxisHint: 'Le texte apparaît de côté — réglez la rotation sur 90° ou 270°.',
-            outputModeFollowDocument: 'Utiliser le réglage du document',
-            outputModeRecommendationHintKnown:
-                'Recommandé : {mode} — confiance : {confidence}. Choisissez un mode pour remplacer cette recommandation.',
-            outputModeRecommendationHintUnknown: 'Recommandé : {mode}. Choisissez un mode pour remplacer cette recommandation.',
-            outputModeRecommendationPending: 'La recommandation automatique du mode de sortie est en attente.',
-            outputModeOverrideHint:
-                'Réglage propre à la page : {mode}. Choisissez « Utiliser le réglage du document » pour appliquer le réglage du document.',
-            outputModeDocumentHint: 'Mode effectif : {mode} — suit le réglage du document.',
-            outputModeLosslessControlHint:
-                'Le mode de sortie par page est indisponible, car la conservation de la qualité d’origine impose la couleur.',
+            outputModeFollowDocument: 'Suivre le document',
+            outputModeFollowDocumentWithMode: 'Suivre le document · {mode}',
             processed: 'Traité',
             processing: 'Traitement de la page {page}',
             sourceLoading: 'Chargement des pages sources…',
@@ -337,7 +316,6 @@ export default {
             previous: 'Aperçu de la page précédente',
             next: 'Aperçu de la page suivante',
             comparison: "Comparaison d'aperçu",
-            preview: 'Aperçu',
             original: 'Original',
             cleaned: 'Nettoyé',
             zoomControls: 'Zoom de l’aperçu',
@@ -391,7 +369,7 @@ export default {
         rasterNotice:
             'Le mode couleur préserve les couleurs du scan ; les niveaux de gris les convertissent en gris. Les pages sont rastérisées à la résolution source détectée (150–600 DPI).',
         lossNotice:
-            'Le texte source et les annotations sont conservés sur les pages nettoyées. Une page dont la courbure est corrigée ou qui est autrement déformée (non affine) ne garde que son image : un traitement qui déformerait une page annotée s’arrête donc. Désactivez la correction de la courbure de la page ou activez « Conserver les images d’origine » pour les conserver. Les formulaires, les pièces jointes et les dessins vectoriels ne sont pas repris.',
+            'Le texte source et les annotations sont conservés sur les pages nettoyées. Une page dont la courbure est corrigée ou qui est autrement déformée (non affine) ne garde que son image : un traitement qui déformerait une page annotée s’arrête donc. Désactivez la correction de la courbure de la page ou activez « Images d’origine » pour les conserver. Les formulaires, les pièces jointes et les dessins vectoriels ne sont pas repris.',
         imageOnly: 'Les pages sont reconstruites en images —',
         details: 'Détails',
         cleanUp: 'Nettoyer',

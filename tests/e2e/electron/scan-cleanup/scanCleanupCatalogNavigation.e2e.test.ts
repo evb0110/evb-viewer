@@ -4,7 +4,7 @@ import {resolve} from 'node:path';
 import {describe, expect, it} from 'vitest';
 import {SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR} from '@contracts/scan-cleanup/toolbarSelectors';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {clickAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
     clickVisibleToolbarButton,
     goToPageViaToolbar,
@@ -35,8 +35,8 @@ describe('compact cleanup catalog navigation', () => {
         await page.waitForFunction(() => document.querySelectorAll('.scan-thumbnail-exclude-toggle').length === 3, {timeout: 90_000});
         const exclusion = await page.$$('.scan-thumbnail-exclude-toggle');
         await clickAsUser(page, exclusion[1]!);
-        await clickAsUser(page, '[data-settings-scope="all"]');
-        await page.waitForFunction(() => document.querySelector('[data-settings-scope="all"]')?.getAttribute('aria-checked') === 'true');
+        await clickAsUser(page, '[data-settings-tab="document"]');
+        await page.waitForFunction(() => document.querySelector('[data-settings-tab="document"]')?.getAttribute('aria-checked') === 'true');
         await clickAsUser(page, '[aria-label="Page layout"]');
         await page.waitForSelector('[role="option"]');
         const layouts = await page.$$('[role="option"]');
@@ -50,12 +50,7 @@ describe('compact cleanup catalog navigation', () => {
         ).find((candidate) => candidate.matches)?.element;
         expect(single).toBeTruthy();
         await clickAsUser(page, single!);
-        for (const labelText of [
-            'Keep original images',
-            'Crop each output page to its content',
-            'Skip blank pages',
-            'Match page size with other pages',
-        ]) {
+        for (const labelText of ['Crop each output page to its content', 'Skip blank pages', 'Match page size with other pages']) {
             const labels = await page.$$('label');
             const label = (
                 await Promise.all(
@@ -77,7 +72,13 @@ describe('compact cleanup catalog navigation', () => {
                 await clickAsUser(page, label!);
             }
         }
-        await clickAsUser(page, '[role=radio][aria-label="Auto — recommended per page"]');
+        await clickAsUser(page, '[data-document-output]');
+        await clickFoundAsUser(
+            page,
+            () => [...document.querySelectorAll('[role=option]')].find((el) => el.textContent?.trim() === 'Auto — recommended per page'),
+            undefined,
+            {description: 'Auto output'},
+        );
         if (await page.$eval('.scan-cleanup-advanced-toggle', (el) => el.getAttribute('aria-expanded') !== 'true')) {
             await clickAsUser(page, '.scan-cleanup-advanced-toggle');
         }

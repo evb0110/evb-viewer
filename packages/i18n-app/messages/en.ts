@@ -562,22 +562,13 @@ export default {
         settings: {
             title: 'Settings',
             changedFromDefaults: 'Changed from the defaults: {settings}',
-            scope: {
-                label: 'Settings scope',
-                all: 'All pages',
+            tabs: {
+                document: 'Document',
                 page: 'Page {page}',
-                selected: plural({
-                    one: '{count} selected',
-                    other: '{count} selected',
-                }),
+                pages: '{count} pages',
+            },
+            scope: {
                 pageCustomized: 'This page has custom settings',
-                allContext: 'Applies to every page.',
-                allContextCustomized: 'Applies to every page, except where a page has its own settings.',
-                pageContext: 'Applies to page {page} only.',
-                selectedContext: plural({
-                    one: 'Applies to the selected page only.',
-                    other: 'Applies to the {count} selected pages only.',
-                }),
             },
             applyThisPageTo: "Copy this page's settings to…",
             rotation: 'Rotation',
@@ -588,22 +579,18 @@ export default {
             manualSplit: 'Spread cutter',
             manualSkew: 'Deskew angle',
             manualSkewRange: '{min}° to {max}°',
-            detectedSkew: 'Detected angle: {angle}°',
             returnToAutomatic: 'Return to automatic',
             contentBox: 'Content box',
             automatic: 'Automatic',
             manual: 'Manual',
             contentPlacement: 'Content placement',
             inkNeedsContentBoxes: 'Automatic dewarping replaces the detected content, so ink placement falls back to top center.',
-            resetScope: {
-                all: 'Reset all overrides…',
-                page: 'Reset this page…',
-                selected: 'Reset selected pages…',
-                confirm: 'Reset matching page overrides?',
-                allBody: 'Every per-page override in this document will be cleared.',
-                pageBody: 'Overrides for page {page} will be cleared.',
-                selectedBody: 'Overrides for {count} selected pages will be cleared.',
+            resetDocument: {
+                confirm: 'Reset everything to the defaults?',
+                body: "Every setting and every page's own settings return to their defaults. This can't be undone.",
             },
+            resetPage: 'Reset page',
+            resetPages: 'Reset {count} pages',
             applyScopes: {
                 menuLabel: 'Copy to',
                 allPages: 'All pages',
@@ -613,8 +600,8 @@ export default {
             },
         },
         groups: {
-            pageSettings: 'Page settings',
-            documentSettings: 'Document settings',
+            layout: 'Layout',
+            cropAndSize: 'Crop and size',
         },
         layout: {
             label: 'Page layout',
@@ -627,9 +614,9 @@ export default {
         },
         output: {
             label: 'Output',
-            preserveOriginalQuality: 'Keep original images',
+            preserveOriginalQuality: 'Original images',
             losslessDisabledOptions:
-                'Pages keep their scanned images and are only split, cropped and rotated. Cleaning, color conversion and deskew are off.',
+                'Pages keep their scanned images unchanged. Splitting spreads, rotation, cropping and page size still apply.',
             autoShort: 'Auto',
             autoDescription: 'Auto — recommended per page',
             pageLabel: 'Output mode',
@@ -744,14 +731,8 @@ export default {
             lowConfidenceHint:
                 'Detected as "{classification}" with low layout confidence — check this page and set its layout manually if wrong.',
             textAxisHint: 'Text appears sideways — set rotation (90° or 270°).',
-            outputModeFollowDocument: 'Follow document setting',
-            outputModeRecommendationHintKnown:
-                'Recommended output mode: {mode} — {confidence} output-mode confidence. Choose a mode to override it.',
-            outputModeRecommendationHintUnknown: 'Recommended output mode: {mode}. Choose a mode to override it.',
-            outputModeRecommendationPending: 'Automatic output-mode recommendation is pending.',
-            outputModeOverrideHint: 'Page override: {mode}. Choose Follow document setting to use the document setting.',
-            outputModeDocumentHint: 'Effective mode: {mode} — follows the document setting.',
-            outputModeLosslessControlHint: 'Per-page output mode is unavailable because preserving original quality forces color.',
+            outputModeFollowDocument: 'Follow document',
+            outputModeFollowDocumentWithMode: 'Follow document · {mode}',
             processed: 'Processed',
             processing: 'Processing page {page}',
             sourceLoading: 'Loading source pages…',
@@ -853,7 +834,6 @@ export default {
             previous: 'Preview previous page',
             next: 'Preview next page',
             comparison: 'Preview comparison',
-            preview: 'Preview',
             original: 'Original',
             cleaned: 'Cleaned',
             zoomControls: 'Preview zoom',
@@ -907,7 +887,7 @@ export default {
         rasterNotice:
             'Color preserves scan color; grayscale converts it to gray. Pages are rasterized at the detected source resolution (150–600 DPI).',
         lossNotice:
-            'Source text and annotations are preserved on the cleaned pages. A page whose curvature is corrected or that is otherwise reshaped (non-affine) keeps only its image, so a run that would reshape a page with annotations stops. Turn off page curvature correction or turn on Keep original images to keep them. Forms, attachments, and vector drawings are not carried over.',
+            'Source text and annotations are preserved on the cleaned pages. A page whose curvature is corrected or that is otherwise reshaped (non-affine) keeps only its image, so a run that would reshape a page with annotations stops. Turn off page curvature correction or choose Original images to keep them. Forms, attachments, and vector drawings are not carried over.',
         imageOnly: 'Pages are rebuilt as images —',
         details: 'Details',
         cleanUp: 'Clean up',
