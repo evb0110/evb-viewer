@@ -1937,6 +1937,7 @@ describe('scanCleanupPreviewCompositionTest', () => {
                 previewRender: [] as string[],
                 previewSidecar: [] as string[],
             };
+            let observedDetectionBatchPages = 0;
             const runUnderBrokerLikeNativeCommand = async <T>(
                 brokerRun: IJobBrokerRunContext | undefined,
                 work: () => Promise<T>,
@@ -1965,6 +1966,7 @@ describe('scanCleanupPreviewCompositionTest', () => {
                     const held = getActiveJobBrokerLease(input.brokerRun);
                     if (held) {
                         observedLeaseTokens.detectionBatch.push(held.token);
+                        observedDetectionBatchPages += input.targets.length;
                     }
                     const results = [];
                     for (const target of input.targets) {
@@ -2059,7 +2061,8 @@ describe('scanCleanupPreviewCompositionTest', () => {
                 await service.dispose();
             }
             expect(observedLeaseTokens.detectionSidecar).toHaveLength(1);
-            expect(observedLeaseTokens.detectionBatch.length).toBeGreaterThanOrEqual(2);
+            expect(observedLeaseTokens.detectionBatch.length).toBeGreaterThanOrEqual(1);
+            expect(observedDetectionBatchPages).toBeGreaterThanOrEqual(2);
             expect(new Set([...observedLeaseTokens.detectionSidecar, ...observedLeaseTokens.detectionBatch]).size).toBe(1);
             expect(observedLeaseTokens.previewSidecar).toHaveLength(1);
             expect(observedLeaseTokens.previewSidecar[0]).not.toBe(observedLeaseTokens.detectionSidecar[0]);
