@@ -2,10 +2,8 @@ import {existsSync} from 'node:fs';
 import {stat, unlink, writeFile} from 'node:fs/promises';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {clamp} from 'es-toolkit/math';
 import {limitAsync} from 'es-toolkit/promise';
 import {DEFAULT_DJVU_SOURCE_DPI} from '@contracts/djvuConversionPolicy';
-import type {THostResourceTier} from '@contracts/hostResourceProfile';
 import {PDF_POINTS_PER_INCH} from '@pdf-core/imageExportResolution';
 import {
     createFileBackedPdfCombineEnv,
@@ -69,7 +67,6 @@ export interface IDjvuImageRenderOptions {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MAX_RANGE_WORKERS = 12;
 const DJVU_DIRECT_PDF_JPEG_QUALITY = 92;
 const DJVU_DIRECT_PDF_PAGE_BATCH_SIZE = 24;
 const DJVU_PROCESS_TIMEOUT_MS = 4 * 60 * 1000;
@@ -614,17 +611,4 @@ export async function cancelConversion(jobId: string) {
 
     await Promise.resolve();
     return canceled;
-}
-
-export function resolveDjvuRangeWorkerCount(
-    pageCount: number,
-    logicalCpuCount = getHostResourceProfileSnapshot().logicalCpus,
-    tier: THostResourceTier = getHostResourceProfileSnapshot().tier,
-) {
-    if (tier === 'low') {
-        return Math.min(pageCount, 1);
-    }
-    const cpuBound = Math.max(1, logicalCpuCount - 1);
-    const desired = clamp(cpuBound, 1, MAX_RANGE_WORKERS);
-    return Math.min(pageCount, desired);
 }

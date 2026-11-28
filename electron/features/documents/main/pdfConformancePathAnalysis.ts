@@ -20,7 +20,7 @@ import {QPDF_SUCCESS_EXIT_CODES} from '@pdf-core/qpdfCommands';
 import {abortErrorFromSignal, isAbortError, raceWithAbortSignal} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import {mergeTerminationProofSinks, type IJobBrokerRunContext, type TTerminationProofSink} from '@electron/resources/jobBroker';
+import type {IJobBrokerRunContext, TTerminationProofSink} from '@electron/resources/jobBroker';
 import {
     PdfConformanceCapabilityError,
     type TPdfConformanceCapabilityErrorCode,
@@ -211,7 +211,6 @@ async function readPdfStructuralFactsFromPath(
             if (options.strict || isAbortError(error) || !(hasNativeErrorCode(error) && error.code === 'corrupt-xref')) {
                 throw error;
             }
-            const repairTerminationProof = mergeTerminationProofSinks(options.brokerRun?.onTerminationProof, options.onTerminationProof);
             // Damaged cross-reference tables that the WASM structural indexer refuses can still be
             // recovered by qpdf without decrypting or decompressing streams.
             ({stdout} = await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async (scratchDir) => {
@@ -226,7 +225,8 @@ async function readPdfStructuralFactsFromPath(
                         commandLabel: 'qpdf(conformance-repair)',
                         ...(options.signal ? {signal: options.signal} : {}),
                         ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
-                        ...(repairTerminationProof ? {onTerminationProof: repairTerminationProof} : {}),
+                        ...(options.brokerRun ? {brokerRun: options.brokerRun} : {}),
+                        ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
                     },
                 );
                 return runConformanceCommand(repairedPath);

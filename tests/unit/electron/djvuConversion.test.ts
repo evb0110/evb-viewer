@@ -34,24 +34,8 @@ vi.mock('@electron/resources/hostResourceProfile', () => ({
     }),
 }));
 
-const {cancelConversion, convertDjvuToPdfFile, renderDjvuPageToImage, resolveDjvuRangeWorkerCount, runRegisteredDjvuProcess} =
+const {cancelConversion, convertDjvuToPdfFile, renderDjvuPageToImage, runRegisteredDjvuProcess} =
     await import('@electron/features/djvu/main/ddjvuConversion');
-
-describe('resolveDjvuRangeWorkerCount', () => {
-    it('does not clamp a two-core host up to two conversion workers', () => {
-        expect(resolveDjvuRangeWorkerCount(100, 2, 'high')).toBe(1);
-    });
-
-    it('keeps one core free and respects the page count', () => {
-        expect(resolveDjvuRangeWorkerCount(4, 8, 'high')).toBe(4);
-        expect(resolveDjvuRangeWorkerCount(100, 8, 'high')).toBe(7);
-        expect(resolveDjvuRangeWorkerCount(100, 32, 'high')).toBe(12);
-    });
-
-    it('clamps low-tier range conversion to one worker', () => {
-        expect(resolveDjvuRangeWorkerCount(100, 8, 'low')).toBe(1);
-    });
-});
 
 describe('ddjvuConversion (DjVuLibre WASM + evb-pdf-image-combine)', () => {
     let tempDir = '';

@@ -1,9 +1,12 @@
 import {
     access,
+    mkdir,
     mkdtemp,
+    readdir,
     readFile,
     rm,
     stat,
+    symlink,
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -157,5 +160,32 @@ describe('native PDF save integration', () => {
         ])).resolves.toMatchObject({stdout: expect.stringMatching(/^1\r?\n$/u)});
         await expect(readFile(publishedPath)).resolves.toEqual(publishedBeforeFailure);
         await expect(PDFDocument.load(await readFile(publishedPath))).resolves.toMatchObject({getPageCount: expect.any(Function)});
+
+        // Exclusive staging guard: copyFileAtomic must refuse an existing temporaryPath without deleting it.
+        const existingTempPath = join(tempRoot, 'preexisting.tmp');
+        await writeFile(existingTempPath, 'do-not-clobber', 'utf8');
+        await expect(copyFileAtomic(nativeOutputPath, publishedPath, {temporaryPath: existingTempPath})).rejects.toMatchObject({
+            code: 'EEXIST',
+        });
+        await expect(readFile(existingTempPath, 'utf8')).resolves.toBe('do-not-clobber');
+        await expect(readFile(publishedPath)).resolves.toEqual(publishedBeforeFailure);
+
+        // Competing directory and symlink-to-directory guards on copyNewFile (including racing past initial lstat).
+        const {copyNewFile} = await import('@document-store/nodeStorePort');
+        const competingDir = join(tempRoot, 'competing-dir');
+        await mkdir(competingDir);
+        await expect(copyNewFile(nativeOutputPath, competingDir)).rejects.toMatchObject(
+            process.platform === 'win32' ? {code: expect.stringMatching(/^(?:EEXIST|EPERM)$/u)} : {code: 'EEXIST'},
+        );
+        expect(await readdir(competingDir)).toEqual([]);
+
+        if (process.platform !== 'win32') {
+            const symlinkTargetDir = join(tempRoot, 'symlink-target-dir');
+            const competingSymlink = join(tempRoot, 'competing-symlink');
+            await mkdir(symlinkTargetDir);
+            await symlink(symlinkTargetDir, competingSymlink);
+            await expect(copyNewFile(nativeOutputPath, competingSymlink)).rejects.toMatchObject({code: 'EEXIST'});
+            expect(await readdir(symlinkTargetDir)).toEqual([]);
+        }
     }, NATIVE_INTEGRATION_TIMEOUT_MS);
 });

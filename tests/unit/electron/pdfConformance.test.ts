@@ -113,6 +113,14 @@ vi.mock('@pdf-core', async (importOriginal) => {
 
 vi.mock('fs/promises', () => ({
     open: mocks.open,
+    mkdir: vi.fn(async () => undefined),
+    lstat: vi.fn(async () => ({
+        isDirectory: () => true,
+        isFile: () => false,
+        isSymbolicLink: () => false,
+    })),
+    realpath: vi.fn(async (filePath: string) => filePath),
+    readFile: vi.fn(async () => ''),
     mkdtemp: mocks.mkdtemp,
     rm: mocks.rm,
     stat: mocks.stat,
@@ -405,6 +413,31 @@ describe('analyzePdfConformanceFileDirect', () => {
             code: 'native-failure',
         });
         expect(mocks.open).not.toHaveBeenCalled();
+    });
+
+    it('threads active parent brokerRun into qpdf conformance-repair after corrupt-xref', async () => {
+        const corruptXrefError = Object.assign(new Error('corrupt xref table'), {code: 'corrupt-xref'});
+        mocks.runNativeToolCommand
+            .mockRejectedValueOnce(corruptXrefError)
+            .mockResolvedValueOnce({stdout: '', stderr: '', exitCode: 0})
+            .mockResolvedValueOnce({stdout: '', stderr: '', exitCode: 0});
+        mocks.setFactsBytes(createNativeStructuralFacts({signed: true}));
+
+        const result = await analyzePdfConformanceFile('/tmp/corrupt-xref.pdf', {markerEvidence: 'structural-only'});
+
+        expect(result.isSigned).toBe(true);
+        expect(mocks.runNativeToolCommand).toHaveBeenNthCalledWith(
+            2,
+            '/mock/qpdf',
+            expect.arrayContaining(['--warning-exit-0', '--preserve-unreferenced', '/tmp/corrupt-xref.pdf']),
+            expect.objectContaining({
+                commandLabel: 'qpdf(conformance-repair)',
+                brokerRun: expect.objectContaining({
+                    lease: expect.objectContaining({token: expect.any(String)}),
+                    onTerminationProof: expect.any(Function),
+                }),
+            }),
+        );
     });
 });
 
