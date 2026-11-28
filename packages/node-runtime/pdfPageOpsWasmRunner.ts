@@ -1,5 +1,7 @@
+import {execFileSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {
+    chmodSync,
     closeSync,
     constants as fsConstants,
     copyFileSync,
@@ -7,10 +9,13 @@ import {
     fstatSync,
     fsyncSync,
     ftruncateSync,
+    linkSync,
+    mkdirSync,
     openSync,
     readSync,
     realpathSync,
     renameSync,
+    rmSync,
     statSync,
     unlinkSync,
     writeFileSync,
@@ -266,24 +271,110 @@ function unlinkBestEffortSync(filePath: string) {
     }
 }
 
+const apfsDeviceCache = new Map<number, boolean>();
+
+function isApfsDeviceSync(dev: number, directoryPath: string): boolean {
+    const cached = apfsDeviceCache.get(dev);
+    if (cached !== undefined) {
+        return cached;
+    }
+    let isApfs = false;
+    try {
+        execFileSync('/bin/df', ['-T', 'apfs', directoryPath], {stdio: 'ignore'});
+        isApfs = true;
+    } catch {
+        isApfs = false;
+    }
+    apfsDeviceCache.set(dev, isApfs);
+    return isApfs;
+}
+
+/**
+ * Deterministic private clone-staging directory paired with `stagedPath` so the
+ * main-thread worker owner can remove it if a worker is terminated mid-clone.
+ */
+export function getCloneStagingDirPath(stagedPath: string) {
+    return `${stagedPath}.clone-dir`;
+}
+
+function sameStatIdentity(left: ReturnType<typeof fstatSync>, right: ReturnType<typeof fstatSync>): boolean {
+    return (
+        left.dev === right.dev &&
+        left.ino === right.ino &&
+        left.size === right.size &&
+        left.mtimeMs === right.mtimeMs &&
+        left.ctimeMs === right.ctimeMs
+    );
+}
+
+function tryReflinkBaseSync(srcPath: string, srcFd: number, dstPath: string): boolean {
+    if (process.platform === 'darwin') {
+        // Libuv's COPYFILE_FICLONE_FORCE returns ENOSYS on macOS; `/bin/cp -c` invokes APFS clonefile(2).
+        // Gate on APFS + same device so `cp -c` never falls back to a dense copyfile(2) on non-APFS
+        // volumes (which would bypass the sparse descriptor fallback), verify `srcPath` matches `srcFd`
+        // before and after cloning so pathname replacement cannot substitute bytes, and install via a
+        // deterministic private staging directory + `linkSync` so `dstPath` is created exclusively and
+        // main-thread abort rollback can remove the directory if the worker is terminated mid-clone.
+        const srcStat = fstatSync(srcFd);
+        const dstDir = dirname(dstPath);
+        if (
+            !srcStat.isFile() ||
+            srcStat.dev !== statSync(dstDir).dev ||
+            existsSync(dstPath) ||
+            !isApfsDeviceSync(srcStat.dev, dstDir) ||
+            !sameStatIdentity(srcStat, statSync(srcPath))
+        ) {
+            return false;
+        }
+        const stageDir = getCloneStagingDirPath(dstPath);
+        mkdirSync(stageDir, {mode: 0o700});
+        try {
+            const stageFile = join(stageDir, 'copy');
+            execFileSync('/bin/cp', ['-c', '--', srcPath, stageFile], {stdio: 'ignore'});
+            if (!sameStatIdentity(srcStat, statSync(srcPath))) {
+                return false;
+            }
+            linkSync(stageFile, dstPath);
+        } finally {
+            try {
+                rmSync(stageDir, {recursive: true, force: true});
+            } catch {
+                // Best-effort cleanup of private clone staging directory.
+            }
+        }
+        if ((srcStat.mode & 0o200) === 0) {
+            chmodSync(dstPath, (srcStat.mode & 0o777) | 0o200);
+        }
+        return true;
+    }
+    copyFileSync(srcPath, dstPath, fsConstants.COPYFILE_FICLONE_FORCE);
+    return true;
+}
+
 /**
  * Copies `source0` into a fresh staging file while preserving sparse holes:
- * tries a copy-on-write reflink (`COPYFILE_FICLONE`) first, then falls back
- * to zero-skipping chunked copy so multi-GiB sparse PDFs never exhaust space.
+ * tries a copy-on-write reflink (`/bin/cp -c` on macOS APFS, `COPYFILE_FICLONE_FORCE`
+ * elsewhere) first, then falls back to zero-skipping chunked copy so multi-GiB
+ * sparse PDFs never exhaust space.
  */
 function copyBasePreservingSparseSync(srcPath: string, srcFd: number, srcLen: number, dstPath: string, scratch: Uint8Array): number {
+    let dstCreated = false;
     try {
-        copyFileSync(srcPath, dstPath, fsConstants.COPYFILE_FICLONE_FORCE);
-        const fd = openSync(dstPath, 'r+');
-        const st = fstatSync(fd);
-        if (st.size === srcLen) {
-            return fd;
+        if (tryReflinkBaseSync(srcPath, srcFd, dstPath)) {
+            dstCreated = true;
+            const fd = openSync(dstPath, 'r+');
+            const st = fstatSync(fd);
+            if (st.size === srcLen) {
+                return fd;
+            }
+            closeSync(fd);
+            unlinkSync(dstPath);
         }
-        closeSync(fd);
-        unlinkSync(dstPath);
     } catch {
         // Reflink unavailable on this filesystem or OS; fall through to sparse-preserving copy.
-        unlinkBestEffortSync(dstPath);
+        if (dstCreated) {
+            unlinkBestEffortSync(dstPath);
+        }
     }
     const fd = openSync(dstPath, 'w+');
     try {

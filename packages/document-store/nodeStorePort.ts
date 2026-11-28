@@ -1,20 +1,36 @@
 import {execFile} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {constants, promises as fs} from 'node:fs';
+import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {contentWitness} from './contentWitness';
 import type {IStoreFile, IStorePort, TExternalSource} from './storePort';
 
 const hasCode = (error: unknown, code: string) => error instanceof Error && 'code' in error && error.code === code;
 const isMissing = (error: unknown) => hasCode(error, 'ENOENT');
+const apfsDeviceCache = new Map<number, boolean>();
+
+function isApfsVolume(dev: number, directoryPath: string): Promise<boolean> {
+    const cached = apfsDeviceCache.get(dev);
+    if (cached !== undefined) {
+        return Promise.resolve(cached);
+    }
+    return new Promise<boolean>((resolve) => {
+        execFile('/bin/df', ['-T', 'apfs', directoryPath], (error) => {
+            const isApfs = error === null;
+            apfsDeviceCache.set(dev, isApfs);
+            resolve(isApfs);
+        });
+    });
+}
 
 /**
  * Copies the file `source` to `target`, which must not exist yet: a clone on APFS, Btrfs and XFS, which writes no
- * bytes, and an ordinary copy elsewhere and across volumes. Libuv cannot clone on macOS, so there `/bin/cp -c` does.
+ * bytes, and an ordinary copy elsewhere and across volumes. Libuv cannot clone on macOS, so there `/bin/cp -c`
+ * clones into a private staging directory and `link(2)` installs `target` with kernel-atomic no-replace semantics.
  */
 export async function copyNewFile(source: string, target: string) {
     if (process.platform === 'darwin') {
-        // `cp` replaces an existing file, so its absence is checked first.
         await fs.lstat(target).then(
             () => {
                 throw Object.assign(new Error(`File exists: ${target}`), {code: 'EEXIST'});
@@ -25,12 +41,46 @@ export async function copyNewFile(source: string, target: string) {
                 }
             },
         );
+        const targetDir = path.dirname(target);
+        const cloneTempRoot = tmpdir();
+        const [sourceStat, targetDirStat, tempRootStat] = await Promise.all([
+            fs.stat(source).catch(() => null),
+            fs.stat(targetDir).catch(() => null),
+            fs.stat(cloneTempRoot).catch(() => null),
+        ]);
+        // Stage clones in `os.tmpdir()` (when on the same APFS volume) rather than beside `target`,
+        // so a crash or kill mid-clone never leaves an untracked hidden directory beside a user's PDF.
         if (
-            await new Promise<boolean>((resolve) => execFile('/bin/cp', ['-c', '--', source, target], (error) => resolve(error === null)))
+            sourceStat?.isFile() &&
+            targetDirStat &&
+            tempRootStat &&
+            sourceStat.dev === targetDirStat.dev &&
+            tempRootStat.dev === targetDirStat.dev &&
+            (await isApfsVolume(targetDirStat.dev, targetDir))
         ) {
-            return;
+            const stagingDir = await fs.mkdtemp(path.join(cloneTempRoot, 'evb-clone-')).catch(() => null);
+            if (stagingDir !== null) {
+                const stagedFile = path.join(stagingDir, 'copy');
+                try {
+                    const cloned = await new Promise<boolean>((resolve) =>
+                        execFile('/bin/cp', ['-c', '--', source, stagedFile], (error) => resolve(error === null)),
+                    );
+                    if (cloned) {
+                        try {
+                            await fs.link(stagedFile, target);
+                            return;
+                        } catch (error) {
+                            if (hasCode(error, 'EEXIST')) {
+                                throw error;
+                            }
+                            // Hard links unavailable on this volume; fall through to exclusive copyFile.
+                        }
+                    }
+                } finally {
+                    await fs.rm(stagingDir, {recursive: true, force: true}).catch(() => undefined);
+                }
+            }
         }
-        await fs.rm(target, {force: true});
     }
     await fs.copyFile(source, target, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
 }

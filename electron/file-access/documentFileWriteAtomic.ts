@@ -1,6 +1,6 @@
-import {constants} from 'fs';
-import {copyFile, open as openFileHandle, rename, unlink} from 'fs/promises';
+import {open as openFileHandle, rename, unlink} from 'fs/promises';
 import {dirname} from 'path';
+import {copyNewFile} from '@document-store/nodeStorePort';
 import {fsyncFile} from '@electron/utils/fsyncPath';
 import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
 import {assertNoSymlinkPathSegments} from '@electron/file-access/assertNoSymlinkPathSegments';
@@ -73,8 +73,11 @@ export async function copyFileAtomic(
     assertNoSymlinkPathSegments(resolvedTargetPath);
 
     const temporaryPath = options.temporaryPath ?? makeSiblingTempPath(resolvedTargetPath);
+    assertNoSymlinkPathSegments(temporaryPath);
+    let stagedCreated = false;
     try {
-        await copyFile(resolvedSourcePath, temporaryPath, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
+        await copyNewFile(resolvedSourcePath, temporaryPath);
+        stagedCreated = true;
         if (options.durable !== false) {
             await fsyncFile(temporaryPath);
         }
@@ -84,7 +87,9 @@ export async function copyFileAtomic(
             markMutationCommitStarted: false,
         });
     } catch (error) {
-        await unlink(temporaryPath).catch(() => undefined);
+        if (stagedCreated) {
+            await unlink(temporaryPath).catch(() => undefined);
+        }
         throw error;
     }
 }

@@ -1,6 +1,6 @@
-import {constants} from 'fs';
-import {copyFile, open, readdir, rm, stat, writeFile} from 'fs/promises';
+import {open, readdir, rm, stat, writeFile} from 'fs/promises';
 import {extname, join} from 'path';
+import {copyNewFile} from '@document-store/nodeStorePort';
 import type {IPdfOptimizeOptions, IPdfOptimizeProgress, IPdfOptimizeResult, TPdfOptimizePreset} from '@contracts/electronApiDocuments';
 import {isPdfOptimizePreset} from '@contracts/electronApiDocuments';
 import {isRecord} from '@contracts/runtimeGuards';
@@ -288,7 +288,7 @@ async function optimizeLosslessCopy(
     context: IOptimizeProgressContext,
 ): Promise<IOptimizedCandidate> {
     emitProgress(context, 'preparing', 0, 1);
-    await copyFile(inputPath, tempOutputPath, constants.COPYFILE_FICLONE);
+    await copyNewFile(inputPath, tempOutputPath);
     return {
         validation: await finishCandidate(tempOutputPath, context, 1),
         optimizedPages: 0,
@@ -353,7 +353,7 @@ async function optimizeRasterCopy(
             signalOptions(context),
         );
         if (imagePages.length === 0) {
-            await copyFile(imageSourcePath, tempOutputPath, constants.COPYFILE_FICLONE);
+            await copyNewFile(imageSourcePath, tempOutputPath);
         }
         return {
             validation: await finishCandidate(tempOutputPath, context, pageCount),

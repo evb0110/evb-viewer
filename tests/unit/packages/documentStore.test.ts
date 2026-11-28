@@ -1,6 +1,6 @@
 import {execFileSync} from 'node:child_process';
 import {promises} from 'node:fs';
-import {mkdtemp, readFile, readdir, rename, rm, stat, truncate, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, truncate, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
@@ -17,7 +17,7 @@ import {
     type TDocumentInit,
     type TDraftsAfter,
 } from '@document-store/documentDirectory';
-import {createNodeStorePort} from '@document-store/nodeStorePort';
+import {copyNewFile, createNodeStorePort} from '@document-store/nodeStorePort';
 import {createRevisionTokenCodec, OpenDocument} from '@document-store/openDocument';
 import {SavePublicationError, saveDocument} from '@document-store/saveDocument';
 import type {IStoreFile, IStorePort} from '@document-store/storePort';
@@ -1938,4 +1938,106 @@ describe('revision-lineage text identity (ADR 0010)', () => {
         const futureVersionDoc = await open(store(), id);
         expect(futureVersionDoc.state().textIdentity).toBeNull();
     });
+});
+
+describe('copyNewFile exclusive staging', () => {
+    let dir = '';
+
+    beforeEach(async () => {
+        dir = await mkdtemp(path.join(tmpdir(), 'evb-copy-new-file-'));
+    });
+
+    afterEach(async () => {
+        vi.restoreAllMocks();
+        await rm(dir, {recursive: true, force: true});
+    });
+
+    it.each(['file', 'directory', 'symlink-to-directory'] as const)(
+        'rejects existing %s targets without overwriting or writing inside them',
+        async (competitorKind) => {
+            if (competitorKind === 'symlink-to-directory' && process.platform === 'win32') {
+                return;
+            }
+            const source = path.join(dir, 'source.pdf');
+            const target = path.join(dir, 'target.pdf');
+            const symlinkDestDir = path.join(dir, 'symlink-dest');
+            await writeFile(source, 'source-bytes', 'utf8');
+            if (competitorKind === 'file') {
+                await writeFile(target, 'competitor-bytes', 'utf8');
+            } else if (competitorKind === 'directory') {
+                await mkdir(target);
+            } else {
+                await mkdir(symlinkDestDir);
+                await symlink(symlinkDestDir, target);
+            }
+
+            await expect(copyNewFile(source, target)).rejects.toMatchObject(
+                process.platform === 'win32' && competitorKind === 'directory'
+                    ? {code: expect.stringMatching(/^(?:EEXIST|EPERM)$/u)}
+                    : {code: 'EEXIST'},
+            );
+
+            if (competitorKind === 'file') {
+                expect(await readFile(target, 'utf8')).toBe('competitor-bytes');
+            } else if (competitorKind === 'directory') {
+                expect((await promises.lstat(target)).isDirectory()).toBe(true);
+                expect(await readdir(target)).toEqual([]);
+            } else {
+                expect((await promises.lstat(target)).isSymbolicLink()).toBe(true);
+                expect(await readdir(symlinkDestDir)).toEqual([]);
+            }
+        },
+    );
+
+    it.skipIf(process.platform !== 'darwin').each(['file', 'directory', 'symlink-to-directory'] as const)(
+        'rejects with EEXIST without writing through or deleting a competing %s inserted after macOS lstat',
+        async (competitorKind) => {
+            const source = path.join(dir, 'source.pdf');
+            const target = path.join(dir, 'target.pdf');
+            const symlinkDestDir = path.join(dir, 'symlink-dest');
+            await writeFile(source, 'source-bytes', 'utf8');
+            if (competitorKind === 'symlink-to-directory') {
+                await mkdir(symlinkDestDir);
+            }
+
+            const realLstat = promises.lstat.bind(promises);
+            let inserted = false;
+            vi.spyOn(promises, 'lstat').mockImplementation(async (candidate, options) => {
+                if (!inserted && String(candidate) === target) {
+                    inserted = true;
+                    try {
+                        return await realLstat(candidate, options);
+                    } catch (error) {
+                        if (competitorKind === 'file') {
+                            await writeFile(target, 'competitor-bytes', 'utf8');
+                        } else if (competitorKind === 'directory') {
+                            await mkdir(target);
+                        } else {
+                            await symlink(symlinkDestDir, target);
+                        }
+                        throw error;
+                    }
+                }
+                return realLstat(candidate, options);
+            });
+
+            await expect(copyNewFile(source, target)).rejects.toMatchObject(
+                process.platform === 'win32' && competitorKind === 'directory'
+                    ? {code: expect.stringMatching(/^(?:EEXIST|EPERM)$/u)}
+                    : {code: 'EEXIST'},
+            );
+
+            if (competitorKind === 'file') {
+                expect(await readFile(target, 'utf8')).toBe('competitor-bytes');
+            } else if (competitorKind === 'directory') {
+                expect((await realLstat(target)).isDirectory()).toBe(true);
+                expect(await readdir(target)).toEqual([]);
+            } else {
+                expect((await realLstat(target)).isSymbolicLink()).toBe(true);
+                expect(await readdir(symlinkDestDir)).toEqual([]);
+            }
+            // Private staging directories must be cleaned up on failure.
+            expect((await readdir(dir)).filter((entry) => entry.startsWith('.evb-clone-'))).toEqual([]);
+        },
+    );
 });

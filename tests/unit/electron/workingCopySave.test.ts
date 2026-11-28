@@ -413,4 +413,42 @@ describe('workingCopySave publication facts', () => {
             fileName: 'vanished.pdf',
         });
     });
+
+    it('passes the live source with a separate outputPath to Save As optimization without pre-copying a healthy document', async () => {
+        const originalPath = join(tempRoot, 'healthy-save-as.pdf');
+        const copyPath = join(tempRoot, 'healthy-save-as-copy.pdf');
+        await writeFile(originalPath, ORIGINAL);
+        const entry = await store.openDocumentFromFile(originalPath, {ownerWebContentsId: 42});
+        const expectedSourcePath = await store.requireDocumentFile(entry);
+        const {optimizePdfForSaveAs} = await import('@electron/features/documents/public/pdfSaveAsOptimization');
+        const observedCalls: Array<{sourcePath: string; outputPath: string | undefined; outputExistsAtCall: boolean}> = [];
+        vi.mocked(optimizePdfForSaveAs).mockImplementationOnce(async (sourcePath, _options, executionOptions) => {
+            const {existsSync} = await import('node:fs');
+            observedCalls.push({
+                sourcePath,
+                outputPath: executionOptions?.outputPath,
+                outputExistsAtCall: executionOptions?.outputPath ? existsSync(executionOptions.outputPath) : false,
+            });
+            return null;
+        });
+
+        const savedRef = await savePdfAs(
+            {senderId: 42, sender: {} as never, parentWindow: null},
+            entry.ref,
+            undefined,
+            async () => copyPath,
+            {expectedDocumentRevisionToken: store.documentRevisionToken(entry)},
+        );
+
+        expect(savedRef).toBe(copyPath);
+        expect(observedCalls).toEqual([
+            {
+                sourcePath: expectedSourcePath,
+                outputPath: expect.stringMatching(/\.save-as-.*\.pdf$/u),
+                outputExistsAtCall: false,
+            },
+        ]);
+        expect(await readFile(originalPath)).toEqual(Buffer.from(ORIGINAL));
+        expect(await readFile(copyPath)).toEqual(Buffer.from(ORIGINAL));
+    });
 });

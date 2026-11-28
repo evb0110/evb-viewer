@@ -1,8 +1,8 @@
 import {randomUUID} from 'node:crypto';
-import {constants} from 'node:fs';
-import {copyFile, rm} from 'node:fs/promises';
+import {rm} from 'node:fs/promises';
 import {dirname, join} from 'node:path';
 import {DamagedDocumentError} from '@document-store/documentDirectory';
+import {copyNewFile} from '@document-store/nodeStorePort';
 import {SavePublicationError, type TSaveResult} from '@document-store/saveDocument';
 import type {IPdfValidationResult} from '@contracts/pdfConformance';
 import type {IDocumentMutationRevisionOptions, TDocumentSaveResult} from '@contracts/electronApiDocuments';
@@ -259,7 +259,7 @@ export async function handleOptimizePdfForInteraction(
         workingPath,
         options,
         async (currentPath, outputPath) => {
-            await copyFile(currentPath, outputPath, constants.COPYFILE_FICLONE);
+            await copyNewFile(currentPath, outputPath);
             return optimizePdfForSave(outputPath, {
                 force: true,
                 label: 'qpdf(optimize-current-pdf)',

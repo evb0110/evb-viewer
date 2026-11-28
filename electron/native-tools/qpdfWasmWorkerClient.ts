@@ -16,6 +16,14 @@ import {
     type IExecuteDesktopQpdfOptions,
 } from '@node-runtime/qpdfWasmRunner';
 import type {IProcessResult} from '@electron/native-tools/processResult';
+import {
+    getActiveJobBrokerLease,
+    getConfiguredMainJobBroker,
+    mergeTerminationProofSinks,
+    type IJobBrokerRunContext,
+    type IJobResourceVector,
+    type TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 import {createAbortError} from '@electron/utils/abort';
 import {resolveUnpackedWorkerPath} from '@electron/utils/workerTask';
 
@@ -23,6 +31,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const MAX_WARM_WORKERS = 2;
 const WORKER_IDLE_TTL_MS = 30_000;
 const DEFAULT_QPDF_TIMEOUT_MS = 15 * 60 * 1_000;
+const QPDF_WASM_RESOURCES: Readonly<IJobResourceVector> = {
+    cpuTokens: 1,
+    estimatedResidentBytes: 128 * 1024 * 1024,
+    nativeProcesses: 1,
+    ioWeight: 1,
+};
 
 interface IWorkerReply {
     id: number;
@@ -39,6 +53,7 @@ interface IWarmQpdfWorker {
     busy: boolean;
     closed: boolean;
     idleTimer: NodeJS.Timeout | null;
+    terminationPromise: Promise<boolean> | null;
 }
 
 export interface IRunDesktopQpdfWasmOptions {
@@ -52,7 +67,8 @@ export interface IRunDesktopQpdfWasmOptions {
     maxStdoutBytes?: number;
     maxStderrBytes?: number;
     rejectOnStdoutTruncation?: boolean;
-    onTerminationProof?: (proof: Promise<boolean>) => void;
+    brokerRun?: IJobBrokerRunContext;
+    onTerminationProof?: TTerminationProofSink;
 }
 
 interface IQueuedQpdfTask {
@@ -125,6 +141,7 @@ function createQpdfWorkerPool() {
     let startingWorkers = 0;
     let shuttingDown = false;
     let suspendPumpDepth = 0;
+    const activeAdmissionCancels = new Set<(reason: unknown) => Promise<boolean>>();
     const activeStartupCancels = new Set<(reason: unknown) => Promise<boolean>>();
     const activeDispatchCancels = new Set<(reason: unknown) => Promise<boolean>>();
     const pendingGroupProofs = new Map<string, Set<Promise<boolean>>>();
@@ -146,6 +163,14 @@ function createQpdfWorkerPool() {
             clearTimeout(task.deadlineTimer);
             task.deadlineTimer = null;
         }
+    }
+
+    function isTaskExpired(task: IQueuedQpdfTask): boolean {
+        return task.timedOut || (task.deadlineMs !== null && Date.now() >= task.deadlineMs);
+    }
+
+    function createTaskTimeoutError(task: Pick<IQueuedQpdfTask, 'options' | 'effectiveTimeoutMs'>) {
+        return new Error(`${task.options.commandLabel ?? 'qpdf'} timed out after ${task.effectiveTimeoutMs}ms`);
     }
 
     function trackPendingGroupProof(cancelGroup: string | undefined, proof: Promise<boolean>) {
@@ -215,17 +240,19 @@ function createQpdfWorkerPool() {
 
     function destroyWorker(entry: IWarmQpdfWorker): Promise<boolean> {
         if (entry.closed) {
-            return Promise.resolve(true);
+            return entry.terminationPromise ?? Promise.resolve(true);
         }
         entry.closed = true;
         clearIdleTimer(entry);
         workers.delete(entry);
-        return trackPendingCleanup(
+        const termination = trackPendingCleanup(
             entry.worker.terminate().then(
                 () => true,
                 () => false,
             ),
         );
+        entry.terminationPromise = termination;
+        return termination;
     }
 
     function scheduleIdleEviction(entry: IWarmQpdfWorker) {
@@ -267,6 +294,12 @@ function createQpdfWorkerPool() {
                 unregisterCancel(next.options.cancelGroup, next.onCancelGroup);
             }
             if (next.timedOut) {
+                continue;
+            }
+            if (isTaskExpired(next)) {
+                next.timedOut = true;
+                clearTaskDeadline(next);
+                next.reject(createTaskTimeoutError(next));
                 continue;
             }
             if (next.options.signal?.aborted) {
@@ -329,12 +362,12 @@ function createQpdfWorkerPool() {
         task.cancelActive = cancelDuringStartup;
         activeStartupCancels.add(cancelDuringStartup);
         registerCancel(task.options.cancelGroup, onStartupCancelGroup);
-        if (task.timedOut || shuttingDown) {
-            void cancelDuringStartup(
-                task.timedOut
-                    ? new Error(`${task.options.commandLabel ?? 'qpdf'} timed out after ${task.effectiveTimeoutMs}ms`)
-                    : new Error('qpdf WASM worker pool shut down'),
-            );
+        if (isTaskExpired(task) || shuttingDown) {
+            const expired = isTaskExpired(task);
+            if (expired) {
+                task.timedOut = true;
+            }
+            void cancelDuringStartup(expired ? createTaskTimeoutError(task) : new Error('qpdf WASM worker pool shut down'));
             return;
         }
         if (task.options.signal) {
@@ -347,13 +380,13 @@ function createQpdfWorkerPool() {
 
         try {
             const wasmModule = await loadQpdfWasmModule(task.wasmPath);
-            if (startupSettled || shuttingDown || task.timedOut) {
+            if (startupSettled || shuttingDown || isTaskExpired(task)) {
                 if (!startupSettled) {
-                    void cancelDuringStartup(
-                        task.timedOut
-                            ? new Error(`${task.options.commandLabel ?? 'qpdf'} timed out after ${task.effectiveTimeoutMs}ms`)
-                            : new Error('qpdf WASM worker pool shut down'),
-                    );
+                    const expired = isTaskExpired(task);
+                    if (expired) {
+                        task.timedOut = true;
+                    }
+                    void cancelDuringStartup(expired ? createTaskTimeoutError(task) : new Error('qpdf WASM worker pool shut down'));
                 }
                 return;
             }
@@ -377,6 +410,7 @@ function createQpdfWorkerPool() {
                 busy: true,
                 closed: false,
                 idleTimer: null,
+                terminationPromise: null,
             };
             startupSettled = true;
             cleanupStartupCancel();
@@ -525,13 +559,12 @@ function createQpdfWorkerPool() {
         entry.worker.on('error', onError);
         entry.worker.on('exit', onExit);
         registerCancel(task.options.cancelGroup, onCancelGroup);
-        if (task.timedOut || shuttingDown) {
-            void finishError(
-                task.timedOut
-                    ? new Error(`${task.options.commandLabel ?? 'qpdf'} timed out after ${task.effectiveTimeoutMs}ms`)
-                    : new Error('qpdf WASM worker pool shut down'),
-                true,
-            );
+        if (isTaskExpired(task) || shuttingDown) {
+            const expired = isTaskExpired(task);
+            if (expired) {
+                task.timedOut = true;
+            }
+            void finishError(expired ? createTaskTimeoutError(task) : new Error('qpdf WASM worker pool shut down'), true);
             return;
         }
         if (task.options.signal) {
@@ -565,6 +598,101 @@ function createQpdfWorkerPool() {
         return result;
     }
 
+    async function runWithBrokerAdmission(
+        options: IRunDesktopQpdfWasmOptions,
+        effectiveTimeoutMs: number,
+        deadlineMs: number | null,
+        execute: (effectiveTerminationProof: TTerminationProofSink | undefined) => Promise<IProcessResult>,
+    ): Promise<IProcessResult> {
+        const configuredBroker = getConfiguredMainJobBroker();
+        const heldLease = getActiveJobBrokerLease(options.brokerRun, configuredBroker ?? undefined);
+        const callerTerminationProof =
+            heldLease === undefined
+                ? options.onTerminationProof
+                : mergeTerminationProofSinks(options.brokerRun?.onTerminationProof, options.onTerminationProof);
+        if (heldLease !== undefined || configuredBroker === null) {
+            return execute(callerTerminationProof);
+        }
+        if (shuttingDown) {
+            throw new Error('qpdf WASM worker pool shut down');
+        }
+        if (options.signal?.aborted) {
+            throw getAbortReason(options.signal);
+        }
+        const admissionController = new AbortController();
+        let admitted = false;
+        let admissionSettled = false;
+        let admissionTimer: NodeJS.Timeout | null = null;
+        const onExternalAbort = () => {
+            if (!admissionSettled) {
+                admissionController.abort(getAbortReason(options.signal!));
+            }
+        };
+        const cleanupAdmission = () => {
+            if (admissionTimer !== null) {
+                clearTimeout(admissionTimer);
+                admissionTimer = null;
+            }
+            activeAdmissionCancels.delete(cancelDuringAdmission);
+            options.signal?.removeEventListener('abort', onExternalAbort);
+            unregisterCancel(options.cancelGroup, onCancelGroup);
+        };
+        const cancelDuringAdmission = (reason: unknown): Promise<boolean> => {
+            if (admissionSettled) {
+                return Promise.resolve(true);
+            }
+            admissionSettled = true;
+            cleanupAdmission();
+            admissionController.abort(reason);
+            const proof = Promise.resolve(true);
+            callerTerminationProof?.(proof);
+            return proof;
+        };
+        const onCancelGroup = () => cancelDuringAdmission(createAbortError('Operation canceled'));
+        activeAdmissionCancels.add(cancelDuringAdmission);
+        registerCancel(options.cancelGroup, onCancelGroup);
+        options.signal?.addEventListener('abort', onExternalAbort, {once: true});
+        if (deadlineMs !== null) {
+            const waitMs = Math.max(0, deadlineMs - Date.now());
+            admissionTimer = setTimeout(() => {
+                void cancelDuringAdmission(new Error(`${options.commandLabel ?? 'qpdf'} timed out after ${effectiveTimeoutMs}ms`));
+            }, waitMs);
+            admissionTimer.unref();
+        }
+        try {
+            return await configuredBroker.run(
+                {
+                    ownerId: `qpdf:${options.cancelGroup ?? options.commandLabel ?? 'wasm'}`,
+                    kind: 'qpdf',
+                    priority: 'user',
+                    admissionClass: 'leaf',
+                    resources: QPDF_WASM_RESOURCES,
+                    signal: admissionController.signal,
+                },
+                ({onTerminationProof}) => {
+                    admitted = true;
+                    admissionSettled = true;
+                    cleanupAdmission();
+                    return execute(mergeTerminationProofSinks(onTerminationProof, callerTerminationProof));
+                },
+            );
+        } catch (error) {
+            if (!admitted) {
+                admissionSettled = true;
+                cleanupAdmission();
+                if (options.signal?.aborted) {
+                    throw getAbortReason(options.signal);
+                }
+                if (admissionController.signal.aborted) {
+                    throw admissionController.signal.reason instanceof Error
+                        ? admissionController.signal.reason
+                        : createAbortError('Operation canceled');
+                }
+            }
+            throw error;
+        }
+    }
+
     function run(args: string[], options: IRunDesktopQpdfWasmOptions = {}): Promise<IProcessResult> {
         if (shuttingDown) {
             return Promise.reject(new Error('qpdf WASM worker pool shut down'));
@@ -572,6 +700,7 @@ function createQpdfWorkerPool() {
         if (options.signal?.aborted) {
             return Promise.reject(getAbortReason(options.signal));
         }
+        const argsSnapshot = [...args];
         const wasmPath =
             options.wasmPath ??
             resolveDesktopQpdfWasmPath({
@@ -582,68 +711,85 @@ function createQpdfWorkerPool() {
             return Promise.reject(new PdfPageOpsNativeError('native-failure', 'evb-qpdf.wasm was not found'));
         }
         const workerPath = resolveWorkerScriptPath();
-        if (!existsSync(workerPath)) {
-            if (process.env.VITEST === 'true' && !__dirname.includes('app.asar')) {
-                return runInlineFallback(wasmPath, args, options);
-            }
-            return Promise.reject(new Error(`evb-qpdf.wasm worker is missing: ${workerPath}`));
-        }
         const effectiveTimeoutMs = options.timeoutMs === undefined ? DEFAULT_QPDF_TIMEOUT_MS : options.timeoutMs;
         const deadlineMs = effectiveTimeoutMs > 0 ? Date.now() + effectiveTimeoutMs : null;
-        return new Promise((resolve, reject) => {
-            const task: IQueuedQpdfTask = {
-                wasmPath,
-                args: [...args],
-                options,
-                deadlineMs,
-                effectiveTimeoutMs,
-                deadlineTimer: null,
-                timedOut: false,
-                cancelActive: null,
-                resolve,
-                reject,
+        return runWithBrokerAdmission(options, effectiveTimeoutMs, deadlineMs, (effectiveTerminationProof) => {
+            if (shuttingDown) {
+                return Promise.reject(new Error('qpdf WASM worker pool shut down'));
+            }
+            if (options.signal?.aborted) {
+                return Promise.reject(getAbortReason(options.signal));
+            }
+            if (deadlineMs !== null && Date.now() >= deadlineMs) {
+                return Promise.reject(new Error(`${options.commandLabel ?? 'qpdf'} timed out after ${effectiveTimeoutMs}ms`));
+            }
+            const {brokerRun: _brokerRun, onTerminationProof: _callerTerminationProof, ...restOptions} = options;
+            const taskOptions: IRunDesktopQpdfWasmOptions = {
+                ...restOptions,
+                ...(effectiveTerminationProof === undefined ? {} : {onTerminationProof: effectiveTerminationProof}),
             };
-            const removeFromQueue = (reason: unknown): Promise<boolean> => {
-                const index = queue.indexOf(task);
-                if (index >= 0) {
-                    queue.splice(index, 1);
-                    clearTaskDeadline(task);
-                    task.cancelActive = null;
-                    if (task.onAbort) {
-                        task.options.signal?.removeEventListener('abort', task.onAbort);
-                    }
-                    if (task.onCancelGroup) {
-                        unregisterCancel(task.options.cancelGroup, task.onCancelGroup);
-                    }
-                    const proof = Promise.resolve(true);
-                    task.options.onTerminationProof?.(proof);
-                    reject(reason);
-                    return proof;
+            if (!existsSync(workerPath)) {
+                if (process.env.VITEST === 'true' && !__dirname.includes('app.asar')) {
+                    return runInlineFallback(wasmPath, argsSnapshot, taskOptions);
                 }
-                return Promise.resolve(true);
-            };
-            task.cancelActive = removeFromQueue;
-            if (deadlineMs !== null) {
-                task.deadlineTimer = setTimeout(() => {
-                    task.timedOut = true;
-                    task.deadlineTimer = null;
-                    const timeoutError = new Error(`${options.commandLabel ?? 'qpdf'} timed out after ${effectiveTimeoutMs}ms`);
-                    void task.cancelActive?.(timeoutError);
-                }, effectiveTimeoutMs);
-                task.deadlineTimer.unref();
+                return Promise.reject(new Error(`evb-qpdf.wasm worker is missing: ${workerPath}`));
             }
-            if (options.signal) {
-                task.onAbort = () => {
-                    void removeFromQueue(getAbortReason(options.signal!));
+            return new Promise((resolve, reject) => {
+                const task: IQueuedQpdfTask = {
+                    wasmPath,
+                    args: [...argsSnapshot],
+                    options: taskOptions,
+                    deadlineMs,
+                    effectiveTimeoutMs,
+                    deadlineTimer: null,
+                    timedOut: false,
+                    cancelActive: null,
+                    resolve,
+                    reject,
                 };
-                options.signal.addEventListener('abort', task.onAbort, {once: true});
-            }
-            if (options.cancelGroup) {
-                task.onCancelGroup = () => removeFromQueue(createAbortError('Operation canceled'));
-                registerCancel(options.cancelGroup, task.onCancelGroup);
-            }
-            queue.push(task);
-            pumpQueue();
+                const removeFromQueue = (reason: unknown): Promise<boolean> => {
+                    const index = queue.indexOf(task);
+                    if (index >= 0) {
+                        queue.splice(index, 1);
+                        clearTaskDeadline(task);
+                        task.cancelActive = null;
+                        if (task.onAbort) {
+                            task.options.signal?.removeEventListener('abort', task.onAbort);
+                        }
+                        if (task.onCancelGroup) {
+                            unregisterCancel(task.options.cancelGroup, task.onCancelGroup);
+                        }
+                        const proof = Promise.resolve(true);
+                        task.options.onTerminationProof?.(proof);
+                        reject(reason);
+                        return proof;
+                    }
+                    return Promise.resolve(true);
+                };
+                task.cancelActive = removeFromQueue;
+                if (deadlineMs !== null) {
+                    const remainingMs = Math.max(1, deadlineMs - Date.now());
+                    task.deadlineTimer = setTimeout(() => {
+                        task.timedOut = true;
+                        task.deadlineTimer = null;
+                        const timeoutError = new Error(`${options.commandLabel ?? 'qpdf'} timed out after ${effectiveTimeoutMs}ms`);
+                        void task.cancelActive?.(timeoutError);
+                    }, remainingMs);
+                    task.deadlineTimer.unref();
+                }
+                if (options.signal) {
+                    task.onAbort = () => {
+                        void removeFromQueue(getAbortReason(options.signal!));
+                    };
+                    options.signal.addEventListener('abort', task.onAbort, {once: true});
+                }
+                if (options.cancelGroup) {
+                    task.onCancelGroup = () => removeFromQueue(createAbortError('Operation canceled'));
+                    registerCancel(options.cancelGroup, task.onCancelGroup);
+                }
+                queue.push(task);
+                pumpQueue();
+            });
         });
     }
 
@@ -697,8 +843,11 @@ function createQpdfWorkerPool() {
         shuttingDown = true;
         const shutdownError = new Error('qpdf WASM worker pool shut down');
         const cleanupPromises: Array<Promise<unknown>> = [];
-        // Drain queued tasks before canceling in-flight work so no queued task
-        // can be promoted during shutdown.
+        // Drain admission waiters and queued tasks before canceling in-flight work
+        // so nothing waiting can be promoted during shutdown.
+        for (const cancelAdmission of [...activeAdmissionCancels]) {
+            cleanupPromises.push(cancelAdmission(shutdownError));
+        }
         for (const task of queue.splice(0)) {
             clearTaskDeadline(task);
             task.cancelActive = null;
