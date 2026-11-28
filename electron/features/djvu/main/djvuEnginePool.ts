@@ -117,8 +117,26 @@ function createWorkerError(message: string, name?: string) {
 class DjvuEnginePool {
     private readonly workers = new Set<IDjvuPoolWorker>();
     private readonly waiters: Array<() => void> = [];
+    private readonly registeredReclaimBrokers = new WeakSet<NonNullable<ReturnType<typeof getConfiguredMainJobBroker>>>();
+    private readonly unregisterReclaimers: Array<() => void> = [];
     private nextId = 1;
     private closed = false;
+
+    public ensureBrokerReclaimer(broker: NonNullable<ReturnType<typeof getConfiguredMainJobBroker>>) {
+        if (this.closed || this.registeredReclaimBrokers.has(broker)) {
+            return;
+        }
+        this.registeredReclaimBrokers.add(broker);
+        this.unregisterReclaimers.push(
+            broker.registerMemoryReclaimer(() => {
+                for (const entry of [...this.workers]) {
+                    if (!entry.busy && !entry.ending) {
+                        void this.endWorker(entry);
+                    }
+                }
+            }),
+        );
+    }
 
     private wakeWaiter() {
         this.waiters.shift()?.();
@@ -308,13 +326,19 @@ class DjvuEnginePool {
                 const {terminationAttempt, exitProof} = this.endWorker(entry);
                 // Keep the broker lease charged until the worker actually exits (even after a late exit
                 // following a rejected terminate()), while settling the caller once the termination attempt completes.
-                onTerminationProof?.(exitProof);
                 void terminationAttempt.then((proven) => {
                     const finalError = proven
                         ? baseError
                         : markUnprovenNativeTermination(baseError, 'DjVu engine worker termination could not be confirmed');
                     finish(finalError);
                 });
+                try {
+                    onTerminationProof?.(exitProof);
+                } catch (error) {
+                    logger.warn('DjVu engine termination proof callback failed', {
+                        error: getErrorMessage(error),
+                    });
+                }
             };
             const onMessage = (reply: TDjvuEngineWorkerReply) => {
                 if (!reply || reply.id !== id) {
@@ -366,6 +390,9 @@ class DjvuEnginePool {
 
     public shutdown() {
         this.closed = true;
+        for (const unregister of this.unregisterReclaimers.splice(0)) {
+            unregister();
+        }
         for (const entry of [...this.workers]) {
             void this.endWorker(entry);
         }
@@ -389,6 +416,9 @@ export async function runDjvuEngine<TType extends TDjvuEngineWorkerRequest['type
     const signal = options?.signal;
     const timeoutMs = options?.timeoutMs;
     const configuredBroker = getConfiguredMainJobBroker();
+    if (configuredBroker !== null) {
+        getPool().ensureBrokerReclaimer(configuredBroker);
+    }
     const heldLease = getActiveJobBrokerLease(options?.brokerRun, configuredBroker ?? undefined);
     const callerTerminationProof =
         heldLease === undefined

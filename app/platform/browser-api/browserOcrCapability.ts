@@ -48,9 +48,8 @@ const completeListeners = new Set<TCompleteListener>();
 const activeJobs = new Map<TRequestId, AbortController>();
 // Per-document admission guard while a job is running; `stagedResults` continues the guard through apply/ack.
 const activeJobsByDocument = new Map<TDocumentRef, TRequestId>();
-// Results waiting to be applied, indexed by owning document (admission guard) and by per-result receipt.
+// Results waiting to be applied, indexed by owning document (each record also carries its unique receipt).
 const stagedResults = new Map<TDocumentRef, IBrowserOcrStagedResult>();
-const stagedResultsByReceipt = new Map<TDocumentRef, IBrowserOcrStagedResult>();
 
 function createOcrResultReceiptRef(sourceRef: TDocumentRef, lease: string): TDocumentRef {
     return requireDocumentRef(`${sourceRef}#ocr-result=${encodeURIComponent(lease)}`);
@@ -142,9 +141,6 @@ async function discardStagedResult(ref: TDocumentRef) {
             if (stagedResults.get(ref) === staged) {
                 stagedResults.delete(ref);
             }
-            if (stagedResultsByReceipt.get(staged.resultRef) === staged) {
-                stagedResultsByReceipt.delete(staged.resultRef);
-            }
         }
     })();
     staged.discarding = discarding;
@@ -231,7 +227,6 @@ async function runJob(
                     sourceRevisionToken: outcome.sourceRevisionToken,
                 };
                 stagedResults.set(sourceRef, staged);
-                stagedResultsByReceipt.set(resultRef, staged);
                 leaseOwned = true;
             } finally {
                 if (!leaseOwned) {
@@ -292,14 +287,8 @@ export async function commitBrowserOcrResult(
     resultPath: TDocumentRef,
     expectedDocumentRevisionToken: TDocumentRevisionToken | undefined,
 ) {
-    const staged = stagedResultsByReceipt.get(resultPath);
-    if (
-        !staged ||
-        staged.discarding !== undefined ||
-        staged.committed === true ||
-        staged.sourceRef !== workingCopyPath ||
-        stagedResults.get(workingCopyPath) !== staged
-    ) {
+    const staged = stagedResults.get(workingCopyPath);
+    if (!staged || staged.resultRef !== resultPath || staged.discarding !== undefined || staged.committed === true) {
         throw new Error('The OCR result does not belong to this document');
     }
     if (expectedDocumentRevisionToken === undefined || expectedDocumentRevisionToken !== staged.sourceRevisionToken) {
@@ -367,10 +356,16 @@ export const browserOcrCapability: IOcrCapability = {
         documentRef?: TDocumentRef,
         _sourceDocumentRevisionToken?: TDocumentRevisionToken,
     ) {
-        const staged = pdfPath === undefined ? undefined : stagedResultsByReceipt.get(pdfPath);
+        const staged =
+            pdfPath === undefined
+                ? undefined
+                : documentRef !== undefined
+                  ? stagedResults.get(documentRef)
+                  : [...stagedResults.values()].find((entry) => entry.resultRef === pdfPath);
         if (
             pdfPath === undefined ||
             staged === undefined ||
+            staged.resultRef !== pdfPath ||
             staged.discarding !== undefined ||
             staged.requestId !== requestId ||
             (documentRef !== undefined && staged.sourceRef !== documentRef)

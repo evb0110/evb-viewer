@@ -428,10 +428,12 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
     } finally {
         await pdf.loadingTask.destroy().catch(() => {});
     }
-    if (stagedLease !== null && signal.aborted) {
-        const leaseToDiscard = stagedLease;
-        stagedLease = null;
-        await browserDocumentStore.discardAppend(input.sourceRef, leaseToDiscard).catch(() => undefined);
+    if (signal.aborted) {
+        if (stagedLease !== null) {
+            const leaseToDiscard = stagedLease;
+            stagedLease = null;
+            await browserDocumentStore.discardAppend(input.sourceRef, leaseToDiscard).catch(() => undefined);
+        }
         throwIfAborted(signal);
     }
     return outcome;

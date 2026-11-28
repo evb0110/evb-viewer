@@ -150,9 +150,11 @@ export async function createDjvuPageSource(
     >();
 
     const releaseUrl = (objectUrl: string) => {
-        urlLeases.get(objectUrl)?.lease?.release();
+        const entry = urlLeases.get(objectUrl);
         urlLeases.delete(objectUrl);
+        entry?.lease?.release();
         previewSource.revokeObjectURL(objectUrl);
+        notifyTransientWaiters(transientState);
     };
 
     const waitForTransientDrain = (signal: AbortSignal) =>
@@ -190,15 +192,12 @@ export async function createDjvuPageSource(
         reservation: Parameters<IDjvuSurfaceBudget['reserve']>[0],
         priority: TDocumentRenderPriority,
         signal: AbortSignal,
-        trackAsTransient: boolean,
     ) => {
         const claim = (lease: ReturnType<IDjvuSurfaceBudget['reserve']>) => {
-            if (trackAsTransient) {
-                // Count the transient reservation synchronously as soon as it takes budget,
-                // before returning across an await boundary to a sibling speculative render.
-                inFlightTransientCount += 1;
-                transientState.activeCount += 1;
-            }
+            // Count the transient reservation synchronously as soon as it takes budget,
+            // before returning across an await boundary to a sibling speculative render.
+            inFlightTransientCount += 1;
+            transientState.activeCount += 1;
             return lease;
         };
         if (isRequiredVisiblePriority(priority) || !surfaceBudget.tryReserve) {
@@ -246,7 +245,7 @@ export async function createDjvuPageSource(
             priority: transientPriority,
             canEvict: () => false,
         } as const;
-        const transientLease = await reserveWithTransientRetry(transientReservation, request.priority, request.signal, true);
+        const transientLease = await reserveWithTransientRetry(transientReservation, request.priority, request.signal);
         if (!transientLease) {
             throw new RangeError('DjVu preview exceeds the available raster surface budget');
         }
@@ -317,13 +316,10 @@ export async function createDjvuPageSource(
                 releaseUrl(rendered.objectUrl);
             },
         } as const;
-        try {
-            leaseEntry.lease = await reserveWithTransientRetry(retainedReservation, request.priority, request.signal, false);
-        } catch (error) {
-            urlLeases.delete(rendered.objectUrl);
-            previewSource.revokeObjectURL(rendered.objectUrl);
-            throw error;
-        }
+        leaseEntry.lease =
+            isRequiredVisiblePriority(request.priority) || !surfaceBudget.tryReserve
+                ? surfaceBudget.reserve(retainedReservation)
+                : surfaceBudget.tryReserve(retainedReservation);
         if (!leaseEntry.lease) {
             urlLeases.delete(rendered.objectUrl);
             previewSource.revokeObjectURL(rendered.objectUrl);
@@ -333,6 +329,7 @@ export async function createDjvuPageSource(
             leaseEntry.lease.release();
             urlLeases.delete(rendered.objectUrl);
             previewSource.revokeObjectURL(rendered.objectUrl);
+            notifyTransientWaiters(transientState);
             if (request.signal.aborted) {
                 request.signal.throwIfAborted();
             }
@@ -340,6 +337,7 @@ export async function createDjvuPageSource(
         }
         if (!urlLeases.has(rendered.objectUrl)) {
             leaseEntry.lease.release();
+            notifyTransientWaiters(transientState);
             throw new Error('DjVu preview evicted under memory pressure');
         }
         let released = false;
@@ -448,6 +446,7 @@ export async function createDjvuPageSource(
             }
             if (inFlightTransientCount === 0) {
                 surfaceBudget.releaseScope(scopeId);
+                notifyTransientWaiters(transientState);
             }
             previewSource.terminate();
         },

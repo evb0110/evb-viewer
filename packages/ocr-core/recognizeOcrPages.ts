@@ -310,6 +310,9 @@ export async function recognizeOcrPages<TImage>(input: IRecognizeOcrPagesInput<T
                     }
                     raster = early.raster;
                 } catch (error) {
+                    if (isOcrFatalJobError(error)) {
+                        throw error;
+                    }
                     throwIfAborted(laneSignal);
                     pageDiagnostics.push({
                         code: 'OCR_EARLY_PRINT_UNAVAILABLE',

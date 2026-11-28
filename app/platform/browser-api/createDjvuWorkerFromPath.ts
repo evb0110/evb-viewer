@@ -747,7 +747,7 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
                 const parsedRequestId = requestId === undefined ? null : parseRequestId(requestId);
                 const requestIds = parsedRequestId ? [parsedRequestId] : [...(pageRequestIds ?? [])];
                 for (const activeRequestId of requestIds) {
-                    if (!activePreviewRequestIds.has(activeRequestId)) {
+                    if (!activePreviewRequestIds.has(activeRequestId) || canceledPreviewRequestIds.has(activeRequestId)) {
                         continue;
                     }
                     canceledPreviewRequestIds.add(activeRequestId);
@@ -776,7 +776,7 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
                 pageRequestIds.add(previewRequestId);
                 activePreviewRequestIdsByPage.set(pageNumber, pageRequestIds);
                 const onRequestAbort = () => {
-                    if (activePreviewRequestIds.has(previewRequestId)) {
+                    if (activePreviewRequestIds.has(previewRequestId) && !canceledPreviewRequestIds.has(previewRequestId)) {
                         canceledPreviewRequestIds.add(previewRequestId);
                         cancelPreviewRequest(previewRequestId);
                     }
@@ -815,7 +815,10 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
             terminate() {
                 terminated = true;
                 for (const requestId of activePreviewRequestIds) {
-                    cancelPreviewRequest(requestId);
+                    if (!canceledPreviewRequestIds.has(requestId)) {
+                        canceledPreviewRequestIds.add(requestId);
+                        cancelPreviewRequest(requestId);
+                    }
                 }
                 activePreviewRequestIds.clear();
                 activePreviewRequestIdsByPage.clear();
@@ -857,13 +860,46 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
         return createRequestId(`browser-preview-${pageNumber}-${nextPreviewRequestId}`);
     };
 
-    const enqueueFallbackRender = async <T>(render: () => Promise<T>) => {
+    const enqueueFallbackRender = async <T>(signal: AbortSignal, render: () => Promise<T>) => {
         const previousRender = fallbackRenderQueue;
         let releaseRender: () => void = () => undefined;
         fallbackRenderQueue = new Promise<void>((resolve) => {
             releaseRender = () => resolve();
         });
-        await previousRender.catch(() => undefined);
+        try {
+            await new Promise<void>((resolve, reject) => {
+                if (signal.aborted) {
+                    reject(new Error('DjVu conversion canceled'));
+                    return;
+                }
+                let done = false;
+                const onAbort = () => {
+                    if (done) {
+                        return;
+                    }
+                    done = true;
+                    reject(new Error('DjVu conversion canceled'));
+                };
+                signal.addEventListener('abort', onAbort, {once: true});
+                void previousRender
+                    .catch(() => undefined)
+                    .then(() => {
+                        signal.removeEventListener('abort', onAbort);
+                        if (done) {
+                            return;
+                        }
+                        done = true;
+                        resolve();
+                    });
+            });
+        } catch (error) {
+            void previousRender.catch(() => undefined).finally(() => releaseRender());
+            throw error;
+        }
+        if (signal.aborted) {
+            releaseRender();
+            throw new Error('DjVu conversion canceled');
+        }
         try {
             return await render();
         } finally {
@@ -997,7 +1033,7 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
             pageRequestIds.add(previewRequestId);
             activePreviewRequestIdsByPage.set(pageNumber, pageRequestIds);
             try {
-                const preview = await enqueueFallbackRender(async () => {
+                const preview = await enqueueFallbackRender(requestController.signal, async () => {
                     throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
                     return renderDjvuPagePreviewPng(
                         worker,

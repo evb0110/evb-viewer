@@ -6,6 +6,7 @@ import type {IJobBrokerRunContext} from '@electron/resources/jobBroker';
 interface IFakeWorkerControl {
     worker: FakeWorker;
     posted: unknown[];
+    exited: boolean;
     terminateDeferred: PromiseWithResolvers<number>;
     emitExit: (code?: number) => void;
     emitError: (error: Error) => void;
@@ -26,8 +27,13 @@ class FakeWorker extends EventEmitter {
         const control: IFakeWorkerControl = {
             worker: this,
             posted: [],
+            exited: false,
             terminateDeferred,
             emitExit: (code = 0) => {
+                if (control.exited) {
+                    return;
+                }
+                control.exited = true;
                 this.emit('exit', code);
             },
             emitError: (error: Error) => {
@@ -48,7 +54,7 @@ class FakeWorker extends EventEmitter {
     public terminate() {
         return this.control.terminateDeferred.promise.then((code) => {
             if (workerControls.autoExitOnTerminate) {
-                this.emit('exit', code);
+                this.control.emitExit(code);
             }
             return code;
         });
@@ -84,6 +90,16 @@ describe('djvuEnginePool termination settlement and broker admission (P0-2 / G-0
     afterEach(async () => {
         const {shutdownDjvuEnginePool} = await import('@electron/features/djvu/main/djvuEnginePool');
         shutdownDjvuEnginePool();
+        for (const control of workerControls.spawned) {
+            control.terminateDeferred.resolve(0);
+            if (!control.exited) {
+                control.emitExit(0);
+            }
+        }
+        await Promise.resolve();
+        await Promise.resolve();
+        workerControls.spawned.length = 0;
+        vi.restoreAllMocks();
     });
 
     it('does not settle callers on abort or worker error until worker termination completes', async () => {
@@ -121,12 +137,55 @@ describe('djvuEnginePool termination settlement and broker admission (P0-2 / G-0
         expect(proofs).toHaveLength(1);
         await expect(proofs[0]).resolves.toBe(true);
 
+        // Worker error event must also await worker termination before settling the caller.
+        const errorProofs: Array<Promise<boolean>> = [];
+        const errorPending = runDjvuEngine(
+            {type: 'hasText', djvuPath: '/tmp/crashing.djvu'},
+            {onTerminationProof: (proof) => errorProofs.push(proof)},
+        );
+        await vi.waitFor(() => expect(workerControls.spawned).toHaveLength(2));
+        const errorWorker = workerControls.spawned[1]!;
+        let errorSettled = false;
+        void errorPending.then(
+            () => {
+                errorSettled = true;
+            },
+            () => {
+                errorSettled = true;
+            },
+        );
+        errorWorker.emitError(new Error('wasm trap'));
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(errorSettled).toBe(false);
+        errorWorker.terminateDeferred.resolve(1);
+        await expect(errorPending).rejects.toThrow('DjVu engine worker failed: wasm trap');
+        expect(errorProofs).toHaveLength(1);
+        await expect(errorProofs[0]).resolves.toBe(true);
+
+        // A throwing termination-proof observer must never prevent the request from settling.
+        const throwingObserverController = new AbortController();
+        const throwingObserverPending = runDjvuEngine(
+            {type: 'hasText', djvuPath: '/tmp/throwing-observer.djvu'},
+            {
+                signal: throwingObserverController.signal,
+                onTerminationProof: () => {
+                    throw new Error('observer boom');
+                },
+            },
+        );
+        await vi.waitFor(() => expect(workerControls.spawned).toHaveLength(3));
+        const observerWorker = workerControls.spawned[2]!;
+        throwingObserverController.abort(new DOMException('Observer canceled', 'AbortError'));
+        observerWorker.terminateDeferred.resolve(1);
+        await expect(throwingObserverPending).rejects.toThrow('Observer canceled');
+
         // Timeout must also await worker termination before settling the caller.
         vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
         try {
             const timeoutPending = runDjvuEngine({type: 'hasText', djvuPath: '/tmp/slow.djvu'}, {timeoutMs: 20});
-            await vi.waitFor(() => expect(workerControls.spawned).toHaveLength(2));
-            const second = workerControls.spawned[1]!;
+            await vi.waitFor(() => expect(workerControls.spawned).toHaveLength(4));
+            const fourth = workerControls.spawned[3]!;
             let timeoutSettled = false;
             void timeoutPending.then(
                 () => {
@@ -138,11 +197,43 @@ describe('djvuEnginePool termination settlement and broker admission (P0-2 / G-0
             );
             await vi.advanceTimersByTimeAsync(25);
             expect(timeoutSettled).toBe(false);
-            second.terminateDeferred.resolve(1);
+            fourth.terminateDeferred.resolve(1);
             await expect(timeoutPending).rejects.toThrow('DjVuLibre engine timed out');
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it('holds pool worker capacity independently of broker admission until a failed-terminate worker emits exit', async () => {
+        workerControls.autoExitOnTerminate = false;
+        const jobBrokerModule = await import('@electron/resources/jobBroker');
+        vi.spyOn(jobBrokerModule, 'getConfiguredMainJobBroker').mockReturnValue(null);
+
+        const {runDjvuEngine} = await import('@electron/features/djvu/main/djvuEnginePool');
+        const controller = new AbortController();
+        const failedRequest = runDjvuEngine({type: 'hasText', djvuPath: '/tmp/pool-only-1.djvu'}, {signal: controller.signal});
+
+        await vi.waitFor(() => expect(workerControls.spawned).toHaveLength(1));
+        const stuckWorker = workerControls.spawned[0]!;
+        controller.abort(new DOMException('Canceled', 'AbortError'));
+        stuckWorker.terminateDeferred.reject(new Error('terminate rejected'));
+
+        const error = await failedRequest.catch((err: unknown) => err);
+        expect(getUnprovenNativeTerminationDetail(error)).toBeDefined();
+
+        // Without any broker, the second request enters pool admission directly and must NOT spawn
+        // another worker while the zombie worker still holds the single low-tier pool slot.
+        const queuedRequest = runDjvuEngine({type: 'hasText', djvuPath: '/tmp/pool-only-2.djvu'});
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(workerControls.spawned).toHaveLength(1);
+
+        stuckWorker.emitExit(1);
+        await vi.waitFor(() => expect(workerControls.spawned).toHaveLength(2));
+        const nextWorker = workerControls.spawned[1]!;
+        const posted = nextWorker.posted[0] as {id: number};
+        nextWorker.replyOk(posted.id, true);
+        await expect(queuedRequest).resolves.toBe(true);
     });
 
     it('surfaces unproven termination instead of swallowing worker.terminate() rejections, holds pool and broker capacity until late exit, and releases both on exit', async () => {

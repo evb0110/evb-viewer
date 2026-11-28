@@ -1584,11 +1584,20 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
             };
         });
 
+        let stop: (() => void) | undefined;
+        let stop2: (() => void) | undefined;
+        let activeReq1: ReturnType<typeof requireRequestId> | undefined;
+        let completed1Promise: Promise<import('@contracts/electronApiOcr').IOcrCompleteResult> | undefined;
+        let completed2Promise: Promise<import('@contracts/electronApiOcr').IOcrCompleteResult> | undefined;
+        let capabilityRef: typeof import('@app/platform/browser-api/browserOcrCapability').browserOcrCapability | undefined;
         try {
             const {browserOcrCapability, commitBrowserOcrResult} = await import('@app/platform/browser-api/browserOcrCapability');
+            capabilityRef = browserOcrCapability;
             const completed = Promise.withResolvers<import('@contracts/electronApiOcr').IOcrCompleteResult>();
-            const stop = browserOcrCapability.onComplete((result) => completed.resolve(result));
+            completed1Promise = completed.promise;
+            stop = browserOcrCapability.onComplete((result) => completed.resolve(result));
             const req1 = requireRequestId('ocr-abort-cleanup-1');
+            activeReq1 = req1;
             const started = await browserOcrCapability.createSearchablePdf(
                 sourceRef,
                 [{pageNumber: requirePageNumber(1), languages: ['eng']}],
@@ -1607,6 +1616,9 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
 
             const terminal = await completed.promise;
             stop();
+            stop = undefined;
+            completed1Promise = undefined;
+            activeReq1 = undefined;
             expect(terminal.success).toBe(false);
             expect(terminal.errors).toEqual(['OCR was canceled']);
 
@@ -1616,7 +1628,8 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
 
             // Next OCR on the same document must succeed and commit cleanly.
             const completed2 = Promise.withResolvers<import('@contracts/electronApiOcr').IOcrCompleteResult>();
-            const stop2 = browserOcrCapability.onComplete((result) => completed2.resolve(result));
+            completed2Promise = completed2.promise;
+            stop2 = browserOcrCapability.onComplete((result) => completed2.resolve(result));
             const req2 = requireRequestId('ocr-abort-cleanup-2');
             const started2 = await browserOcrCapability.createSearchablePdf(
                 sourceRef,
@@ -1627,6 +1640,8 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
             expect(started2.started).toBe(true);
             const terminal2 = await completed2.promise;
             stop2();
+            stop2 = undefined;
+            completed2Promise = undefined;
             expect(terminal2.success).toBe(true);
             if (!terminal2.success) {
                 throw new Error('expected second OCR to succeed');
@@ -1639,6 +1654,14 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
             });
             expect(await (await port.open(currentFilePath)).size()).toBeGreaterThan(await lengthBefore);
         } finally {
+            releaseDestroy.resolve();
+            if (activeReq1 && capabilityRef) {
+                await capabilityRef.cancel(activeReq1).catch(() => undefined);
+            }
+            await completed1Promise?.catch(() => undefined);
+            await completed2Promise?.catch(() => undefined);
+            stop?.();
+            stop2?.();
             vi.unstubAllGlobals();
             for (const path of [
                 '@app/platform/browserDocumentStore',
@@ -1703,13 +1726,19 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
             }),
         }));
 
+        let stopA: (() => void) | undefined;
+        let stopE: (() => void) | undefined;
+        let pendingA: Promise<import('@contracts/electronApiOcr').IOcrCompleteResult> | undefined;
+        let pendingE: Promise<import('@contracts/electronApiOcr').IOcrCompleteResult> | undefined;
+        let pendingAck: Promise<unknown> | undefined;
         try {
             const {browserOcrCapability, commitBrowserOcrResult} = await import('@app/platform/browser-api/browserOcrCapability');
             const docRef = requireDocumentRef('browser://documents/concurrent-doc/in.pdf');
             const page = [{pageNumber: requirePageNumber(1), languages: ['eng']}];
 
             const completedA = Promise.withResolvers<import('@contracts/electronApiOcr').IOcrCompleteResult>();
-            const stop = browserOcrCapability.onComplete((result) => {
+            pendingA = completedA.promise;
+            stopA = browserOcrCapability.onComplete((result) => {
                 if (result.requestId === 'ocr-doc-a') {
                     completedA.resolve(result);
                 }
@@ -1728,7 +1757,9 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
             // Let Job A finish staging its result.
             releaseJobA.resolve();
             const terminalA = await completedA.promise;
-            stop();
+            stopA();
+            stopA = undefined;
+            pendingA = undefined;
             expect(terminalA.success).toBe(true);
             if (!terminalA.success) {
                 throw new Error('expected Job A to succeed');
@@ -1756,6 +1787,7 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
                 docRef,
                 terminalA.sourceDocumentRevisionToken,
             );
+            pendingAck = ackPromise;
             await discardStarted.promise;
             const startDuringDiscard = await browserOcrCapability.createSearchablePdf(
                 docRef,
@@ -1776,8 +1808,10 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
             // Once discardAppend settles, acknowledgement completes and frees the document for the next OCR job.
             releaseDiscard.resolve();
             await expect(ackPromise).resolves.toEqual({cleaned: true});
+            pendingAck = undefined;
             const completedE = Promise.withResolvers<import('@contracts/electronApiOcr').IOcrCompleteResult>();
-            const stopE = browserOcrCapability.onComplete((result) => {
+            pendingE = completedE.promise;
+            stopE = browserOcrCapability.onComplete((result) => {
                 if (result.requestId === 'ocr-doc-e') {
                     completedE.resolve(result);
                 }
@@ -1786,6 +1820,8 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
             expect(startE.started).toBe(true);
             const terminalE = await completedE.promise;
             stopE();
+            stopE = undefined;
+            pendingE = undefined;
             expect(terminalE.success).toBe(true);
             if (!terminalE.success) {
                 throw new Error('expected Job E to succeed');
@@ -1805,6 +1841,13 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
                 terminalE.sourceDocumentRevisionToken,
             );
         } finally {
+            releaseJobA.resolve();
+            releaseDiscard.resolve();
+            await pendingA?.catch(() => undefined);
+            await pendingAck?.catch(() => undefined);
+            await pendingE?.catch(() => undefined);
+            stopA?.();
+            stopE?.();
             vi.unstubAllGlobals();
             for (const path of [
                 '@app/platform/browserDocumentStore',
@@ -1856,96 +1899,104 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
         await noOpfsStore.cleanup();
 
         // (b) Two concurrent jobs competing for the same aggregate memory fallback ceiling:
-        // Job 1 holds most of the ceiling; Job 2 runs 2 lanes and breaches the ceiling on page 1
-        // while page 2 is still in-flight on the sibling lane.
-        const ceilingBytes = 800;
-        const job1Store = await (
-            createBrowserOcrCheckpointStore as (
-                port: null,
-                jobId: string,
-                options?: {maxMemoryFallbackBytes?: number},
-            ) => ReturnType<typeof createBrowserOcrCheckpointStore>
-        )(null, 'concurrent-job-1', {maxMemoryFallbackBytes: ceilingBytes});
-        const job2Store = await (
-            createBrowserOcrCheckpointStore as (
-                port: null,
-                jobId: string,
-                options?: {maxMemoryFallbackBytes?: number},
-            ) => ReturnType<typeof createBrowserOcrCheckpointStore>
-        )(null, 'concurrent-job-2', {maxMemoryFallbackBytes: ceilingBytes});
-
-        await job1Store.stagePage({
-            pageNumber: 1,
-            languages: ['eng'],
-            pdf: makePagePdf(500),
-            text: 'held-by-job-1',
-            wordEdits: [],
-            wordGeometry: {rasterWidthPx: 10, rasterHeightPx: 10, words: []},
-            diagnostics: [],
-        });
-
+        // Job 1 holds part of the ceiling; Job 2 stages a small page first, then breaches the ceiling
+        // on page 3 while page 2 is still in-flight on the sibling lane.
+        const ceilingBytes = 1_000;
+        const job1Store = await createBrowserOcrCheckpointStore(null, 'concurrent-job-1', {maxMemoryFallbackBytes: ceilingBytes});
+        const job2Store = await createBrowserOcrCheckpointStore(null, 'concurrent-job-2', {maxMemoryFallbackBytes: ceilingBytes});
         const siblingStarted = Promise.withResolvers<void>();
         const releaseSibling = Promise.withResolvers<void>();
         const events: string[] = [];
         let siblingSawAbort = false;
+        let job2Promise: Promise<unknown> | undefined;
+        try {
+            await job1Store.stagePage({
+                pageNumber: 1,
+                languages: ['eng'],
+                pdf: makePagePdf(500),
+                text: 'held-by-job-1',
+                wordEdits: [],
+                wordGeometry: {rasterWidthPx: 10, rasterHeightPx: 10, words: []},
+                diagnostics: [],
+            });
+            const job1Bytes = getBrowserOcrMemoryFallbackBytes();
+            expect(job1Bytes).toBeGreaterThanOrEqual(500);
 
-        const job2Promise = recognizeOcrPages({
-            pages: [
-                {pageNumber: 1, languages: ['eng']},
-                {pageNumber: 2, languages: ['eng']},
-                {pageNumber: 3, languages: ['eng']},
-            ],
-            extractionDpi: 150,
-            sourceDpiByPage: new Map(),
-            options: {},
-            lanes: 2,
-            signal: new AbortController().signal,
-            renderPage: async (pageNumber, _dpi, pageSignal) => {
-                if (pageNumber === 2) {
-                    siblingStarted.resolve();
-                    pageSignal.addEventListener(
-                        'abort',
-                        () => {
-                            siblingSawAbort = true;
-                            events.push('sibling-aborted');
-                        },
-                        {once: true},
-                    );
-                    await releaseSibling.promise;
-                    events.push('sibling-drained');
-                    pageSignal.throwIfAborted();
-                }
-                return {image: new Uint8Array([1]), width: 10, height: 10};
-            },
-            runEngine: async () => {
-                // Ensure sibling lane is actively in flight before page 1 triggers the memory ceiling.
-                await siblingStarted.promise;
-                return {passes: [{stderr: '', outputs: [makePagePdf(400), tsvBytes]}]};
-            },
-            prepareEarlyPrintModels: async () => undefined,
-            readModel: async () => new Uint8Array([1]),
-            acceptPage: (page) => job2Store.stagePage(page),
-        }).finally(async () => {
-            events.push('cleanup-start');
+            let job2BytesAfterPage1 = 0;
+            job2Promise = recognizeOcrPages({
+                pages: [
+                    {pageNumber: 1, languages: ['eng']},
+                    {pageNumber: 2, languages: ['eng']},
+                    {pageNumber: 3, languages: ['eng']},
+                ],
+                extractionDpi: 150,
+                sourceDpiByPage: new Map(),
+                options: {},
+                lanes: 2,
+                signal: new AbortController().signal,
+                renderPage: async (pageNumber, _dpi, pageSignal) => {
+                    if (pageNumber === 2) {
+                        siblingStarted.resolve();
+                        pageSignal.addEventListener(
+                            'abort',
+                            () => {
+                                siblingSawAbort = true;
+                                events.push('sibling-aborted');
+                            },
+                            {once: true},
+                        );
+                        await releaseSibling.promise;
+                        events.push('sibling-drained');
+                        pageSignal.throwIfAborted();
+                    }
+                    return {image: new Uint8Array([pageNumber]), width: 10, height: 10};
+                },
+                runEngine: async (req) => {
+                    const pageNumber = req.image[0]!;
+                    if (pageNumber === 1) {
+                        return {passes: [{stderr: '', outputs: [makePagePdf(80), tsvBytes]}]};
+                    }
+                    // Ensure sibling lane is actively in flight before page 3 breaches the ceiling.
+                    await siblingStarted.promise;
+                    return {passes: [{stderr: '', outputs: [makePagePdf(400), tsvBytes]}]};
+                },
+                prepareEarlyPrintModels: async () => undefined,
+                readModel: async () => new Uint8Array([1]),
+                acceptPage: async (page) => {
+                    await job2Store.stagePage(page);
+                    if (page.pageNumber === 1) {
+                        job2BytesAfterPage1 = getBrowserOcrMemoryFallbackBytes();
+                    }
+                },
+            }).finally(async () => {
+                events.push('cleanup-start');
+                await job2Store.cleanup();
+            });
+
+            // Wait for sibling lane to observe fatal cancellation, then allow sibling lane to finish draining.
+            await vi.waitFor(() => expect(siblingSawAbort).toBe(true));
+            expect(job2BytesAfterPage1).toBeGreaterThan(job1Bytes);
+            expect(events).not.toContain('cleanup-start');
+            releaseSibling.resolve();
+
+            await expect(job2Promise).rejects.toThrow(/storage|memory|checkpoint/iu);
+            expect(events).toEqual(['sibling-aborted', 'sibling-drained', 'cleanup-start']);
+            // Job 2 must clear its staged page and release its charge while Job 1's charge remains intact.
+            expect(job2Store.getPageCount()).toBe(0);
+            expect(getBrowserOcrMemoryFallbackBytes()).toBe(job1Bytes);
+
+            // Once Job 1 cleans up too, reserved bytes are completely freed.
+            await job1Store.cleanup();
+            expect(getBrowserOcrMemoryFallbackBytes()).toBe(0);
+        } finally {
+            releaseSibling.resolve();
+            await job2Promise?.catch(() => undefined);
             await job2Store.cleanup();
-        });
-
-        // Wait for sibling lane to observe fatal cancellation, then allow sibling lane to finish draining.
-        await vi.waitFor(() => expect(siblingSawAbort).toBe(true));
-        expect(events).not.toContain('cleanup-start');
-        releaseSibling.resolve();
-
-        await expect(job2Promise).rejects.toThrow(/storage|memory|checkpoint/iu);
-        expect(events).toEqual(['sibling-aborted', 'sibling-drained', 'cleanup-start']);
-        // Job 2 must never leave staged pages behind or leak reserved bytes.
-        expect(job2Store.getPageCount()).toBe(0);
-
-        // Once Job 1 cleans up too, reserved bytes are completely freed and a subsequent job succeeds.
-        await job1Store.cleanup();
-        expect(getBrowserOcrMemoryFallbackBytes()).toBe(0);
+            await job1Store.cleanup();
+        }
 
         // Verify consume: true keeps each chunk's memory charge live until the caller finishes its async append,
-        // and frees both OPFS quota files and memory fallback bytes chunk-by-chunk as each chunk drains.
+        // frees both OPFS quota files and memory fallback bytes chunk-by-chunk, and releases on early iterator close.
         const mixedOpfs = createFakeOpfsPort();
         let mixedWrites = 0;
         mixedOpfs.writeAtomic = async (path, bytes) => {
@@ -1957,45 +2008,80 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
             mixedOpfs.files.set(path, bytes.slice());
         };
         const mixedStore = await createBrowserOcrCheckpointStore(mixedOpfs, 'consume-drain', {maxMemoryFallbackBytes: ceilingBytes});
-        await mixedStore.stagePage({
-            pageNumber: 1,
-            languages: ['eng'],
-            pdf: makePagePdf(200),
-            text: 'opfs-page',
-            wordEdits: [],
-            wordGeometry: {rasterWidthPx: 10, rasterHeightPx: 10, words: []},
-            diagnostics: [],
-        });
-        await mixedStore.stagePage({
-            pageNumber: 2,
-            languages: ['eng'],
-            pdf: makePagePdf(300),
-            text: 'memory-page',
-            wordEdits: [],
-            wordGeometry: {rasterWidthPx: 10, rasterHeightPx: 10, words: []},
-            diagnostics: [],
-        });
-        const reservedBeforeConsume = getBrowserOcrMemoryFallbackBytes();
-        expect(reservedBeforeConsume).toBeGreaterThanOrEqual(300);
-        expect(mixedOpfs.files.has('ocr-checkpoints/consume-drain/page-1.pdf')).toBe(true);
-
-        const observedDuringYield: Array<{pages: number[]; memBytes: number; opfsHasPage1: boolean}> = [];
-        for await (const chunk of mixedStore.iterateChunks({maxPages: 1, consume: true})) {
-            observedDuringYield.push({
-                pages: chunk.records.map((r) => r.pageNumber),
-                memBytes: getBrowserOcrMemoryFallbackBytes(),
-                opfsHasPage1: mixedOpfs.files.has('ocr-checkpoints/consume-drain/page-1.pdf'),
+        try {
+            await mixedStore.stagePage({
+                pageNumber: 1,
+                languages: ['eng'],
+                pdf: makePagePdf(200),
+                text: 'opfs-page',
+                wordEdits: [],
+                wordGeometry: {rasterWidthPx: 10, rasterHeightPx: 10, words: []},
+                diagnostics: [],
             });
+            await mixedStore.stagePage({
+                pageNumber: 2,
+                languages: ['eng'],
+                pdf: makePagePdf(300),
+                text: 'memory-page',
+                wordEdits: [],
+                wordGeometry: {rasterWidthPx: 10, rasterHeightPx: 10, words: []},
+                diagnostics: [],
+            });
+            const reservedBeforeConsume = getBrowserOcrMemoryFallbackBytes();
+            expect(reservedBeforeConsume).toBeGreaterThanOrEqual(300);
+            expect(mixedOpfs.files.has('ocr-checkpoints/consume-drain/page-1.pdf')).toBe(true);
+
+            const observedDuringYield: Array<{pages: number[]; memBytes: number; opfsHasPage1: boolean}> = [];
+            for await (const chunk of mixedStore.iterateChunks({maxPages: 1, consume: true})) {
+                observedDuringYield.push({
+                    pages: chunk.records.map((r) => r.pageNumber),
+                    memBytes: getBrowserOcrMemoryFallbackBytes(),
+                    opfsHasPage1: mixedOpfs.files.has('ocr-checkpoints/consume-drain/page-1.pdf'),
+                });
+            }
+            // Chunk 1 (OPFS) deletes page-1.pdf right after read (before yield) so OPFS quota is freed
+            // before the first append writes, while Chunk 2 (memory) keeps memory bytes charged during yield
+            // until the consumer's append settles.
+            expect(observedDuringYield).toEqual([
+                {pages: [1], memBytes: reservedBeforeConsume, opfsHasPage1: false},
+                {pages: [2], memBytes: reservedBeforeConsume, opfsHasPage1: false},
+            ]);
+            expect(getBrowserOcrMemoryFallbackBytes()).toBe(0);
+        } finally {
+            await mixedStore.cleanup();
         }
-        // Chunk 1 (OPFS) deletes page-1.pdf right after read (before yield) so OPFS quota is freed
-        // before the first append writes, while Chunk 2 (memory) keeps memory bytes charged during yield
-        // until the consumer's append settles.
-        expect(observedDuringYield).toEqual([
-            {pages: [1], memBytes: reservedBeforeConsume, opfsHasPage1: false},
-            {pages: [2], memBytes: reservedBeforeConsume, opfsHasPage1: false},
-        ]);
+
+        // Breaking out of iterateChunks({consume: true}) early must still release the yielded chunk's memory bytes.
+        const earlyCloseStore = await createBrowserOcrCheckpointStore(null, 'early-close', {maxMemoryFallbackBytes: ceilingBytes});
+        try {
+            await earlyCloseStore.stagePage({
+                pageNumber: 1,
+                languages: ['eng'],
+                pdf: makePagePdf(200),
+                text: 'p1',
+                wordEdits: [],
+                wordGeometry: {rasterWidthPx: 10, rasterHeightPx: 10, words: []},
+                diagnostics: [],
+            });
+            await earlyCloseStore.stagePage({
+                pageNumber: 2,
+                languages: ['eng'],
+                pdf: makePagePdf(200),
+                text: 'p2',
+                wordEdits: [],
+                wordGeometry: {rasterWidthPx: 10, rasterHeightPx: 10, words: []},
+                diagnostics: [],
+            });
+            const initialTwoPagesBytes = getBrowserOcrMemoryFallbackBytes();
+            for await (const _chunk of earlyCloseStore.iterateChunks({maxPages: 1, consume: true})) {
+                break;
+            }
+            expect(getBrowserOcrMemoryFallbackBytes()).toBeLessThan(initialTwoPagesBytes);
+            expect(earlyCloseStore.getPageCount()).toBe(1);
+        } finally {
+            await earlyCloseStore.cleanup();
+        }
         expect(getBrowserOcrMemoryFallbackBytes()).toBe(0);
-        await mixedStore.cleanup();
 
         // Fatal error must also cancel sibling early-print model preparation via laneSignal.
         let earlyPrintSignalAborted = false;
@@ -2009,43 +2095,49 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
                 '\n',
         );
         const {OcrFatalJobError} = await import('@ocr-core/recognizeOcrPages');
-        const fatalEarlyPrintPromise = recognizeOcrPages({
-            pages: [
-                {pageNumber: 1, languages: ['lat']},
-                {pageNumber: 2, languages: ['eng']},
-            ],
-            extractionDpi: 150,
-            sourceDpiByPage: new Map(),
-            options: {},
-            lanes: 2,
-            signal: new AbortController().signal,
-            renderPage: async () => ({image: new Uint8Array([1]), width: 10, height: 10}),
-            runEngine: async (req) => ({
-                passes: [{stderr: '', outputs: [makePagePdf(64), req.models.includes('lat') ? longSTsv : tsvBytes]}],
-            }),
-            prepareEarlyPrintModels: async (earlySignal) => {
-                earlyPrintStarted.resolve();
-                earlySignal?.addEventListener(
-                    'abort',
-                    () => {
-                        earlyPrintSignalAborted = true;
-                        releaseEarlyPrint.resolve();
-                    },
-                    {once: true},
-                );
-                await releaseEarlyPrint.promise;
-                earlySignal?.throwIfAborted();
-            },
-            readModel: async () => new Uint8Array([1]),
-            acceptPage: async (page) => {
-                if (page.pageNumber === 2) {
-                    await earlyPrintStarted.promise;
-                    throw new OcrFatalJobError('checkpoint ceiling exceeded', {code: 'OCR_DOCUMENT_TOO_LARGE'});
-                }
-            },
-        });
-        await expect(fatalEarlyPrintPromise).rejects.toThrow('checkpoint ceiling exceeded');
-        expect(earlyPrintSignalAborted).toBe(true);
+        let fatalEarlyPrintPromise: Promise<unknown> | undefined;
+        try {
+            fatalEarlyPrintPromise = recognizeOcrPages({
+                pages: [
+                    {pageNumber: 1, languages: ['lat']},
+                    {pageNumber: 2, languages: ['eng']},
+                ],
+                extractionDpi: 150,
+                sourceDpiByPage: new Map(),
+                options: {},
+                lanes: 2,
+                signal: new AbortController().signal,
+                renderPage: async () => ({image: new Uint8Array([1]), width: 10, height: 10}),
+                runEngine: async (req) => ({
+                    passes: [{stderr: '', outputs: [makePagePdf(64), req.models.includes('lat') ? longSTsv : tsvBytes]}],
+                }),
+                prepareEarlyPrintModels: async (earlySignal) => {
+                    earlyPrintStarted.resolve();
+                    earlySignal?.addEventListener(
+                        'abort',
+                        () => {
+                            earlyPrintSignalAborted = true;
+                        },
+                        {once: true},
+                    );
+                    await releaseEarlyPrint.promise;
+                    earlySignal?.throwIfAborted();
+                },
+                readModel: async () => new Uint8Array([1]),
+                acceptPage: async (page) => {
+                    if (page.pageNumber === 2) {
+                        await earlyPrintStarted.promise;
+                        throw new OcrFatalJobError('checkpoint ceiling exceeded', {code: 'OCR_DOCUMENT_TOO_LARGE'});
+                    }
+                },
+            });
+            await vi.waitFor(() => expect(earlyPrintSignalAborted).toBe(true));
+            releaseEarlyPrint.resolve();
+            await expect(fatalEarlyPrintPromise).rejects.toThrow('checkpoint ceiling exceeded');
+        } finally {
+            releaseEarlyPrint.resolve();
+            await fatalEarlyPrintPromise?.catch(() => undefined);
+        }
     });
 
     it('P0-3: surfaces OCR_DOCUMENT_TOO_LARGE and leaves document manifest untouched when memory fallback ceiling is exceeded through browserOcrCapability', async () => {

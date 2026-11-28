@@ -590,14 +590,17 @@ describe('document page sources', () => {
         const createObjectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:pane-2-ok');
         const revokeObjectUrlSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
 
+        let source1: Awaited<ReturnType<typeof createDjvuPageSource>> | undefined;
+        let source2: Awaited<ReturnType<typeof createDjvuPageSource>> | undefined;
+        let pane1Render: ReturnType<Awaited<ReturnType<typeof createDjvuPageSource>>['renderPage']> | undefined;
         try {
             const preview1 = await createDjvuPagePreviewSourceFromPath(docRef);
             const preview2 = await createDjvuPagePreviewSourceFromPath(docRef);
             const budget = createWorkspaceSurfaceBudgetController();
-            const source1 = await createDjvuPageSource(docRef, preview1, budget);
-            const source2 = await createDjvuPageSource(docRef, preview2, budget);
+            source1 = await createDjvuPageSource(docRef, preview1, budget);
+            source2 = await createDjvuPageSource(docRef, preview2, budget);
 
-            const pane1Render = source1.renderPage({
+            pane1Render = source1.renderPage({
                 pageNumber: 1,
                 widthPx: 200,
                 priority: 'visible',
@@ -635,6 +638,14 @@ describe('document page sources', () => {
             source2.dispose();
             await vi.waitFor(() => expect(sharedWorker.terminate).toHaveBeenCalledOnce());
         } finally {
+            pane1Decode.resolve({
+                width: 4,
+                height: 4,
+                bytes: new Uint8Array(4 * 4 * 4),
+            });
+            await pane1Render?.catch(() => undefined);
+            source1?.dispose();
+            source2?.dispose();
             statSpy.mockRestore();
             readRangeSpy.mockRestore();
             createObjectUrlSpy.mockRestore();
@@ -697,11 +708,15 @@ describe('document page sources', () => {
 
         // Two simultaneous speculative nearby renders against the same 1-page budget must queue the second
         // behind the first synchronously (without rejecting before the first settles).
+        const simultaneousPage1Started = Promise.withResolvers<void>();
         const simultaneousPage1 = Promise.withResolvers<{objectUrl: string; renderedPx: number}>();
+        let simultaneousPage2Calls = 0;
         previewSource.renderPageObjectUrl.mockImplementation(async (pageNumber: number) => {
             if (pageNumber === 1) {
+                simultaneousPage1Started.resolve();
                 return simultaneousPage1.promise;
             }
+            simultaneousPage2Calls += 1;
             return {objectUrl: 'blob:simultaneous-page-2', renderedPx: 100};
         });
         const simController1 = new AbortController();
@@ -717,7 +732,9 @@ describe('document page sources', () => {
             priority: 'nearby',
             signal: new AbortController().signal,
         });
-        await vi.waitFor(() => expect(previewSource.renderPageObjectUrl).toHaveBeenCalledWith(1, expect.anything()));
+        await simultaneousPage1Started.promise;
+        expect(budget.getSnapshot().reservedBytesByCategory['djvu-preview']).toBe(40_000);
+        expect(simultaneousPage2Calls).toBe(0);
         simController1.abort();
         simultaneousPage1.resolve({objectUrl: 'blob:simultaneous-page-1-aborted', renderedPx: 100});
         await expect(simRender1).rejects.toThrow();
@@ -725,6 +742,63 @@ describe('document page sources', () => {
         expect(simLease2.surface).toBe('blob:simultaneous-page-2');
         simLease2.release();
         source.dispose();
+
+        // Releasing a retained visible surface while another unrelated decode is in flight
+        // must wake a waiting speculative render immediately once enough budget frees up.
+        const sharedBudget = createWorkspaceSurfaceBudgetController(80_000);
+        const unrelatedDecode = Promise.withResolvers<{objectUrl: string; renderedPx: number}>();
+        const unrelatedStarted = Promise.withResolvers<void>();
+        const mixedPreviewSource = {
+            cancelPagePreview: vi.fn(),
+            getPageSizes: vi.fn().mockResolvedValue([
+                {width: 100, height: 100, dpi: 300},
+                {width: 100, height: 100, dpi: 300},
+                {width: 100, height: 100, dpi: 300},
+            ]),
+            renderPageObjectUrl: vi.fn(async (pageNumber: number) => {
+                if (pageNumber === 2) {
+                    unrelatedStarted.resolve();
+                    return unrelatedDecode.promise;
+                }
+                return {objectUrl: `blob:mixed-page-${pageNumber}`, renderedPx: 100};
+            }),
+            revokeObjectURL: vi.fn(),
+            terminate: vi.fn(),
+        } satisfies IPagePreviewSource;
+        const mixedSource = await createDjvuPageSource(requireDocumentRef('/mixed-budget.djvu'), mixedPreviewSource, sharedBudget);
+        try {
+            const visibleLease = await mixedSource.renderPage({
+                pageNumber: 1,
+                widthPx: 100,
+                priority: 'visible',
+                signal: new AbortController().signal,
+            });
+            const inFlight = mixedSource.renderPage({
+                pageNumber: 2,
+                widthPx: 100,
+                priority: 'visible',
+                signal: new AbortController().signal,
+            });
+            await unrelatedStarted.promise;
+            const waitingNearby = mixedSource.renderPage({
+                pageNumber: 3,
+                widthPx: 100,
+                priority: 'nearby',
+                signal: new AbortController().signal,
+            });
+            // Releasing the retained visible surface frees 40,000 bytes so nearby page 3 succeeds
+            // without waiting for unrelated page 2 to finish decoding.
+            visibleLease.release();
+            const nearbyLease = await waitingNearby;
+            expect(nearbyLease.surface).toBe('blob:mixed-page-3');
+            nearbyLease.release();
+            unrelatedDecode.resolve({objectUrl: 'blob:mixed-page-2', renderedPx: 100});
+            const page2Lease = await inFlight;
+            page2Lease.release();
+        } finally {
+            unrelatedDecode.resolve({objectUrl: 'blob:mixed-page-2', renderedPx: 100});
+            mixedSource.dispose();
+        }
     });
 
     it('revokes a late DjVu.js URL after abort without committing a retained lease', async () => {

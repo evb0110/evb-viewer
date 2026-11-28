@@ -271,13 +271,16 @@ export async function createBrowserOcrCheckpointStore(
                 if (opfsRemovals.length > 0) {
                     await Promise.all(opfsRemovals);
                 }
-                yield {records, pagePdfs};
                 // Keep fallback memory charged while the consumer's async append holds the buffers,
-                // then release once the append settles.
-                if (consume) {
-                    for (const pageNumber of memoryConsumedPages) {
-                        stagedBytesByPage.delete(pageNumber);
-                        releaseMemoryFallbackPage(pageNumber);
+                // and release on both normal advance and early return/throw.
+                try {
+                    yield {records, pagePdfs};
+                } finally {
+                    if (consume) {
+                        for (const pageNumber of memoryConsumedPages) {
+                            stagedBytesByPage.delete(pageNumber);
+                            releaseMemoryFallbackPage(pageNumber);
+                        }
                     }
                 }
             }
