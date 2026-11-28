@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 interface IMenuItemLike {
     id?: string;
@@ -192,7 +192,10 @@ function toApplicationMenu(template: IMenuItemLike[]): IApplicationMenuLike {
     };
 }
 
-function getLastMenuTemplate() {
+function getLastMenuTemplate(flushPending = true) {
+    if (flushPending && vi.isFakeTimers()) {
+        vi.advanceTimersByTime(50);
+    }
     const lastCall = mocks.buildFromTemplate.mock.calls.at(-1);
     return (lastCall?.[0] as IMenuItemLike[] | undefined) ?? [];
 }
@@ -264,9 +267,15 @@ function getPagesMenuSubmenu(template: IMenuItemLike[]) {
 
 describe('menu per-window document state', () => {
     beforeEach(() => {
+        vi.useFakeTimers();
         vi.clearAllMocks();
         mocks.windows.length = 0;
         mocks.focusWindow(null);
+    });
+
+    afterEach(() => {
+        vi.clearAllTimers();
+        vi.useRealTimers();
     });
 
     it('uses focused and surviving window document state independently', () => {
@@ -788,6 +797,112 @@ describe('menu per-window document state', () => {
 
         expect(getFileMenuSubmenu(getLastMenuTemplate()).find((item) => item.label === 'menu.closeTab')?.enabled).toBe(false);
         expect(isMoveToNewWindowEnabled(getLastMenuTemplate())).toBe(false);
+    });
+
+    it('coalesces rapid menu document-state and tab-count updates into one OS menu rebuild', () => {
+        const window = mocks.createWindow(99, 'Fresh Window');
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+        mocks.buildFromTemplate.mockClear();
+        mocks.setApplicationMenu.mockClear();
+
+        // Startup no-op defaults: matching empty state and tabCount 1 do not rebuild.
+        setMenuDocumentState(99, {
+            hasDocument: false,
+            interactive: false,
+            canSave: false,
+            supportsSaveAs: false,
+            canSaveAs: false,
+            supportsRepairSave: false,
+            canRepairSave: false,
+            supportsOptimizePdf: false,
+            canOptimizePdf: false,
+            supportsPrint: false,
+            canPrint: false,
+            supportsExportDocx: false,
+            canExportDocx: false,
+            isExportingDocx: false,
+            supportsRasterExport: false,
+            canExportRaster: false,
+            canUndo: false,
+            canRedo: false,
+            supportsPdfMutation: false,
+            canMutatePages: false,
+            selectedPageCount: 0,
+            totalPages: 0,
+            supportsContinuousScroll: false,
+            canContinuousScroll: false,
+            continuousScroll: false,
+            supportsViewMode: false,
+            viewMode: 'single',
+            supportsViewRotation: false,
+            viewRotation: 0,
+            isActualSizeActive: false,
+            isFitWidthActive: false,
+            isFitHeightActive: false,
+            canToggleAssistant: false,
+            canCreatePane: true,
+            canCloseTab: false,
+            canTransferActiveTab: false,
+        });
+        setMenuTabCount(99, 1);
+        vi.advanceTimersByTime(100);
+        expect(mocks.buildFromTemplate).not.toHaveBeenCalled();
+
+        // Tab count (debounced) followed by accelerator-relevant document state (immediate)
+        // coalesces into a single synchronous OS menu rebuild so Cmd+S is live immediately.
+        setMenuTabCount(99, 2);
+        expect(mocks.buildFromTemplate).not.toHaveBeenCalled();
+
+        setMenuDocumentState(99, true);
+        expect(mocks.buildFromTemplate).toHaveBeenCalledTimes(1);
+        expect(mocks.setApplicationMenu).toHaveBeenCalledTimes(1);
+        const template = getLastMenuTemplate(false);
+        expect(isSaveEnabled(template)).toBe(true);
+        expect(isMoveToNewWindowEnabled(template)).toBe(true);
+
+        // No trailing debounced rebuild fires after the synchronous rebuild absorbed it.
+        vi.advanceTimersByTime(100);
+        expect(mocks.buildFromTemplate).toHaveBeenCalledTimes(1);
+
+        // Changing tab count from 2 to 3 keeps `> 1` unchanged and does not rebuild.
+        setMenuTabCount(99, 3);
+        vi.advanceTimersByTime(100);
+        expect(mocks.buildFromTemplate).toHaveBeenCalledTimes(1);
+
+        // Non-accelerator cosmetic updates coalesce through the debounce window.
+        setMenuDocumentState(99, {hasDocument: true, canSave: true, selectedPageCount: 1, totalPages: 4});
+        setMenuDocumentState(99, {hasDocument: true, canSave: true, selectedPageCount: 2, totalPages: 4});
+        expect(mocks.buildFromTemplate).toHaveBeenCalledTimes(1);
+        vi.advanceTimersByTime(40);
+        expect(mocks.buildFromTemplate).toHaveBeenCalledTimes(2);
+
+        // Undo/Redo enablement changes (CmdOrCtrl+Z / Cmd+Shift+Z) rebuild synchronously.
+        setMenuDocumentState(99, {hasDocument: true, canSave: true, canUndo: false, selectedPageCount: 2, totalPages: 4});
+        expect(mocks.buildFromTemplate).toHaveBeenCalledTimes(3);
+        window.close();
+    });
+
+    it('flushes a pending debounced menu rebuild synchronously before activating an item', () => {
+        const window = mocks.createWindow(100, 'Flush Window');
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+        setMenuDocumentState(100, {hasDocument: true, canSave: true, selectedPageCount: 0, totalPages: 3});
+        mocks.buildFromTemplate.mockClear();
+
+        // Non-accelerator selection update schedules a debounced rebuild.
+        setMenuDocumentState(100, {hasDocument: true, canSave: true, selectedPageCount: 1, totalPages: 3});
+        expect(mocks.buildFromTemplate).not.toHaveBeenCalled();
+
+        expect(activateApplicationMenuItem({id: 'rotate-pages-clockwise'})).toMatchObject({
+            activated: true,
+            windowId: 100,
+        });
+        expect(mocks.buildFromTemplate).toHaveBeenCalledTimes(1);
+        expect(window.webContents.send).toHaveBeenCalledWith('menu:rotateCw');
+        window.close();
     });
 });
 

@@ -1,9 +1,8 @@
 import {app, systemPreferences} from 'electron';
 import {accessSync, constants} from 'node:fs';
 import {resolve} from 'node:path';
-import electronUpdater, {CancellationToken} from 'electron-updater';
 import {clamp} from 'es-toolkit/math';
-import type {ProgressInfo, UpdateDownloadedEvent, UpdateInfo} from 'electron-updater';
+import type {CancellationToken, ProgressInfo, UpdateDownloadedEvent, UpdateInfo} from 'electron-updater';
 import {
     UPDATES_PLATFORM_FEATURE,
     type IAppUpdateStatus,
@@ -20,7 +19,6 @@ import {redactLogText} from '@contracts/redactLogText';
 import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
 import {isExpectedUpdateNetworkError} from '@electron/utils/isExpectedUpdateNetworkError';
 import {compareVersions, normalizeVersion} from '@electron/updates/versionCompare';
-import {checkMacCodeSignature} from '@electron/updates/checkMacCodeSignature';
 import {
     getSuppressedUpdateVersion,
     markUpdateInstallPending,
@@ -31,7 +29,15 @@ import {runDetached} from '@electron/utils/runDetached';
 import {resolveApplicationVersion} from '@electron/appVersion';
 import {fetchLatestReleaseMetadataVersion} from '@electron/updates/fetchLatestReleaseMetadataVersion';
 
-const {autoUpdater} = electronUpdater;
+type TElectronUpdaterModule = typeof import('electron-updater') & {
+    default?: Partial<typeof import('electron-updater')>;
+};
+type TAutoUpdater = TElectronUpdaterModule['autoUpdater'];
+type TCancellationTokenConstructor = TElectronUpdaterModule['CancellationToken'];
+
+let electronUpdaterModulePromise: Promise<TElectronUpdaterModule> | null = null;
+let loadedAutoUpdater: TAutoUpdater | null = null;
+let loadedCancellationToken: TCancellationTokenConstructor | null = null;
 
 const logger = createLogger('updates');
 const METADATA_REQUEST_TIMEOUT_MS = 10_000;
@@ -74,7 +80,7 @@ let initialized = false;
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let currentCheckPromise: Promise<void> | null = null;
 let currentDownloadPromise: Promise<void> | null = null;
-let currentDownloadCancellationToken: CancellationToken | null = null;
+let currentDownloadCancel: (() => void) | null = null;
 let currentCheckOrigin: TAppUpdateCheckOrigin = 'auto';
 let isShuttingDown = false;
 let downloadedVersion: string | null = null;
@@ -206,13 +212,18 @@ async function ensureUpdaterSupported() {
         return codeSignatureValid;
     }
 
-    codeSignatureCheckPromise ??= checkMacCodeSignature()
+    codeSignatureCheckPromise ??= import('@electron/updates/checkMacCodeSignature')
+        .then(({checkMacCodeSignature}) => checkMacCodeSignature())
         .then((valid) => {
             if (valid !== null) {
                 codeSignatureValid = valid;
             }
             if (valid === false) {
                 logger.info('Ad-hoc code signature detected; auto-updates require Developer ID signing');
+                if (pollTimer) {
+                    clearTimeout(pollTimer);
+                    pollTimer = null;
+                }
             } else if (valid === null) {
                 logger.info('Unable to validate macOS code signature; will retry updater support check');
             }
@@ -264,7 +275,7 @@ function getUpdaterReleaseFeedUrl(version: string, baseUrl = resolvedReleaseFeed
     return `${baseUrl}/${encodeURIComponent(getReleaseTag(version))}`;
 }
 
-function configureUpdaterFeed(targetVersion: string) {
+function configureUpdaterFeed(autoUpdater: TAutoUpdater, targetVersion: string) {
     autoUpdater.setFeedURL({
         provider: 'generic',
         url: getUpdaterReleaseFeedUrl(targetVersion),
@@ -395,7 +406,7 @@ async function maybeClearSupersededDownloadedVersion() {
 }
 
 function scheduleNextPoll() {
-    if (isShuttingDown) {
+    if (isShuttingDown || codeSignatureValid === false) {
         return;
     }
     if (!isUpdaterRuntimeSupported()) {
@@ -431,8 +442,38 @@ function schedulePollTimer(delayMs: number, failureLogPrefix: string) {
     }, delayMs);
 }
 
-function setAutoUpdaterListeners() {
-    if (listenersRegistered) {
+async function loadElectronUpdaterModule() {
+    if (loadedAutoUpdater && loadedCancellationToken) {
+        return {
+            autoUpdater: loadedAutoUpdater,
+            CancellationToken: loadedCancellationToken,
+        };
+    }
+    electronUpdaterModulePromise ??= import('electron-updater').catch((error) => {
+        electronUpdaterModulePromise = null;
+        throw error;
+    });
+    const module = (await electronUpdaterModulePromise) as TElectronUpdaterModule;
+    const autoUpdater = module.default?.autoUpdater ?? module.autoUpdater;
+    const CancellationTokenCtor = module.CancellationToken ?? module.default?.CancellationToken ?? module.CancellationToken;
+    loadedAutoUpdater = autoUpdater;
+    loadedCancellationToken = CancellationTokenCtor;
+    return {
+        autoUpdater,
+        CancellationToken: CancellationTokenCtor,
+    };
+}
+
+async function ensureAutoUpdaterReady() {
+    const loaded = await loadElectronUpdaterModule();
+    if (!isShuttingDown) {
+        setAutoUpdaterListeners(loaded.autoUpdater);
+    }
+    return loaded;
+}
+
+function setAutoUpdaterListeners(autoUpdater: TAutoUpdater) {
+    if (listenersRegistered || isShuttingDown) {
         return;
     }
     listenersRegistered = true;
@@ -546,6 +587,9 @@ function setAutoUpdaterListeners() {
 }
 
 async function finishDownloadedUpdate(requesters: Set<number> | null) {
+    if (isShuttingDown) {
+        return;
+    }
     const version = downloadedVersion;
     if (!version) {
         return;
@@ -566,6 +610,9 @@ async function finishDownloadedUpdate(requesters: Set<number> | null) {
         }
 
         const skippedVersion = await readSkippedVersion();
+        if (isShuttingDown) {
+            return;
+        }
         if (currentCheckOrigin === 'auto' && skippedVersion && skippedVersion === version) {
             logger.info(`Update ${version} downloaded but skipped for automatic prompts`);
             updateStatus(
@@ -809,8 +856,18 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
         if (!decision.targetVersion) {
             throw new Error('Update metadata selected no target release.');
         }
-        configureUpdaterFeed(decision.targetVersion);
+        if (isShuttingDown) {
+            return;
+        }
+        const {autoUpdater} = await ensureAutoUpdaterReady();
+        if (isShuttingDown) {
+            return;
+        }
+        configureUpdaterFeed(autoUpdater, decision.targetVersion);
         await autoUpdater.checkForUpdates();
+        if (isShuttingDown) {
+            return;
+        }
         await finishDownloadedUpdate(requesters);
     })()
         .catch((error) => {
@@ -880,8 +937,6 @@ export function initializeUpdates(broadcast: TUpdateStatusBroadcast) {
         );
     }
 
-    setAutoUpdaterListeners();
-
     if (!isUpdaterRuntimeSupported()) {
         logger.info('Automatic updates disabled in this runtime');
         updateStatus({
@@ -894,32 +949,9 @@ export function initializeUpdates(broadcast: TUpdateStatusBroadcast) {
         return;
     }
 
-    if (process.platform === 'darwin') {
-        void ensureUpdaterSupported()
-            .then((supported) => {
-                if (supported) {
-                    return;
-                }
-                if (codeSignatureValid === null) {
-                    return;
-                }
-                if (pollTimer) {
-                    clearTimeout(pollTimer);
-                    pollTimer = null;
-                }
-                updateStatus({
-                    phase: 'unsupported',
-                    origin: 'auto',
-                    version: getCurrentVersion(),
-                    percent: null,
-                    message: null,
-                });
-            })
-            .catch((error) => {
-                logger.warn(`Updater signature check failed: ${getErrorMessage(error)}`);
-            });
-    }
-
+    // Defer loading electron-updater and running macOS /usr/bin/codesign
+    // verification until the first scheduled or manual update check so startup
+    // stays free of heavy updater bundle evaluation and bundle signature scans.
     const initialDelayMs = Math.max(config.updates.initialDelayMs, 1000);
     pollTimer = schedulePollTimer(initialDelayMs, 'Initial automatic update check failed');
 }
@@ -989,18 +1021,37 @@ export function downloadAvailableUpdate(requester: IUpdateRequester) {
         message: null,
     });
 
-    const downloadCancellationToken = new CancellationToken();
-    currentDownloadCancellationToken = downloadCancellationToken;
+    let downloadCancelled = false;
+    let downloadCancellationToken: CancellationToken | null = loadedCancellationToken ? new loadedCancellationToken() : null;
+    const cancelDownload = () => {
+        downloadCancelled = true;
+        downloadCancellationToken?.cancel();
+    };
+    currentDownloadCancel = cancelDownload;
     currentDownloadPromise = Promise.resolve()
-        .then(() => {
-            if (isShuttingDown || downloadCancellationToken.cancelled) {
+        .then(async () => {
+            if (isShuttingDown || downloadCancelled) {
+                return;
+            }
+            const {autoUpdater, CancellationToken: CancellationTokenCtor} = await ensureAutoUpdaterReady();
+            if (isShuttingDown || downloadCancelled) {
+                return;
+            }
+            downloadCancellationToken ??= new CancellationTokenCtor();
+            if (isShuttingDown || downloadCancelled) {
+                downloadCancellationToken.cancel();
                 return;
             }
             return autoUpdater.downloadUpdate(downloadCancellationToken);
         })
-        .then(() => finishDownloadedUpdate(requesters))
+        .then(() => {
+            if (isShuttingDown || downloadCancelled) {
+                return;
+            }
+            return finishDownloadedUpdate(requesters);
+        })
         .catch((error) => {
-            if (isShuttingDown || downloadCancellationToken.cancelled) {
+            if (isShuttingDown || downloadCancelled || downloadCancellationToken?.cancelled) {
                 return;
             }
             downloadedVersion = null;
@@ -1027,9 +1078,9 @@ export function downloadAvailableUpdate(requester: IUpdateRequester) {
             );
         })
         .finally(() => {
-            downloadCancellationToken.dispose();
-            if (currentDownloadCancellationToken === downloadCancellationToken) {
-                currentDownloadCancellationToken = null;
+            downloadCancellationToken?.dispose();
+            if (currentDownloadCancel === cancelDownload) {
+                currentDownloadCancel = null;
             }
             currentDownloadPromise = null;
             if (operationRequesters === requesters) {
@@ -1115,6 +1166,9 @@ export async function installDownloadedUpdate(requester: IUpdateRequester | null
             // lets the shutdown coordinator finish the quit.
             throw error;
         }
+        // Cleanup has already shut updater listeners down; invoke the native
+        // installer without re-registering renderer status listeners.
+        const {autoUpdater} = await loadElectronUpdaterModule();
         autoUpdater.quitAndInstall(false, true);
     });
     return {started: true};
@@ -1166,7 +1220,8 @@ export async function shutdownUpdates() {
         pollTimer = null;
     }
     progressPump.clear();
-    currentDownloadCancellationToken?.cancel();
+    currentDownloadCancel?.();
+    currentDownloadCancel = null;
 
     for (const pending of [currentCheckPromise, currentDownloadPromise]) {
         if (!pending) {

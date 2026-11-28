@@ -64,6 +64,7 @@ const menuDocumentStateByWindow = new Map<number, TResolvedApplicationMenuDocume
 const menuTabCountByWindow = new Map<number, number>();
 const trackedWindowIds = new Set<number>();
 let listenersRegistered = false;
+let menuInitialized = false;
 let menuRebuildTimer: ReturnType<typeof setTimeout> | null = null;
 
 type TNativeMenuEventMap = IDocumentsEventMap &
@@ -843,6 +844,14 @@ function rebuildMenuNow() {
     Menu.setApplicationMenu(menu);
 }
 
+function flushPendingMenuRebuild() {
+    if (menuRebuildTimer) {
+        clearTimeout(menuRebuildTimer);
+        menuRebuildTimer = null;
+        rebuildMenuNow();
+    }
+}
+
 function rebuildMenu(immediate = false) {
     if (immediate) {
         if (menuRebuildTimer) {
@@ -863,9 +872,14 @@ function rebuildMenu(immediate = false) {
     }, MENU_REBUILD_DEBOUNCE_MS);
 }
 
-function rebuildMenuForWindowStateChange(windowId: number) {
+function rebuildMenuForWindowStateChange(windowId: number, immediate = false) {
+    if (!menuInitialized) {
+        return;
+    }
     const focusedWindow = getFocusedAppWindow();
-    rebuildMenu(focusedWindow?.id === windowId);
+    if (focusedWindow?.id === windowId) {
+        rebuildMenu(immediate);
+    }
 }
 
 function trackWindowForMenu(window: BrowserWindow) {
@@ -913,6 +927,7 @@ export function setupMenu() {
     for (const window of getAllRegisteredAppWindows()) {
         trackWindowForMenu(window);
     }
+    menuInitialized = true;
     rebuildMenu(true);
 }
 
@@ -970,14 +985,55 @@ function normalizeMenuDocumentState(state: boolean | IApplicationMenuDocumentSta
     };
 }
 
+function isSameMenuDocumentState(left: TResolvedApplicationMenuDocumentState, right: TResolvedApplicationMenuDocumentState) {
+    for (const key of Object.keys(left) as Array<keyof TResolvedApplicationMenuDocumentState>) {
+        if (left[key] !== right[key]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+const ACCELERATOR_RELEVANT_MENU_STATE_KEYS: ReadonlyArray<keyof TResolvedApplicationMenuDocumentState> = [
+    'hasDocument',
+    'interactive',
+    'canSave',
+    'supportsSaveAs',
+    'canSaveAs',
+    'supportsPrint',
+    'canPrint',
+    'supportsExportDocx',
+    'canExportDocx',
+    'canUndo',
+    'canRedo',
+    'supportsPdfMutation',
+    'canMutatePages',
+    'canToggleAssistant',
+    'canCreatePane',
+    'canCloseTab',
+];
+
+function hasAcceleratorRelevantMenuStateChange(
+    previous: TResolvedApplicationMenuDocumentState,
+    next: TResolvedApplicationMenuDocumentState,
+) {
+    return ACCELERATOR_RELEVANT_MENU_STATE_KEYS.some((key) => previous[key] !== next[key]);
+}
+
 export function setMenuDocumentState(windowId: number, state: boolean | IApplicationMenuDocumentState) {
     const normalized = normalizeMenuDocumentState(state);
-    if (JSON.stringify(menuDocumentStateByWindow.get(windowId)) === JSON.stringify(normalized)) {
+    const previous = menuDocumentStateByWindow.get(windowId) ?? EMPTY_MENU_DOCUMENT_STATE;
+    if (isSameMenuDocumentState(previous, normalized)) {
+        if (!menuDocumentStateByWindow.has(windowId)) {
+            menuDocumentStateByWindow.set(windowId, normalized);
+        }
         return;
     }
 
     menuDocumentStateByWindow.set(windowId, normalized);
-    rebuildMenuForWindowStateChange(windowId);
+    // Keep native accelerator enablement (Cmd+S, Cmd+P, Cmd+W, etc.) synchronous
+    // while coalescing purely structural/cosmetic menu state updates.
+    rebuildMenuForWindowStateChange(windowId, hasAcceleratorRelevantMenuStateChange(previous, normalized));
 }
 
 export type TApplicationMenuItemQuery = {id: string} | {accelerator: string};
@@ -1077,6 +1133,7 @@ export function activateApplicationMenuItem(
     query: TApplicationMenuItemQuery,
     runItem: (run: () => void) => void = (run) => run(),
 ): TApplicationMenuItemActivation {
+    flushPendingMenuRebuild();
     const menu = Menu.getApplicationMenu();
     const item = !menu
         ? null
@@ -1152,10 +1209,15 @@ export function activateApplicationMenuItem(
 
 export function setMenuTabCount(windowId: number, tabCount: number) {
     const normalized = Number.isFinite(tabCount) ? Math.max(0, Math.floor(tabCount)) : 0;
-    if (menuTabCountByWindow.get(windowId) === normalized) {
+    const previous = menuTabCountByWindow.get(windowId) ?? 0;
+    if (previous === normalized) {
         return;
     }
 
     menuTabCountByWindow.set(windowId, normalized);
+    // Only the `> 1` threshold affects the menu (moveActiveTabToNewWindow).
+    if (previous > 1 === normalized > 1) {
+        return;
+    }
     rebuildMenuForWindowStateChange(windowId);
 }

@@ -465,8 +465,15 @@ onMounted(async () => {
         const unsubscribeHostEnvironment = attachHostEnvironmentListener();
         hostEnvironmentUnsubscribers.push(unsubscribeHostEnvironment);
         void refreshHostSnapshot();
-        await loadSettings();
-        const settingsRecoveryNotice = await getSettingsCapability().getRecoveryNotice();
+        let settingsRecoveryNotice;
+        if (hasElectronPlatformBridge()) {
+            // Main already loaded settings before window creation, so both IPC
+            // calls can overlap safely without waiting on sequential round-trips.
+            [, settingsRecoveryNotice] = await Promise.all([loadSettings(), getSettingsCapability().getRecoveryNotice()]);
+        } else {
+            await loadSettings();
+            settingsRecoveryNotice = await getSettingsCapability().getRecoveryNotice();
+        }
         if (settingsRecoveryNotice) {
             toast.add({
                 color: 'warning',

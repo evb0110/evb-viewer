@@ -3,6 +3,7 @@ import {readdirSync} from 'node:fs';
 import {basename, dirname, extname, join, normalize, relative} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {config} from '@electron/config';
+import {resolveProductionContentSecurityPolicy} from '@electron/security/csp';
 
 const APP_PROTOCOL_SCHEME = 'evb-viewer';
 const APP_PROTOCOL_HOST = 'app';
@@ -182,14 +183,26 @@ export function setupAppProtocolHandler() {
         const url = new URL(request.url);
         const filePath = resolveStaticFilePath(url);
         if (!filePath) {
-            return createResponse('Not found', {status: 404});
+            return createResponse('Not found', {
+                status: 404,
+                headers: {'content-security-policy': await resolveProductionContentSecurityPolicy()},
+            });
         }
 
         const response = await net.fetch(pathToFileURL(filePath).toString());
         const headers = new Headers(response.headers);
-        const mimeType = MIME_TYPES.get(extname(filePath).toLowerCase());
+        const ext = extname(filePath).toLowerCase();
+        const mimeType = MIME_TYPES.get(ext);
         if (mimeType) {
             headers.set('content-type', mimeType);
+        }
+        if (ext === '.html' || !headers.has('content-security-policy')) {
+            headers.set(
+                'content-security-policy',
+                await resolveProductionContentSecurityPolicy(config.renderer.staticRoot, {
+                    refresh: ext === '.html' && !isPackagedDirectoryCacheEnabled(),
+                }),
+            );
         }
         return new Response(response.body, {
             status: response.status,

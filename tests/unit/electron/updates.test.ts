@@ -289,10 +289,71 @@ describe('updates robustness', () => {
         vi.useRealTimers();
     });
 
+    async function stageDownloadedUpdate(updates: Awaited<ReturnType<typeof loadUpdatesModule>>, version = '1.1.0') {
+        mocks.fetch.mockResolvedValue(createMetadataResponse(version));
+        mocks.autoUpdater.checkForUpdates.mockImplementationOnce(async () => {
+            mocks.autoUpdater.emit('update-downloaded', {version});
+        });
+        await updates.triggerManualUpdateCheck(requester);
+    }
+
+    it('defers electron-updater and macOS codesign past initializeUpdates while recording pending startup', async () => {
+        const updates = await loadUpdatesModule();
+        updates.initializeUpdates(() => {});
+        await flushPromises();
+
+        expect(mocks.recordPendingUpdateStartup).toHaveBeenCalledWith('1.0.0');
+        expect(mocks.checkMacCodeSignature).not.toHaveBeenCalled();
+        expect(mocks.systemPreferences.setUserDefault).not.toHaveBeenCalled();
+        // Listeners are not attached until an actual check/download loads electron-updater.
+        mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
+        await expect(updates.installDownloadedUpdate(requester)).resolves.toEqual({started: false});
+    });
+
+    it('stops update polling when deferred macOS codesign reports an ad-hoc build', async () => {
+        mocks.checkMacCodeSignature.mockResolvedValueOnce(false);
+        const updates = await loadUpdatesModule();
+        updates.initializeUpdates(() => {});
+        await flushPromises();
+        expect(mocks.checkMacCodeSignature).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        await flushPromises();
+        expect(mocks.checkMacCodeSignature).toHaveBeenCalledOnce();
+        expect(mocks.fetch).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+        await flushPromises();
+        expect(mocks.checkMacCodeSignature).toHaveBeenCalledOnce();
+        expect(mocks.fetch).not.toHaveBeenCalled();
+    });
+
+    it('does not attach listeners or start native update check after shutdown drains a slow metadata probe', async () => {
+        const metadataDeferred = Promise.withResolvers<ReturnType<typeof createMetadataResponse>>();
+        mocks.fetch.mockImplementationOnce(() => metadataDeferred.promise);
+        const updates = await loadUpdatesModule();
+        const emitted: Array<{phase: string}> = [];
+        updates.initializeUpdates((snapshot) => emitted.push({phase: snapshot.phase}));
+
+        const checkPromise = updates.triggerManualUpdateCheck(requester);
+        const shutdownPromise = updates.shutdownUpdates();
+        await vi.advanceTimersByTimeAsync(3_100);
+        await shutdownPromise;
+
+        emitted.length = 0;
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        metadataDeferred.resolve(createMetadataResponse('1.1.0'));
+        await checkPromise;
+
+        expect(mocks.systemPreferences.setUserDefault).not.toHaveBeenCalled();
+        expect(mocks.autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+        expect(emitted).toEqual([]);
+    });
+
     it('prepares a macOS install without requiring access to the Applications folder', async () => {
         const updates = await loadUpdatesModule();
         updates.initializeUpdates(() => {});
-        mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
+        await stageDownloadedUpdate(updates, '1.1.0');
         let install: (() => Promise<void>) | undefined;
         updates.configureUpdateInstallShutdown((callback) => {
             install = callback;
@@ -319,7 +380,7 @@ describe('updates robustness', () => {
             try {
                 const updates = await loadUpdatesModule();
                 updates.initializeUpdates(() => {});
-                mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
+                await stageDownloadedUpdate(updates, '1.1.0');
                 let shutdownRequested = false;
                 updates.configureUpdateInstallShutdown(() => {
                     shutdownRequested = true;
@@ -351,7 +412,7 @@ describe('updates robustness', () => {
         const updates = await loadUpdatesModule();
         updates.initializeUpdates(() => {});
         updates.configureUpdateInstallShutdown(() => {});
-        mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
+        await stageDownloadedUpdate(updates, '1.1.0');
         await updates.installDownloadedUpdate(requester);
         mocks.autoUpdater.emit('error', Object.assign(new Error('Installation access failed'), {code}));
         expect(updates.getUpdateStatus(requester)).toMatchObject({
@@ -415,7 +476,7 @@ describe('updates robustness', () => {
                 const updates = await loadUpdatesModule();
                 updates.initializeUpdates(() => {});
                 updates.configureUpdateInstallShutdown(() => {});
-                mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
+                await stageDownloadedUpdate(updates, '1.1.0');
                 await expect(updates.installDownloadedUpdate(requester)).resolves.toEqual({started: true});
                 const state = join(root, 'ShipItState.json');
                 writeFileSync(
@@ -483,11 +544,15 @@ describe('updates robustness', () => {
 
         updates.initializeUpdates(() => {});
         await flushPromises();
-        expect(mocks.checkMacCodeSignature).toHaveBeenCalledOnce();
+        expect(mocks.checkMacCodeSignature).not.toHaveBeenCalled();
         expect(mocks.fetch).not.toHaveBeenCalled();
 
         await vi.advanceTimersByTimeAsync(1_000);
         await flushPromises();
+        expect(mocks.checkMacCodeSignature).toHaveBeenCalledOnce();
+        expect(mocks.fetch).not.toHaveBeenCalled();
+
+        await updates.triggerManualUpdateCheck(requester);
         expect(mocks.checkMacCodeSignature).toHaveBeenCalledTimes(2);
         expect(mocks.fetch).toHaveBeenCalledOnce();
     });

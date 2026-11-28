@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
 import {existsSync, readFileSync} from 'node:fs';
+import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {session} from 'electron';
 import {config} from '@electron/config';
@@ -7,6 +8,7 @@ import {isTrustedRendererUrl} from '@electron/security/isTrustedRendererUrl';
 import {createLogger} from '@electron/utils/createLogger';
 
 let isCspConfigured = false;
+let cachedProductionCsp: {staticRoot: string | undefined; promise: Promise<string>} | null = null;
 
 const logger = createLogger('content-security-policy');
 const PRODUCTION_CSP_HTML_ENTRYPOINTS = ['electron/index.html'];
@@ -102,25 +104,73 @@ function isTrustedClipboardRequest(permission: string, requestingUrl: string | u
     );
 }
 
+export async function collectProductionInlineScriptCspHashesAsync(staticRoot: string | undefined) {
+    if (!staticRoot) {
+        return [];
+    }
+
+    const hashes = new Set<string>();
+    for (const entrypoint of PRODUCTION_CSP_HTML_ENTRYPOINTS) {
+        const htmlPath = join(staticRoot, entrypoint);
+        let html: string;
+        try {
+            html = await readFile(htmlPath, 'utf8');
+        } catch (error: unknown) {
+            if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
+                continue;
+            }
+            throw error;
+        }
+        for (const hash of extractInlineScriptCspHashes(html)) {
+            hashes.add(hash);
+        }
+    }
+
+    return [...hashes].sort();
+}
+
+export function resolveProductionContentSecurityPolicy(
+    staticRoot = config.renderer.staticRoot,
+    options: {refresh?: boolean} = {},
+): Promise<string> {
+    if (!options.refresh && cachedProductionCsp && cachedProductionCsp.staticRoot === staticRoot) {
+        return cachedProductionCsp.promise;
+    }
+
+    const promise = collectProductionInlineScriptCspHashesAsync(staticRoot)
+        .then((collectedHashes) => {
+            const inlineScriptHashes = [...collectedHashes, createInlineScriptCspHash(NUXT_UI_SPA_COLOR_CLEANUP_SCRIPT)];
+            if (collectedHashes.length === 0) {
+                if (cachedProductionCsp?.promise === promise) {
+                    cachedProductionCsp = null;
+                }
+                logger.warn(
+                    'Production CSP found no static inline script hashes; renderer bootstrap will fail if Nuxt output contains inline scripts',
+                );
+            }
+            return buildContentSecurityPolicy(false, {inlineScriptHashes});
+        })
+        .catch((error: unknown) => {
+            if (cachedProductionCsp?.promise === promise) {
+                cachedProductionCsp = null;
+            }
+            throw error;
+        });
+
+    cachedProductionCsp = {
+        staticRoot,
+        promise,
+    };
+    return promise;
+}
+
 export function setupContentSecurityPolicy() {
     // Marked configured only after every handler is installed: a throw here
-    // (the production hash read) leaves setup to run again before the next load.
+    // leaves setup to run again before the next load.
     if (isCspConfigured) {
         return;
     }
 
-    const inlineScriptHashes = config.isDev
-        ? []
-        : [
-              ...collectProductionInlineScriptCspHashes(config.renderer.staticRoot),
-              createInlineScriptCspHash(NUXT_UI_SPA_COLOR_CLEANUP_SCRIPT),
-          ];
-    if (!config.isDev && inlineScriptHashes.length === 0) {
-        logger.warn(
-            'Production CSP found no static inline script hashes; renderer bootstrap will fail if Nuxt output contains inline scripts',
-        );
-    }
-    const csp = buildContentSecurityPolicy(config.isDev, {inlineScriptHashes});
     session.defaultSession.setPermissionCheckHandler((webContents, permission, _requestingOrigin, details) => {
         return isTrustedClipboardRequest(permission, details.requestingUrl ?? webContents?.getURL(), details.isMainFrame);
     });
@@ -128,21 +178,31 @@ export function setupContentSecurityPolicy() {
         callback(isTrustedClipboardRequest(permission, details.requestingUrl, details.isMainFrame));
     });
 
-    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-        // The default session also carries Chromium's built-in PDF viewer. Its
-        // chrome-extension:// subframe must receive its own policy; replacing
-        // that response with the app policy blocks the viewer's frame and
-        // leaves Electron's -pdf-ready-to-print event unissued.
-        if (!isTrustedRendererUrl(details.url, config.renderer.trustedOrigin)) {
-            callback(details.responseHeaders ? {responseHeaders: details.responseHeaders} : {});
-            return;
-        }
-        callback({
-            responseHeaders: {
-                ...details.responseHeaders,
-                'Content-Security-Policy': [csp],
-            },
+    if (config.isDev) {
+        const csp = buildContentSecurityPolicy(true);
+        session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+            // The default session also carries Chromium's built-in PDF viewer. Its
+            // chrome-extension:// subframe must receive its own policy; replacing
+            // that response with the app policy blocks the viewer's frame and
+            // leaves Electron's -pdf-ready-to-print event unissued.
+            if (!isTrustedRendererUrl(details.url, config.renderer.trustedOrigin)) {
+                callback(details.responseHeaders ? {responseHeaders: details.responseHeaders} : {});
+                return;
+            }
+            callback({
+                responseHeaders: {
+                    ...details.responseHeaders,
+                    'Content-Security-Policy': [csp],
+                },
+            });
         });
-    });
+    } else {
+        // Production evb-viewer://app responses inline their CSP directly in
+        // electron/protocol.ts, avoiding a session-wide onHeadersReceived hook
+        // and Chromium PDF subframe interception. Prewarm the async hash read.
+        void resolveProductionContentSecurityPolicy().catch((error: unknown) => {
+            logger.warn('Failed to prewarm production CSP hashes', {error});
+        });
+    }
     isCspConfigured = true;
 }
