@@ -44,6 +44,7 @@ vi.mock('@electron/features/ocr/pipeline/writeSearchablePdf', () => ({
     writeSearchablePdf: mocks.writeSearchablePdf,
 }));
 
+const ocrRuntimePolicy = await import('@electron/features/ocr/main/ocrRuntimePolicy');
 const {runOcrJob} = await import('@electron/features/ocr/pipeline/runOcrJob');
 const {getHostResourceProfileSnapshot, initializeHostResourceProfile} = await import('@electron/resources/hostResourceProfile');
 const {configureMainJobBroker} = await import('@electron/resources/jobBroker');
@@ -560,7 +561,7 @@ describe('runOcrJob', () => {
             size: () => 1,
             tessdataDir: tempDir,
             broker,
-            exitProofTimeoutMs: 500,
+            exitProofTimeoutMs: 5_000,
             startLane: () => createDelayedExitLane(exitGate1.promise, (path) => started1.resolve(path)),
         });
         const abort1 = new AbortController();
@@ -574,8 +575,10 @@ describe('runOcrJob', () => {
         );
         try {
             const rasterPath1 = await started1.promise;
+            vi.useFakeTimers();
             abort1.abort(new DOMException('cancel delayed exit', 'AbortError'));
-            await new Promise((resolve) => setImmediate(resolve));
+            await vi.advanceTimersByTimeAsync(1_000);
+            vi.useRealTimers();
             // Lane has not acknowledged exit yet -> raster file MUST still exist on disk.
             await expect(stat(rasterPath1)).resolves.toBeDefined();
 
@@ -583,6 +586,7 @@ describe('runOcrJob', () => {
             await expect(job1).rejects.toMatchObject({name: 'AbortError'});
             await expect(stat(rasterPath1)).rejects.toMatchObject({code: 'ENOENT'});
         } finally {
+            vi.useRealTimers();
             exitGate1.resolve();
             pool1.terminate();
             await job1.catch(() => undefined);
@@ -595,7 +599,7 @@ describe('runOcrJob', () => {
             size: () => 1,
             tessdataDir: tempDir,
             broker,
-            exitProofTimeoutMs: 30,
+            exitProofTimeoutMs: 5_000,
             startLane: () => createDelayedExitLane(exitGate2.promise, (path) => started2.resolve(path)),
         });
         const abort2 = new AbortController();
@@ -608,13 +612,17 @@ describe('runOcrJob', () => {
                 runEngine: (request, signal) => pool2.run(request, signal),
             }),
         );
+        const job2Error = job2.then(
+            () => null,
+            (caught: unknown) => caught,
+        );
         try {
             const rasterPath2 = await started2.promise;
+            vi.useFakeTimers();
             abort2.abort(new DOMException('cancel wedged exit', 'AbortError'));
-            const wedgedError = await job2.then(
-                () => null,
-                (caught: unknown) => caught,
-            );
+            await vi.advanceTimersByTimeAsync(5_000);
+            vi.useRealTimers();
+            const wedgedError = await job2Error;
             expect(getUnprovenNativeTerminationDetail(wedgedError)).toBeDefined();
             await expect(stat(rasterPath2)).resolves.toBeDefined();
 
@@ -624,6 +632,7 @@ describe('runOcrJob', () => {
                 await expect(stat(rasterPath2)).rejects.toMatchObject({code: 'ENOENT'});
             });
         } finally {
+            vi.useRealTimers();
             exitGate2.resolve();
             pool2.terminate();
             await job2.catch(() => undefined);
@@ -634,15 +643,19 @@ describe('runOcrJob', () => {
         const stuckExit = Promise.withResolvers<void>();
         const lanePaths: string[] = [];
         const bothStarted = Promise.withResolvers<void>();
+        let stuckEmitter: EventEmitter | null = null;
         let laneIndex = 0;
         const pool3 = createOcrEnginePool({
             size: () => 2,
             tessdataDir: tempDir,
             broker,
-            exitProofTimeoutMs: 30,
+            exitProofTimeoutMs: 5_000,
             startLane: () => {
                 const isStuck = laneIndex++ === 0;
                 const emitter = new EventEmitter();
+                if (isStuck) {
+                    stuckEmitter = emitter;
+                }
                 let exited = false;
                 return {
                     on: (event, listener) => emitter.on(event, listener),
@@ -653,10 +666,6 @@ describe('runOcrJob', () => {
                             if (lanePaths.length === 2) {
                                 bothStarted.resolve();
                             }
-                        }
-                        if (isStuck) {
-                            // Trigger an error on lane 1 while its terminate() stays wedged.
-                            void Promise.resolve().then(() => emitter.emit('error', new Error('lane 1 stuck')));
                         }
                     },
                     terminate: async () => {
@@ -671,7 +680,11 @@ describe('runOcrJob', () => {
                 };
             },
         });
-        vi.stubEnv('OCR_GLOBAL_PAGE_SLOTS', '2');
+        // Pin policy to 2 lanes regardless of host RAM / CPU count so both lanes always start.
+        const policySpy = vi.spyOn(ocrRuntimePolicy, 'getOcrRuntimePolicy').mockReturnValue({
+            globalPageSlots: 2,
+            modelDownloadConcurrency: 3,
+        });
         vi.stubEnv('OCR_CONCURRENCY', '2');
         try {
             const job3 = runOcrJob(
@@ -685,11 +698,17 @@ describe('runOcrJob', () => {
                     runEngine: (request, signal) => pool3.run(request, signal),
                 }),
             );
-            await bothStarted.promise;
-            const err3 = await job3.then(
+            const job3Error = job3.then(
                 () => null,
                 (caught: unknown) => caught,
             );
+            await bothStarted.promise;
+            vi.useFakeTimers();
+            // Emit lane 1's error only after both lanes have posted their rasters.
+            stuckEmitter!.emit('error', new Error('lane 1 stuck'));
+            await vi.advanceTimersByTimeAsync(5_000);
+            vi.useRealTimers();
+            const err3 = await job3Error;
             expect(getUnprovenNativeTerminationDetail(err3)).toBeDefined();
             // Stuck lane 1's raster stays on disk; cleanly exited sibling lane 2's raster is already unlinked.
             await expect(stat(lanePaths[0]!)).resolves.toBeDefined();
@@ -700,6 +719,8 @@ describe('runOcrJob', () => {
                 await expect(stat(lanePaths[0]!)).rejects.toMatchObject({code: 'ENOENT'});
             });
         } finally {
+            vi.useRealTimers();
+            policySpy.mockRestore();
             vi.unstubAllEnvs();
             stuckExit.resolve();
             pool3.terminate();

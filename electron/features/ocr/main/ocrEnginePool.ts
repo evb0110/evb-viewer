@@ -37,6 +37,7 @@ interface IEngineWorker {
     exitedDeferred: PromiseWithResolvers<void>;
     exitPromise?: Promise<void>;
     idleTimer?: NodeJS.Timeout;
+    underchargedExitTimer?: NodeJS.Timeout | undefined;
     /**
      * The most memory a pass on this worker has needed (or its reported
      * retained WASM heap plus cached models). WebAssembly memory never shrinks
@@ -85,6 +86,8 @@ export interface IOcrEnginePoolOptions {
     maxRetainedWasmBytes?: number;
     /** Max wait for lane exit acknowledgement on cancel/timeout/error before marking unproven termination. */
     exitProofTimeoutMs?: number;
+    /** Called when an undercharged retiring lane fails to exit within `exitProofTimeoutMs` (e.g. to shut down the host). */
+    onStalledUnderchargedLane?: () => void;
 }
 
 /**
@@ -134,6 +137,8 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
         entry.ending = true;
         entry.exited = true;
         clearTimeout(entry.idleTimer);
+        clearTimeout(entry.underchargedExitTimer);
+        entry.underchargedExitTimer = undefined;
         workers.delete(entry);
         const clearedUndercharged = underchargedExiting.delete(entry);
         releaseMemory(entry);
@@ -152,19 +157,38 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
     // still queued for it leaves the broker now rather than when the thread
     // exits, which a worker wedged in its engine may never do. When
     // `keepSlotUntilExit` is set (an undercharged lane recycling after a failed
-    // top-up), the pool blocks new admissions until exit so no replacement lane
-    // starts while the uncharged heap is still live.
-    const end = (entry: IEngineWorker, options?: {keepSlotUntilExit?: boolean}): Promise<void> => {
+    // top-up), the pool blocks new admissions until exit (bounded by
+    // `exitProofTimeoutMs`, after which `onStalledUnderchargedLane` escalates
+    // and the pool gate reopens while the lane's leases stay charged until exit).
+    const end = (entry: IEngineWorker, endOptions?: {keepSlotUntilExit?: boolean}): Promise<void> => {
         if (!entry.ending) {
             entry.ending = true;
             clearTimeout(entry.idleTimer);
-            if (options?.keepSlotUntilExit) {
+            const holdGate = Boolean(endOptions?.keepSlotUntilExit);
+            if (holdGate) {
                 underchargedExiting.add(entry);
             } else {
                 workers.delete(entry);
             }
             entry.admission?.controller.abort(WORKER_ENDED);
             if (entry.worker) {
+                if (holdGate) {
+                    entry.underchargedExitTimer = setTimeout(() => {
+                        entry.underchargedExitTimer = undefined;
+                        if (entry.exited) {
+                            return;
+                        }
+                        workers.delete(entry);
+                        const removed = underchargedExiting.delete(entry);
+                        options.onStalledUnderchargedLane?.();
+                        if (removed && underchargedExiting.size === 0) {
+                            wakeAllWaiters();
+                        } else {
+                            wakeWaiter();
+                        }
+                    }, exitProofTimeoutMs);
+                    entry.underchargedExitTimer.unref();
+                }
                 entry.exitPromise = entry.worker.terminate().then(
                     () => exited(entry),
                     () => undefined,
@@ -173,7 +197,7 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                 exited(entry);
                 entry.exitPromise = Promise.resolve();
             }
-            if (!options?.keepSlotUntilExit) {
+            if (!holdGate) {
                 wakeWaiter();
             }
         }
@@ -305,11 +329,12 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
 
     /**
      * Charges the broker immediately for retained WASM linear-memory growth
-     * beyond the pre-pass estimate without waiting in the broker queue. Returns
-     * false when the broker lacks headroom so the caller can recycle the worker
-     * cleanly between pages instead of overcommitting memory.
+     * beyond the pre-pass estimate without waiting in the broker queue. Resolves
+     * from the actual `broker.acquire` outcome so a rejected top-up (e.g. full
+     * queue) is never misclassified as granted, and every granted lease is
+     * either tracked on `entry` or released immediately.
      */
-    const chargeRetainedMemory = (entry: IEngineWorker, ownerId: string, extraBytes: number) => {
+    const tryAcquireRetainedMemory = async (entry: IEngineWorker, ownerId: string, extraBytes: number): Promise<boolean> => {
         if (extraBytes <= 0) {
             return true;
         }
@@ -337,36 +362,27 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
             },
             signal: probeAbort.signal,
         };
-        let accepted = true;
         const leasePromise = broker.acquire(request);
         if (broker.isQueued(request)) {
-            accepted = false;
             probeAbort.abort();
-        }
-        // Always retain or release every granted lease based on the actual
-        // acquisition outcome, regardless of other jobs granted during dispatch.
-        void leasePromise.then(
-            (extraLease) => {
-                if (!accepted || entry.exited) {
-                    extraLease.release();
-                    return;
-                }
-                entry.memoryLeases.push(extraLease);
-            },
-            () => {
-                if (accepted) {
-                    entry.residentBytes = Math.max(0, entry.residentBytes - extraBytes);
-                    if (!entry.ending && !entry.exited) {
-                        void end(entry);
-                    }
-                }
-            },
-        );
-        if (!accepted) {
+            void leasePromise.then(
+                (lease) => lease.release(),
+                () => undefined,
+            );
             return false;
         }
-        entry.residentBytes += extraBytes;
-        return true;
+        try {
+            const extraLease = await leasePromise;
+            if (entry.exited) {
+                extraLease.release();
+                return false;
+            }
+            entry.memoryLeases.push(extraLease);
+            entry.residentBytes += extraBytes;
+            return true;
+        } catch {
+            return false;
+        }
     };
 
     // A worker and the lease for the core and memory a pass adds to it.
@@ -426,6 +442,20 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                 passLease.release();
                 continue;
             }
+            // Recheck the undercharged-lane gate after broker admission: an
+            // undercharged lane may have entered retirement while this request
+            // waited in the broker queue.
+            if (underchargedExiting.size > 0) {
+                passLease.release();
+                if (entry.worker) {
+                    park(entry);
+                } else {
+                    workers.delete(entry);
+                    wakeWaiter();
+                }
+                broker.recheck();
+                continue;
+            }
             if (!entry.worker) {
                 try {
                     const worker = options.startLane();
@@ -458,7 +488,7 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
             // core goes back. Actual retained WASM linear memory is charged to
             // the broker, and a worker whose WASM heap crossed the high-water
             // cap (or cannot be charged) is recycled cleanly between pages.
-            const keepWorker = (reportedWasmBytes?: number) => {
+            const keepWorker = (reportedWasmBytes: number | undefined, onComplete: () => void) => {
                 for (const [code, bytes] of modelSizes) {
                     entry.cachedModels.set(code, bytes);
                 }
@@ -471,21 +501,45 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                 const retainedTotalBytes =
                     reportedWasmBytes === undefined ? 0 : entry.retainedWasmBytes + sumOcrModelBytes(entry.cachedModels);
                 const extraBytes = Math.max(0, retainedTotalBytes - entry.residentBytes);
-                const chargedExtra = chargeRetainedMemory(entry, ownerId, extraBytes);
-                const topUpFailed = extraBytes > 0 && !chargedExtra;
-                const shouldRecycle =
-                    entry.ending ||
-                    entry.exited ||
-                    (reportedWasmBytes !== undefined && entry.retainedWasmBytes > maxRetainedWasmBytes) ||
-                    topUpFailed;
-                if (shouldRecycle) {
-                    if (topUpFailed) {
-                        // The lane holds more memory than the broker charged; keep its
-                        // full pass lease (including CPU) until exit so the broker does
-                        // not admit replacement work while the undercharged heap is live.
+                const finalizeKeep = (chargedExtra: boolean) => {
+                    const topUpFailed = extraBytes > 0 && !chargedExtra;
+                    const shouldRecycle =
+                        entry.ending ||
+                        entry.exited ||
+                        (reportedWasmBytes !== undefined && entry.retainedWasmBytes > maxRetainedWasmBytes) ||
+                        topUpFailed;
+                    if (shouldRecycle) {
+                        if (topUpFailed) {
+                            // The lane holds more memory than the broker charged; keep its
+                            // full pass lease (including CPU) until exit so the broker does
+                            // not admit replacement work while the undercharged heap is live.
+                            entry.memoryLeases.push(passLease);
+                        } else if (growth > 0) {
+                            entry.memoryLeases.push(passLease);
+                            passLease.shrink({
+                                cpuTokens: 0,
+                                estimatedResidentBytes: growth,
+                                nativeProcesses: 0,
+                                ioWeight: 0,
+                            });
+                        } else {
+                            passLease.release();
+                        }
+                        if (entry.exited) {
+                            releaseMemory(entry);
+                        } else if (!entry.ending) {
+                            void end(entry, {keepSlotUntilExit: topUpFailed});
+                        } else {
+                            wakeWaiter();
+                        }
+                        onComplete();
+                        return;
+                    }
+                    if (growth > 0) {
                         entry.memoryLeases.push(passLease);
-                    } else if (growth > 0) {
-                        entry.memoryLeases.push(passLease);
+                    }
+                    park(entry);
+                    if (growth > 0) {
                         passLease.shrink({
                             cpuTokens: 0,
                             estimatedResidentBytes: growth,
@@ -495,28 +549,12 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                     } else {
                         passLease.release();
                     }
-                    if (entry.exited) {
-                        releaseMemory(entry);
-                    } else if (!entry.ending) {
-                        void end(entry, {keepSlotUntilExit: topUpFailed});
-                    } else {
-                        wakeWaiter();
-                    }
-                    return;
-                }
-                if (growth > 0) {
-                    entry.memoryLeases.push(passLease);
-                }
-                park(entry);
-                if (growth > 0) {
-                    passLease.shrink({
-                        cpuTokens: 0,
-                        estimatedResidentBytes: growth,
-                        nativeProcesses: 0,
-                        ioWeight: 0,
-                    });
+                    onComplete();
+                };
+                if (extraBytes <= 0) {
+                    finalizeKeep(true);
                 } else {
-                    passLease.release();
+                    void tryAcquireRetainedMemory(entry, ownerId, extraBytes).then(finalizeKeep);
                 }
             };
             const discardWorker = () => {
@@ -582,12 +620,14 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                         return;
                     }
                     settling = true;
-                    keepWorker(message.wasmMemoryBytes);
-                    if (message.ok) {
-                        settle(null, message.result);
-                    } else {
-                        settle(new Error(message.error));
-                    }
+                    detach();
+                    keepWorker(message.wasmMemoryBytes, () => {
+                        if (message.ok) {
+                            resolve(message.result);
+                        } else {
+                            reject(new Error(message.error));
+                        }
+                    });
                 };
                 const onError = (error: Error) => {
                     failAndAwaitLaneExit(new Error(`The OCR engine stopped: ${error.message}`, {cause: error}));
@@ -669,6 +709,7 @@ export function runOcrEngine(request: TDesktopOcrEngineRequest, signal: AbortSig
             size: () => getOcrRuntimePolicy().globalPageSlots,
             tessdataDir,
             startLane: () => host.startLane(),
+            onStalledUnderchargedLane: () => host.shutdown(),
         });
     }
     return appPool.run(request, signal, ownerId);

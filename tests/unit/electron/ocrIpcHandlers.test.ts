@@ -1587,76 +1587,72 @@ describe('OCR engine pool idle shutdown', () => {
         }
     });
 
-    it('retains and releases the retained-heap top-up lease even when broker dispatch grants another queued job simultaneously', async () => {
+    it('retains and releases the retained-heap top-up lease when another job is granted during the same dispatch, and recycles undercharged on queue-full rejection', async () => {
+        // Part 1: Synchronous memory reclaim inside broker.acquire(top-up) grants both
+        // a queued job and the top-up lease in one dispatch() without leaking either lease.
         const broker = new JobBroker({
             ...POOL_CAPACITY,
-            cpuTokens: 1,
-            estimatedResidentBytes: 1024 * MIB,
+            cpuTokens: 2,
+            estimatedResidentBytes: 640 * MIB,
+        });
+        let reclaimableReleased = false;
+        const syncReclaimable = await broker.acquire({
+            ownerId: 'idle-cache',
+            kind: 'cache',
+            priority: 'background',
+            resources: {
+                cpuTokens: 0,
+                estimatedResidentBytes: 240 * MIB,
+                nativeProcesses: 0,
+                ioWeight: 0,
+            },
+        });
+        const unregisterReclaimer = broker.registerMemoryReclaimer(() => {
+            if (!reclaimableReleased) {
+                reclaimableReleased = true;
+                syncReclaimable.release();
+            }
         });
         const pool = createOcrEnginePool({
-            size: () => 2,
+            size: () => 1,
             tessdataDir: await createTessdata(40 * MIB),
             startLane: startFakeLane,
             broker,
             maxRetainedWasmBytes: 512 * MIB,
         });
+        const reply = Promise.withResolvers<void>();
+        const waiterAbort = new AbortController();
         try {
-            // Hold a queued 0-CPU job behind a per-owner limit so we can also
-            // test concurrent dispatch activity during the top-up acquire.
-            const reply = Promise.withResolvers<void>();
             boundary.replyGate = reply.promise;
             boundary.wasmMemoryBytes = () => 360 * MIB;
             const pass = pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal);
             await vi.waitFor(() => expect(broker.getSnapshot().used.cpuTokens).toBe(1));
 
-            // Queue a small memory-only waiter blocked behind a per-owner lease
-            // that releases via a memory reclaimer? Even simpler: release a
-            // separate waiter inside a reclaimer or test broker with interactive
-            // + bulk activity when top-up dispatches.
-            const blocker = await broker.acquire({
-                ownerId: 'queued-owner',
-                kind: 'other',
-                priority: 'user',
-                perOwnerLimit: 1,
-                resources: {
-                    cpuTokens: 0,
-                    estimatedResidentBytes: 0,
-                    nativeProcesses: 0,
-                    ioWeight: 0,
-                },
-            });
+            // Queue a 120 MiB waiter that does not fit yet (240 + 292 + 120 = 652 > 640)
+            // while holding back reclaimableReleased until the top-up triggers dispatch.
+            reclaimableReleased = true;
             const extraWaiter = broker.acquire({
                 ownerId: 'queued-owner',
                 kind: 'other',
-                priority: 'user',
-                perOwnerLimit: 1,
+                priority: 'foreground',
                 resources: {
                     cpuTokens: 0,
-                    estimatedResidentBytes: 64 * MIB,
+                    estimatedResidentBytes: 120 * MIB,
                     nativeProcesses: 0,
                     ioWeight: 0,
                 },
+                signal: waiterAbort.signal,
             });
-            // Release blocker while a zero-cpu waiter waits so dispatch grants
-            // both the waiter and the top-up when triggered.
-            let grantedExtraLease: Awaited<typeof extraWaiter> | undefined;
-            const originalAcquire = broker.acquire.bind(broker);
-            const acquireSpy = vi.spyOn(broker, 'acquire').mockImplementation((request) => {
-                if (request.kind === 'ocr-engine-retained-heap') {
-                    blocker.release();
-                }
-                return originalAcquire(request);
-            });
-            try {
-                reply.resolve();
-                await pass;
-                grantedExtraLease = await extraWaiter;
-            } finally {
-                acquireSpy.mockRestore();
-            }
-
-            // Both the worker's full 400 MiB (including top-up) and the 64 MiB job are charged.
-            expect(broker.getSnapshot().used.estimatedResidentBytes).toBe(360 * MIB + 40 * MIB + 64 * MIB);
+            expect(broker.getSnapshot().queued).toBe(1);
+            // Re-arm reclaimer so top-up's broker.acquire triggers reclaim + grants BOTH in one dispatch.
+            reclaimableReleased = false;
+            // Free 240 MiB inside the reclaimer when top-up arrives (top-up needs 108 MiB, waiter needs 120 MiB;
+            // 292 + 120 + 108 = 520 <= 640 so both grant together).
+            reply.resolve();
+            await pass;
+            const grantedExtraLease = await extraWaiter;
+            expect(reclaimableReleased).toBe(true);
+            expect(broker.getSnapshot().used.estimatedResidentBytes).toBe(360 * MIB + 40 * MIB + 120 * MIB);
 
             grantedExtraLease.release();
             pool.terminate();
@@ -1668,18 +1664,98 @@ describe('OCR engine pool idle shutdown', () => {
                 }),
             );
         } finally {
+            waiterAbort.abort();
+            reply.resolve();
+            unregisterReclaimer();
+            syncReclaimable.release();
             pool.terminate();
+        }
+
+        // Part 2: When broker.acquire rejects synchronously (full queue) on top-up,
+        // keepWorker must NOT release CPU; it must retain the full pass lease and
+        // retire the lane via underchargedExiting (with bounded escalation if stalled).
+        vi.useFakeTimers();
+        const fullQueueBroker = new JobBroker(
+            {
+                ...POOL_CAPACITY,
+                cpuTokens: 1,
+                estimatedResidentBytes: 1024 * MIB,
+            },
+            {maxQueuedJobs: 1},
+        );
+        const onStalled = vi.fn();
+        const fullQueuePool = createOcrEnginePool({
+            size: () => 1,
+            tessdataDir: await createTessdata(40 * MIB),
+            startLane: startFakeLane,
+            broker: fullQueueBroker,
+            maxRetainedWasmBytes: 512 * MIB,
+            exitProofTimeoutMs: 500,
+            onStalledUnderchargedLane: onStalled,
+        });
+        const reply2 = Promise.withResolvers<void>();
+        const exit2 = Promise.withResolvers<void>();
+        const queueFillerAbort = new AbortController();
+        try {
+            boundary.replyGate = reply2.promise;
+            boundary.terminateGate = exit2.promise;
+            boundary.wasmMemoryBytes = () => 360 * MIB;
+            const pass2 = fullQueuePool.run(
+                {image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES},
+                new AbortController().signal,
+            );
+            await vi.waitFor(() => expect(fullQueueBroker.getSnapshot().used.cpuTokens).toBe(1));
+
+            // Fill the 1-slot broker queue so top-up acquire rejects with "queue is full".
+            const queueFiller = fullQueueBroker.acquire({
+                ownerId: 'queue-filler',
+                kind: 'other',
+                priority: 'user',
+                resources: {cpuTokens: 1, estimatedResidentBytes: 0, nativeProcesses: 0, ioWeight: 0},
+                signal: queueFillerAbort.signal,
+            });
+            void queueFiller.catch(() => undefined);
+            expect(fullQueueBroker.getSnapshot().queued).toBe(1);
+
+            reply2.resolve();
+            await expect(pass2).resolves.toEqual({passes: []});
+            // Top-up rejected -> CPU stays held (not granted to queueFiller!) while retiring.
+            expect(fullQueueBroker.getSnapshot()).toMatchObject({
+                queued: 1,
+                used: {cpuTokens: 1},
+            });
+
+            // If the undercharged lane fails to exit within exitProofTimeoutMs, escalation runs and unblocks the pool.
+            await vi.advanceTimersByTimeAsync(500);
+            expect(onStalled).toHaveBeenCalledTimes(1);
+
+            exit2.resolve();
+            queueFillerAbort.abort();
+            await vi.waitFor(() =>
+                expect(fullQueueBroker.getSnapshot()).toMatchObject({
+                    active: 0,
+                    queued: 0,
+                    used: {cpuTokens: 0, estimatedResidentBytes: 0},
+                }),
+            );
+        } finally {
+            queueFillerAbort.abort();
+            reply2.resolve();
+            exit2.resolve();
+            fullQueuePool.terminate();
+            vi.useRealTimers();
         }
     });
 
     it('waits for lane exit acknowledgement on cancel and marks unproven termination if exit times out', async () => {
+        vi.useFakeTimers();
         const broker = new JobBroker(POOL_CAPACITY);
         const pool = createOcrEnginePool({
             size: () => 1,
             tessdataDir: await createTessdata(40 * MIB),
             startLane: startFakeLane,
             broker,
-            exitProofTimeoutMs: 40,
+            exitProofTimeoutMs: 500,
         });
         const reply1 = Promise.withResolvers<void>();
         const exit1 = Promise.withResolvers<void>();
@@ -1699,7 +1775,7 @@ describe('OCR engine pool idle shutdown', () => {
             await vi.waitFor(() => expect(boundary.workers).toHaveLength(1));
 
             abort1.abort(new Error('canceled-1'));
-            await new Promise((resolve) => setImmediate(resolve));
+            await vi.advanceTimersByTimeAsync(250);
             expect(settled1).toBe(false);
 
             exit1.resolve();
@@ -1713,14 +1789,15 @@ describe('OCR engine pool idle shutdown', () => {
             // Wedged exit past exitProofTimeoutMs: rejects with unproven termination and keeps memory charged until exit.
             boundary.terminateGate = exit2.promise;
             const abort2 = new AbortController();
-            const pass2 = pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, abort2.signal);
-            await vi.waitFor(() => expect(boundary.workers).toHaveLength(2));
-
-            abort2.abort(new Error('canceled-2'));
-            const error2 = await pass2.then(
+            const pass2Error = pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, abort2.signal).then(
                 () => null,
                 (caught: unknown) => caught,
             );
+            await vi.waitFor(() => expect(boundary.workers).toHaveLength(2));
+
+            abort2.abort(new Error('canceled-2'));
+            await vi.advanceTimersByTimeAsync(500);
+            const error2 = await pass2Error;
             expect(error2).toBeInstanceOf(Error);
             expect(getUnprovenNativeTerminationDetail(error2)).toBeDefined();
             expect(broker.getSnapshot().used.estimatedResidentBytes).toBeGreaterThan(0);
@@ -1732,6 +1809,7 @@ describe('OCR engine pool idle shutdown', () => {
             exit1.resolve();
             exit2.resolve();
             pool.terminate();
+            vi.useRealTimers();
         }
     });
 });

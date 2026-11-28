@@ -164,9 +164,11 @@ async function recognizeOcrJobPages(stage: {
     supersessionPolicy: NonNullable<IOcrSearchablePdfOptions['supersessionPolicy']>;
     jobAbort: AbortController;
     jobSignal: AbortSignal;
+    recordUnprovenTermination: (error: unknown) => void;
     publish: TPublishOcrProgress;
 }) {
-    const {job, sessionId, checkpointDir, requestedSelection, supersessionPolicy, jobAbort, jobSignal, publish} = stage;
+    const {job, sessionId, checkpointDir, requestedSelection, supersessionPolicy, jobAbort, jobSignal, recordUnprovenTermination, publish} =
+        stage;
     const {paths, sourcePdfPath, options, log} = job;
     const warnings = new OcrJobMessages<string>();
     const errors = new OcrJobMessages<string>();
@@ -342,7 +344,10 @@ async function recognizeOcrJobPages(stage: {
                 } catch (error) {
                     if (getUnprovenNativeTerminationDetail(error) !== undefined) {
                         retainedUnprovenRasterPaths.add(renderedPath);
-                        jobAbort.abort(error);
+                        recordUnprovenTermination(error);
+                        // Abort siblings with an unmarked AbortError so they never
+                        // mistake this page's termination proof for their own.
+                        jobAbort.abort(createAbortError('OCR job stopped after unproven native termination'));
                     } else {
                         await rm(renderedPath, {force: true}).catch(() => undefined);
                     }
@@ -363,7 +368,8 @@ async function recognizeOcrJobPages(stage: {
                                 void lateLaneExit.then(() => rm(rasterPath, {force: true}).catch(() => undefined));
                             }
                         }
-                        jobAbort.abort(error);
+                        recordUnprovenTermination(error);
+                        jobAbort.abort(createAbortError('OCR job stopped after unproven engine termination'));
                     }
                     throw error;
                 }
@@ -428,8 +434,12 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
             ...extra,
         });
     let ownedCheckpointFingerprint: string | null = null;
+    let unprovenTerminationFailure: unknown;
     let jobFailure: unknown;
     let resultPath: string | undefined;
+    const recordUnprovenTermination = (error: unknown) => {
+        unprovenTerminationFailure ??= error;
+    };
 
     try {
         const sourceStat = await stat(sourcePdfPath);
@@ -470,6 +480,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
             supersessionPolicy,
             jobAbort,
             jobSignal,
+            recordUnprovenTermination,
             publish,
         });
 
@@ -537,7 +548,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         };
     } catch (caughtError) {
         resultPath = undefined;
-        const error = jobAbort.signal.aborted ? jobAbort.signal.reason : caughtError;
+        const error = unprovenTerminationFailure ?? (jobAbort.signal.aborted ? jobAbort.signal.reason : caughtError);
         jobFailure = error;
         if (getUnprovenNativeTerminationDetail(error) !== undefined || signal.aborted) {
             throw error;
