@@ -16,6 +16,7 @@ import {runtimeConfig} from '@electron/runtimeConfig';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import {SCAN_CLEANUP_PAGE_SCOPE_ERROR_CODE, ScanCleanupPageScopeError} from '@evb/scan-cleanup/core/pageScope';
 import {ScanCleanupInsufficientScratchError, ScanCleanupNativeToolUnavailableError} from '@evb/scan-cleanup/core/errors';
+import {partitionScanCleanupCpuBudget} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {
     SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
     SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS,
@@ -133,6 +134,20 @@ export function resolveScanCleanupPreviewRasterSlotResidentBytes(options?: TScan
 
 export interface IScanCleanupRasterAdmissionPolicy {
     rasterConcurrency: number;
+    /** Partitioned Rayon thread cap for `evb-scan-cleanup` sidecar work. */
+    sidecarThreads?: number;
+    /** Total broker CPU tokens admitted for the bulk Scan Cleanup lease. */
+    cpuTokens?: number;
+    /** Total broker native process slots admitted (producers + concurrent sidecar when overlapping). */
+    nativeProcesses?: number;
+    /** Broker I/O weight admitted for bulk conversion while keeping preview headroom. */
+    ioWeight?: number;
+    /**
+     * True when the broker budget leaves only 1 CPU token or 1 process slot
+     * after reserving preview headroom, so producers and the sidecar must run
+     * sequentially rather than overlapping.
+     */
+    serializeStages?: boolean;
     /** The per-page pixel cap paired with the broker's resident-byte reserve. */
     rasterMaxPixels?: number;
     /**
@@ -145,20 +160,51 @@ export interface IScanCleanupRasterAdmissionPolicy {
 export function resolveScanCleanupPreviewRasterAdmissionPolicy(
     capacity: IJobResourceVector = mainJobBroker.getSnapshot().capacity,
     options?: TScanCleanupRasterBudgetOptions,
+    logicalCpus?: number,
+    admissionOptions?: {overlapSidecarProcess?: boolean},
 ): IScanCleanupRasterAdmissionPolicy {
     const configuredRasterMaxPixels = resolveScanCleanupPreviewRasterMaxPixels(options);
     const capacityRasterMaxPixels = Math.floor(capacity.estimatedResidentBytes / SCAN_CLEANUP_PREVIEW_RASTER_BYTES_PER_PIXEL);
     const rasterMaxPixels = Math.max(1, Math.min(configuredRasterMaxPixels, capacityRasterMaxPixels));
     const rasterSlotResidentBytes = resolveScanCleanupPreviewRasterSlotResidentBytes(options, rasterMaxPixels);
+    const brokerCpuBudget = Math.max(1, Math.floor(capacity.cpuTokens) - SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE);
+    const hostCpuLimit =
+        logicalCpus !== undefined && Number.isFinite(logicalCpus) && logicalCpus > 0
+            ? Math.max(1, Math.floor(logicalCpus) - 1)
+            : brokerCpuBudget;
+    const cpuBudget = Math.max(1, Math.min(brokerCpuBudget, hostCpuLimit));
+    const brokerProcessBudget = Math.max(1, Math.floor(capacity.nativeProcesses) - SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE);
+    const brokerResidentBytesBudget = Math.max(rasterSlotResidentBytes, capacity.estimatedResidentBytes - rasterSlotResidentBytes);
+    const memoryProducerCap = Math.max(1, Math.floor(brokerResidentBytesBudget / rasterSlotResidentBytes));
+    const ioWeight = Math.max(1, Math.min(4, Math.floor(capacity.ioWeight) - SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE));
+    const serializeStages = cpuBudget <= 1 || brokerProcessBudget <= 1;
+    if (serializeStages) {
+        return {
+            rasterConcurrency: 1,
+            sidecarThreads: cpuBudget,
+            cpuTokens: Math.min(capacity.cpuTokens, cpuBudget),
+            nativeProcesses: Math.min(capacity.nativeProcesses, 1),
+            ioWeight: Math.min(capacity.ioWeight, ioWeight),
+            serializeStages: true,
+            rasterMaxPixels,
+        };
+    }
+    const overlapSidecarProcess = admissionOptions?.overlapSidecarProcess === true;
+    // When producers run concurrently with an active sidecar process (streaming
+    // conversion), reserve 1 process slot inside `brokerProcessBudget` for the
+    // sidecar itself and charge `producerConcurrency + 1` native processes so
+    // the broker lease accurately covers every concurrent child process while
+    // preserving 1 full slot for a concurrent visible preview.
+    const producerProcessCap = overlapSidecarProcess ? Math.max(1, brokerProcessBudget - 1) : brokerProcessBudget;
+    const maxProducers = Math.max(1, Math.min(producerProcessCap, memoryProducerCap));
+    const partition = partitionScanCleanupCpuBudget(cpuBudget, maxProducers);
     return {
-        rasterConcurrency: Math.max(
-            1,
-            Math.min(
-                Math.floor(capacity.cpuTokens),
-                capacity.nativeProcesses - SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE,
-                Math.floor(capacity.estimatedResidentBytes / rasterSlotResidentBytes),
-            ),
-        ),
+        rasterConcurrency: partition.producerConcurrency,
+        sidecarThreads: partition.sidecarMaxThreads,
+        cpuTokens: Math.min(capacity.cpuTokens, partition.totalCpuTokens),
+        nativeProcesses: Math.min(brokerProcessBudget, partition.producerConcurrency + (overlapSidecarProcess ? 1 : 0)),
+        ioWeight: Math.min(capacity.ioWeight, ioWeight),
+        serializeStages: false,
         rasterMaxPixels,
     };
 }

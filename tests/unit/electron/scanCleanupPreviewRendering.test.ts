@@ -399,9 +399,14 @@ export async function scenarioStreamsTheDisplayRasterButCleansBinaryPreviewTextO
         }),
     );
     const renderDpis: number[] = [];
+    const renderPpmDpis: number[] = [];
     deps.renderPage = vi.fn(async (_paths, _log, _page, _source, outputPath, dpi) => {
         renderDpis.push(dpi);
         await writeFile(`${outputPath.replace(/\.png$/u, '')}.png`, PNG);
+    });
+    deps.renderPagePpm = vi.fn(async (_paths, _log, _page, _source, outputPath, dpi) => {
+        renderPpmDpis.push(dpi);
+        await writeFile(`${outputPath.replace(/\.ppm$/u, '')}.ppm`, ppmWithDimensions(1, 1));
     });
     let manifestDpi: number | undefined;
     let manifestAnalysisDpi: number | undefined;
@@ -428,7 +433,8 @@ export async function scenarioStreamsTheDisplayRasterButCleansBinaryPreviewTextO
         layoutDetectionComplete: true,
     });
 
-    expect(renderDpis).toEqual([150, 300]);
+    expect(renderDpis).toEqual([150]);
+    expect(renderPpmDpis).toEqual([300]);
     expect(manifestDpi).toBe(300);
     expect(manifestAnalysisDpi).toBe(150);
     expect(routingUsesCanonicalInput).toBe(true);

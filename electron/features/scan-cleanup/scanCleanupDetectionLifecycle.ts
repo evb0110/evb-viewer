@@ -487,6 +487,11 @@ export function scanCleanupDetectionOwner(
                                     },
                                     {
                                         rasterConcurrency: rasterPolicy.rasterConcurrency,
+                                        ...(rasterPolicy.sidecarThreads === undefined ? {} : {sidecarThreads: rasterPolicy.sidecarThreads}),
+                                        ...(rasterPolicy.cpuTokens === undefined ? {} : {cpuTokens: rasterPolicy.cpuTokens}),
+                                        ...(rasterPolicy.serializeStages === undefined
+                                            ? {}
+                                            : {serializeStages: rasterPolicy.serializeStages}),
                                         ...(rasterPolicy.rasterMaxPixels === undefined
                                             ? {}
                                             : {rasterMaxPixels: rasterPolicy.rasterMaxPixels}),

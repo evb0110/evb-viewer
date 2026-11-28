@@ -115,7 +115,10 @@ export function createScanCleanupDocumentRasterPages(
  * small machine and analyzes one page at a time.
  */
 type TScanCleanupDetectionPolicy = Pick<IScanCleanupRuntimePolicy, 'rasterConcurrency' | 'rasterMaxPixels'> &
-    Partial<Pick<IScanCleanupRuntimePolicy, 'totalRamBytes'>>;
+    Partial<Pick<IScanCleanupRuntimePolicy, 'totalRamBytes'>> & {
+        /** Broker-partitioned thread cap for concurrent `evb-scan-cleanup` sidecar work. */
+        sidecarThreads?: number;
+    };
 
 export interface IScanCleanupRetainedRaster {
     dpi: number;
@@ -347,7 +350,15 @@ async function runBatchedScanCleanupDetection<TDocument>(
 
     recorder.sealGeometry();
 
-    for (const batch of iterateScanCleanupPageBatches(pageScope.length, SCAN_CLEANUP_STREAMING_BATCH_PAGES)) {
+    const serializeStages = (policy as TScanCleanupDetectionPolicy & {serializeStages?: boolean}).serializeStages === true;
+    // On a 1-process lease (`serializeStages === true`), cap each detection
+    // batch to the staged-window maximum so every batch fits in pre-staging
+    // and finishes all Poppler work before launching the sidecar.
+    const detectionBatchPages = serializeStages
+        ? Math.min(SCAN_CLEANUP_STREAMING_BATCH_PAGES, SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW)
+        : SCAN_CLEANUP_STREAMING_BATCH_PAGES;
+
+    for (const batch of iterateScanCleanupPageBatches(pageScope.length, detectionBatchPages)) {
         signal.throwIfAborted();
         const batchPageNumbers = collectScanCleanupPageScopeBatch(pageScope, batch);
         const batchPageSet = new Set(batchPageNumbers);
@@ -416,6 +427,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
             stagedInputPeakPixels = Math.max(stagedInputPeakPixels, limits.expectedWidthPx * limits.expectedHeightPx);
         }
         const boundedWindowPages = Math.max(1, Math.min(SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW, admission.windowPages));
+        const renderConcurrency = Math.max(1, Math.min(policy.rasterConcurrency, boundedWindowPages));
         log(
             'debug',
             'Scan cleanup detection staged raster admission ' +
@@ -428,7 +440,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     wholeDocumentBytes: admission.wholeDocumentBytes,
                     windowPages: boundedWindowPages,
                     windowBytes: admission.windowBytes,
-                    renderConcurrency: Math.max(1, Math.min(policy.rasterConcurrency, boundedWindowPages)),
+                    renderConcurrency,
                     admitted: admission.admitted,
                 }),
         );
@@ -452,10 +464,35 @@ async function runBatchedScanCleanupDetection<TDocument>(
         const operationSignal = AbortSignal.any([signal, stagingAbort.signal]);
         let stagingError: unknown;
         let activeRenders = 0;
+        let sidecarActive = false;
         const waitingRenders: Array<() => void> = [];
-        const renderConcurrency = Math.max(1, Math.min(policy.rasterConcurrency, boundedWindowPages));
+        const renderLimitWaiters: Array<() => void> = [];
+        const currentRenderLimit = () => (sidecarActive ? Math.max(1, renderConcurrency - 1) : renderConcurrency);
+        const notifyRenderLimitWaiters = () => {
+            if (activeRenders <= currentRenderLimit() && renderLimitWaiters.length > 0) {
+                const waiters = renderLimitWaiters.splice(0);
+                for (const wake of waiters) {
+                    wake();
+                }
+            }
+        };
+        const drainWaitingRenders = () => {
+            while (activeRenders < currentRenderLimit() && waitingRenders.length > 0) {
+                activeRenders += 1;
+                waitingRenders.shift()!();
+            }
+            notifyRenderLimitWaiters();
+        };
+        const waitForRenderConcurrencyWithinSidecarLimit = async () => {
+            if (activeRenders <= currentRenderLimit()) {
+                return;
+            }
+            await new Promise<void>((resolve) => {
+                renderLimitWaiters.push(resolve);
+            });
+        };
         const renderSlot = async <T>(render: () => Promise<T>) => {
-            if (activeRenders >= renderConcurrency) {
+            if (activeRenders >= currentRenderLimit()) {
                 await new Promise<void>((resolve) => waitingRenders.push(resolve));
             } else {
                 activeRenders += 1;
@@ -463,12 +500,8 @@ async function runBatchedScanCleanupDetection<TDocument>(
             try {
                 return await render();
             } finally {
-                const next = waitingRenders.shift();
-                if (next) {
-                    next();
-                } else {
-                    activeRenders -= 1;
-                }
+                activeRenders -= 1;
+                drainWaitingRenders();
             }
         };
         batchRecorder.addRetainedRasters(retained.keys());
@@ -479,9 +512,12 @@ async function runBatchedScanCleanupDetection<TDocument>(
         // inside that window. A large manifest may fit the scratch estimate
         // while still being too large for one Poppler process and one burst of
         // retained rasters, so long documents must use the staged windows.
+        // On a 1-process lease (`serializeStages === true`), also pre-stage a
+        // bounded batch before launching the sidecar so Poppler and the sidecar
+        // never overlap.
         const canPrestageBatch =
-            batchRenderer !== undefined &&
-            totalPages > SCAN_CLEANUP_STREAMING_BATCH_PAGES &&
+            (batchRenderer !== undefined || serializeStages) &&
+            (totalPages > SCAN_CLEANUP_STREAMING_BATCH_PAGES || serializeStages) &&
             rasterScope.length > 0 &&
             rasterScope.length <= boundedWindowPages &&
             admission.wholeDocumentBytes !== null &&
@@ -693,44 +729,50 @@ async function runBatchedScanCleanupDetection<TDocument>(
          * path, or an empty file there when it cannot be rendered: that view is
          * optional, and declining it keeps the CropBox analysis.
          */
+        const preStagedAlternates = new Set<string>();
         const stageAlternate = async (manifestPage: (typeof manifestPages)[number]) => {
             const path = manifestPage.alternateInputPath!;
-            const scratchPath = `${path}.partial.png`;
-            try {
-                await renderRasterToDisk(
-                    request.sourcePdfPath,
-                    manifestPage.pageNumber,
-                    scratchPath,
-                    operationSignal,
-                    {
-                        ...dependencies,
-                        fileSystem,
-                    },
-                    log,
-                    manifestPage.alternateView!.page.dpi,
-                    undefined,
-                    undefined,
-                    'png',
-                    resolveRasterRenderLimits(
-                        alternateMediaByPage.get(manifestPage.pageNumber),
-                        manifestPage.alternateView!.page.dpi,
-                        alternateMaxPixels,
-                    ),
-                    'MediaBox raster',
-                    'MediaBox view',
-                    'mediabox',
-                );
-            } catch (error) {
-                if (operationSignal.aborted || getUnprovenNativeTerminationDetail(error) !== undefined) {
-                    throw error;
-                }
-                log(
-                    'warn',
-                    `Scan cleanup kept the first-pass classification for page ${String(manifestPage.pageNumber)} because its MediaBox view failed: ${getErrorMessage(error)}`,
-                );
-                await fileSystem.writeFile(scratchPath, '');
+            if (preStagedAlternates.has(path)) {
+                return;
             }
-            await fileSystem.rename(scratchPath, path);
+            const scratchPath = `${path}.partial.png`;
+            await renderSlot(async () => {
+                try {
+                    await renderRasterToDisk(
+                        request.sourcePdfPath,
+                        manifestPage.pageNumber,
+                        scratchPath,
+                        operationSignal,
+                        {
+                            ...dependencies,
+                            fileSystem,
+                        },
+                        log,
+                        manifestPage.alternateView!.page.dpi,
+                        undefined,
+                        undefined,
+                        'png',
+                        resolveRasterRenderLimits(
+                            alternateMediaByPage.get(manifestPage.pageNumber),
+                            manifestPage.alternateView!.page.dpi,
+                            alternateMaxPixels,
+                        ),
+                        'MediaBox raster',
+                        'MediaBox view',
+                        'mediabox',
+                    );
+                } catch (error) {
+                    if (operationSignal.aborted || getUnprovenNativeTerminationDetail(error) !== undefined) {
+                        throw error;
+                    }
+                    log(
+                        'warn',
+                        `Scan cleanup kept the first-pass classification for page ${String(manifestPage.pageNumber)} because its MediaBox view failed: ${getErrorMessage(error)}`,
+                    );
+                    await fileSystem.writeFile(scratchPath, '');
+                }
+                await fileSystem.rename(scratchPath, path);
+            });
         };
         const sourcePageByManifestIndex = new Map(manifestPages.map((page, index) => [index + 1, page.pageNumber]));
         const manifestPath = join(scratch, 'classify-manifest.json');
@@ -759,9 +801,64 @@ async function runBatchedScanCleanupDetection<TDocument>(
         await fileSystem.writeFile(manifestPath, JSON.stringify(manifest));
         if (preStagePageNumbers.length > 0) {
             try {
-                for (const run of splitContiguousPageRuns(preStagePageNumbers, analysisDpi)) {
-                    await renderAndRetainBatch(run);
-                    for (const pageNumber of run) {
+                if (batchRenderer !== undefined && totalPages > SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
+                    for (const run of splitContiguousPageRuns(preStagePageNumbers, analysisDpi)) {
+                        await renderAndRetainBatch(run);
+                        for (const pageNumber of run) {
+                            preStagedPages.add(pageNumber);
+                            recordRasterizedPage(pageNumber);
+                        }
+                    }
+                } else if (batchRenderer !== undefined) {
+                    for (const pageNumber of preStagePageNumbers) {
+                        await renderAndRetainBatch([pageNumber]);
+                        preStagedPages.add(pageNumber);
+                        recordRasterizedPage(pageNumber);
+                    }
+                } else {
+                    for (const pageNumber of preStagePageNumbers) {
+                        operationSignal.throwIfAborted();
+                        const scratchPath = await retention.rasterScratchPath(document, pageNumber, analysisDpi(pageNumber));
+                        try {
+                            const dimensions = await renderRasterToDisk(
+                                request.sourcePdfPath,
+                                pageNumber,
+                                scratchPath,
+                                operationSignal,
+                                {
+                                    ...dependencies,
+                                    fileSystem,
+                                },
+                                log,
+                                analysisDpi(pageNumber),
+                                undefined,
+                                undefined,
+                                'png',
+                                rasterLimitsByPage.get(pageNumber),
+                                'detection raster',
+                                'detection',
+                                'cropbox',
+                            );
+                            const raster = await retention.retain({
+                                document,
+                                dpi: analysisDpi(pageNumber),
+                                height: dimensions.height,
+                                pageNumber,
+                                scratchPath,
+                                sizeBytes: (await fileSystem.stat(scratchPath)).size,
+                                width: dimensions.width,
+                            });
+                            if (raster.path !== stagedPathByPage.get(pageNumber)) {
+                                throw new ScanCleanupContractError(
+                                    `page ${String(pageNumber)} was staged at ${raster.path} instead of its manifest input path`,
+                                );
+                            }
+                        } catch (error) {
+                            if (getUnprovenNativeTerminationDetail(error) === undefined) {
+                                await fileSystem.rm(scratchPath, {force: true}).catch(() => undefined);
+                            }
+                            throw error;
+                        }
                         preStagedPages.add(pageNumber);
                         recordRasterizedPage(pageNumber);
                     }
@@ -775,6 +872,18 @@ async function runBatchedScanCleanupDetection<TDocument>(
             }
             recorder.markProgress();
             log('debug', 'Scan cleanup pre-staged Poppler batch ' + JSON.stringify({pages: preStagePageNumbers.length}));
+        }
+        if (serializeStages) {
+            // Also pre-stage any candidate MediaBox alternate views before
+            // launching the sidecar so a 1-process lease never spawns
+            // Poppler while `evb-scan-cleanup` is live (even when CropBox
+            // rasters were already retained from cache).
+            for (const manifestPage of manifestPages) {
+                if (manifestPage.alternateInputPath !== undefined) {
+                    await stageAlternate(manifestPage);
+                    preStagedAlternates.add(manifestPage.alternateInputPath);
+                }
+            }
         }
         const resolveSourcePageNumber = (pageNumber: number | undefined) => {
             if (pageNumber === undefined) {
@@ -805,6 +914,8 @@ async function runBatchedScanCleanupDetection<TDocument>(
         let batchFailure: unknown;
         try {
             await stagedWindow.prime();
+            sidecarActive = true;
+            await waitForRenderConcurrencyWithinSidecarLimit();
             await dependencies.runSidecar(
                 binary,
                 manifestPath,
@@ -833,6 +944,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                                 stagingAbort.abort(error);
                             });
                         } else if (nativeProgress.stage === 'page-input-released') {
+                            preStagedAlternates.delete(alternatePage.alternateInputPath);
                             await fileSystem.rm(alternatePage.alternateInputPath, {force: true});
                         }
                         return;
@@ -903,6 +1015,17 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 {
                     priority: 'background',
                     allowedPathRoot: dependencies.getTempDir(),
+                    maxThreads:
+                        canPrestageBatch || rasterScope.length === 0
+                            ? Math.max(
+                                  1,
+                                  Math.floor(
+                                      (policy as TScanCleanupDetectionPolicy & {cpuTokens?: number}).cpuTokens ??
+                                          policy.sidecarThreads ??
+                                          policy.rasterConcurrency,
+                                  ),
+                              )
+                            : Math.max(1, Math.floor(policy.sidecarThreads ?? policy.rasterConcurrency)),
                 },
             );
             batchRecorder.end();
@@ -914,6 +1037,8 @@ async function runBatchedScanCleanupDetection<TDocument>(
             batchFailure = stagingError === undefined ? error : new AggregateError([stagingError, error], getErrorMessage(stagingError));
             throw batchFailure;
         } finally {
+            sidecarActive = false;
+            drainWaitingRenders();
             // Detection results do not need to keep every source raster in the
             // preview cache. Only the final successful batch hands its window
             // to the cache. Releasing earlier batches keeps both file and
@@ -926,6 +1051,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 : new Set<number>();
             if (!unproven) {
                 await releasePreStaged(cachePreStagedPages);
+                await Promise.allSettled([...preStagedAlternates].map((path) => fileSystem.rm(path, {force: true})));
             }
         }
     }

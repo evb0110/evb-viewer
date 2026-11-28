@@ -16,6 +16,7 @@ import {decodeNativeScanCleanupEnvelope, parseNativeScanCleanupStderr} from '@el
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {
     chainJobBrokerRunContext,
+    getActiveJobBrokerLease,
     mergeTerminationProofSinks,
     type IJobBrokerRunContext,
     type TTerminationProofSink,
@@ -52,6 +53,8 @@ interface IRunScanCleanupSidecarOptions {
     brokerRun?: IJobBrokerRunContext;
     /** Optional termination-proof sink when no broker run context is attached. */
     onTerminationProof?: TTerminationProofSink;
+    /** Optional explicit thread cap (further bounded by the active broker lease CPU tokens). */
+    maxThreads?: number;
 }
 
 const DEFAULT_SCAN_CLEANUP_SIDECAR_TIMEOUT_MS = 6 * 60 * 60 * 1_000;
@@ -298,6 +301,21 @@ export async function runScanCleanupSidecar(
     await streamScanCleanupSidecar(binaryPath, manifestPath, signal, log, onProgress, options);
 }
 
+export function resolveScanCleanupSidecarMaxThreads(
+    options: Pick<IRunScanCleanupSidecarOptions, 'brokerRun' | 'maxThreads'>,
+): number | undefined {
+    const activeLease = getActiveJobBrokerLease(options.brokerRun);
+    const leaseCpuTokens = activeLease === undefined ? undefined : Math.max(1, Math.floor(activeLease.resources.cpuTokens));
+    const requestedMaxThreads =
+        options.maxThreads !== undefined && Number.isFinite(options.maxThreads) && options.maxThreads >= 1
+            ? Math.floor(options.maxThreads)
+            : undefined;
+    if (leaseCpuTokens !== undefined && requestedMaxThreads !== undefined) {
+        return Math.min(leaseCpuTokens, requestedMaxThreads);
+    }
+    return requestedMaxThreads ?? leaseCpuTokens;
+}
+
 async function streamScanCleanupSidecar(
     binaryPath: string,
     manifestPath: string,
@@ -306,10 +324,12 @@ async function streamScanCleanupSidecar(
     onProgress: (nativeProgress: TNativeScanCleanupProgressV3) => void | Promise<void>,
     options: IRunScanCleanupSidecarOptions,
 ) {
+    const effectiveMaxThreads = resolveScanCleanupSidecarMaxThreads(options);
     const args = [
         '--manifest',
         manifestPath,
         ...(options.allowedPathRoot === undefined ? [] : ['--allowed-path-root', options.allowedPathRoot]),
+        ...(effectiveMaxThreads === undefined ? [] : ['--max-threads', String(effectiveMaxThreads)]),
     ];
     const stdout = new PassThrough();
     const stderr = new PassThrough();
@@ -459,6 +479,7 @@ async function streamScanCleanupSidecar(
             maxStderrBytes: 64 * 1024,
             longLived: true,
             commandLabel: 'evb-scan-cleanup',
+            ...(effectiveMaxThreads === undefined ? {} : {env: {RAYON_NUM_THREADS: String(effectiveMaxThreads)}}),
             onSpawn: (pid) => {
                 childPid = pid;
                 if (options.priority === 'background') {

@@ -23,14 +23,17 @@ export async function overlayScanCleanupTextLayerAndMeasure(
 ) {
     const stagedPdfPath = args[2];
     const scratch = args[3];
-    const result = (await overlayScanCleanupTextLayer(sourceText.pages, ...args)) ?? decodeScanCleanupPageOpsResult('');
+    const overlayResult = await overlayScanCleanupTextLayer(sourceText.pages, ...args);
+    const stagedPdfModified = overlayResult !== null;
+    const result = overlayResult ?? decodeScanCleanupPageOpsResult('');
     const omittedSourcePages = [...new Set([...sourceText.skippedNonAffine, ...result.textOmittedSourcePages])].sort(
         (left, right) => left - right,
     );
-    if (sourceText.pages.length === 0) {
+    if (!stagedPdfModified) {
         return {
             ...result,
             omittedSourcePages,
+            stagedPdfModified: false,
         };
     }
     const after = await stat(stagedPdfPath);
@@ -43,5 +46,6 @@ export async function overlayScanCleanupTextLayerAndMeasure(
     return {
         ...result,
         omittedSourcePages,
+        stagedPdfModified: true,
     };
 }

@@ -20,6 +20,7 @@ import {
     detectionRequest,
     DOCUMENT_PAGE_SIZES,
     PNG,
+    ppmWithDimensions,
     previewOf,
     request,
     SETTLED_SINGLE_LAYOUT_BY_PAGE,
@@ -109,9 +110,10 @@ export async function scenarioDoesNotReadTheFullRetainedPNGWhenAProcessingRaster
             pageNumber: 1,
             outputs: [{metadata: expect.any(Object)}],
         });
-        expect(vi.mocked(deps.renderPage).mock.calls.map((call) => call[5])).toEqual([150, 300, 300]);
+        expect(vi.mocked(deps.renderPage).mock.calls.map((call) => call[5])).toEqual([150]);
+        expect(vi.mocked(deps.renderPagePpm).mock.calls.map((call) => call[5])).toEqual([300, 300]);
         expect(processingPath).toBe(retainedProcessingPath);
-        await expect(stat(retainedProcessingPath!)).resolves.toMatchObject({size: PNG.byteLength});
+        await expect(stat(retainedProcessingPath!)).resolves.toMatchObject({size: ppmWithDimensions(1, 1).byteLength});
         expect(vi.mocked(deps.readFile!).mock.calls.some(([path]) => path === retainedProcessingPath)).toBe(false);
     }
 }
@@ -168,10 +170,10 @@ export async function scenarioRemovesAPathOnlyRasterCanceledAfterRenderingAndBef
     const previewSender = sender();
     let canceled = false;
     let canceledScratchPath: string | undefined;
-    const originalRenderPage = deps.renderPage;
-    deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
+    const originalRenderPagePpm = deps.renderPagePpm;
+    deps.renderPagePpm = vi.fn(async (...args: Parameters<typeof originalRenderPagePpm>) => {
         args[1]('debug', 'path-only render completed');
-        await originalRenderPage(...args);
+        await originalRenderPagePpm(...args);
         if (args[5] === 300) {
             canceledScratchPath = args[4];
             canceled = service.cancel(previewSender, {

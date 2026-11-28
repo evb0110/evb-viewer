@@ -1892,6 +1892,7 @@ describe('scan-cleanup-core conversion coverage', () => {
         await writeReport(1_000);
         await expect(overlay()).resolves.toEqual({
             accessibilityTagsRemoved: true,
+            stagedPdfModified: true,
             textOmittedSourcePages: [],
             omittedSourcePages: [],
         });
@@ -1905,6 +1906,7 @@ describe('scan-cleanup-core conversion coverage', () => {
         await writeReport(1_000);
         await expect(overlay()).resolves.toEqual({
             accessibilityTagsRemoved: true,
+            stagedPdfModified: true,
             textOmittedSourcePages: [],
             omittedSourcePages: [],
         });

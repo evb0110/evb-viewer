@@ -346,7 +346,7 @@ export async function readPreviewMetadata(path: string, dependencies: IScanClean
 
 interface IRawRasterMaterializer {
     pageCount(document: IRetainedDocument, signal: AbortSignal): Promise<number>;
-    rasterScratchPath(document: IRetainedDocument, pageNumber: number, dpi: number): Promise<string>;
+    rasterScratchPath(document: IRetainedDocument, pageNumber: number, dpi: number, format?: 'png' | 'ppm'): Promise<string>;
 }
 
 export async function renderUnretainedRawRaster(
@@ -358,13 +358,16 @@ export async function renderUnretainedRawRaster(
     knownTotalPages: number | undefined,
     dpi: number,
     pageSize: IPdfPageSize | undefined,
+    format: 'png' | 'ppm' = 'png',
 ) {
     const totalPages = knownTotalPages ?? (await retention.pageCount(document, signal));
     if (pageNumber > totalPages) {
         throw new Error('Scan cleanup preview page is out of range');
     }
-    const scratchPath = await retention.rasterScratchPath(document, pageNumber, dpi);
-    await dependencies.renderPage(
+    const usePpm = format === 'ppm' && dependencies.renderPagePpm !== undefined;
+    const scratchPath = await retention.rasterScratchPath(document, pageNumber, dpi, usePpm ? 'ppm' : 'png');
+    const render = usePpm ? dependencies.renderPagePpm! : dependencies.renderPage;
+    await render(
         {pdftoppmBinary: dependencies.getPdftoppmBinary()},
         logScanCleanupMessage,
         pageNumber,

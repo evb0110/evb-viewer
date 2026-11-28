@@ -626,7 +626,10 @@ describe('closing a source document during scan cleanup', () => {
                 signal: AbortSignal,
                 _onProgress: unknown,
                 _jobId: unknown,
-                options?: {brokerRun?: {onTerminationProof?: (proof: Promise<boolean>) => void}},
+                options?: {
+                    brokerRun?: {onTerminationProof?: (proof: Promise<boolean>) => void};
+                    phaseBroker?: {getCurrentBrokerRun?: () => {onTerminationProof?: (proof: Promise<boolean>) => void} | undefined};
+                },
             ) => {
                 observed.resolve(signal);
                 return new Promise<never>((_, reject) => {
@@ -637,7 +640,9 @@ describe('closing a source document during scan cleanup', () => {
                             // answer. A surviving child would still be reading the
                             // source, so the run reports the stop as unproven, to the
                             // lease its children run under as the worker task does.
-                            options?.brokerRun?.onTerminationProof?.(Promise.resolve(false));
+                            (options?.phaseBroker?.getCurrentBrokerRun?.() ?? options?.brokerRun)?.onTerminationProof?.(
+                                Promise.resolve(false),
+                            );
                             setTimeout(
                                 () =>
                                     reject(

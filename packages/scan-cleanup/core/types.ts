@@ -379,6 +379,8 @@ export type TScanCleanupRunSidecar = (
     options?: {
         priority?: 'background';
         allowedPathRoot: string;
+        /** Broker-admitted thread cap forwarded into the native sidecar's Rayon pools. */
+        maxThreads?: number;
         /**
          * Receives a promise that settles after deferred publication recovery
          * completes. Callers owning the manifest scratch must retain it until
@@ -518,6 +520,16 @@ export interface IRunScanCleanupPipelineDependencies {
     streamingHandoff?: IScanCleanupStreamingHandoffLimits;
     /** Notifies a host using `deferCheckpointCleanup` which checkpoint entry is ready to delete after commit. */
     onCheckpointReadyForCleanup?: (entryDir: string) => void;
+    /**
+     * Transitions the owning conversion broker lease at the phase boundary
+     * before acquiring a combine-sized lease for multi-page `evb-pdf-image-combine`.
+     * Single-page combine stays on the existing conversion lease.
+     */
+    runWithCombineLease?: <T>(
+        outputPageCount: number,
+        signal: AbortSignal,
+        work: (runCommand: TScanCleanupRunCommand) => Promise<T>,
+    ) => Promise<T>;
 }
 
 export interface IScanCleanupCorePolicy {

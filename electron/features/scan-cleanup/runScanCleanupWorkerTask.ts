@@ -5,6 +5,7 @@ import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {
     runScanCleanupPipeline,
     type IRunScanCleanupPipelineRequest,
+    type IScanCleanupConversionPhaseBroker,
     type IScanCleanupWorkerPaths,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
 import {reclaimScanCleanupCheckpointOwner} from '@evb/scan-cleanup/core/conversionCheckpoint';
@@ -52,6 +53,12 @@ export async function runScanCleanupWorkerTask(
          * charged.
          */
         brokerRun?: IJobBrokerRunContext;
+        /**
+         * Phase-scoped broker controller that releases the conversion lease at
+         * the multi-page `evb-pdf-image-combine` boundary before acquiring a
+         * combine-sized lease.
+         */
+        phaseBroker?: IScanCleanupConversionPhaseBroker;
         onTerminationProof?: TTerminationProofSink;
     },
 ): Promise<TScanCleanupSummary> {
@@ -100,6 +107,7 @@ export async function runScanCleanupWorkerTask(
             {
                 ...(options?.onCheckpointReady === undefined ? {} : {onCheckpointReadyForCleanup: options.onCheckpointReady}),
                 ...(options?.brokerRun === undefined ? {} : {brokerRun: options.brokerRun}),
+                ...(options?.phaseBroker === undefined ? {} : {phaseBroker: options.phaseBroker}),
                 ...(options?.onTerminationProof === undefined ? {} : {onTerminationProof: options.onTerminationProof}),
             },
         );

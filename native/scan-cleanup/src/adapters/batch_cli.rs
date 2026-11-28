@@ -15,8 +15,9 @@ use crate::engine::page_statistics::{
 };
 use crate::engine::page_workflow::{run_classification, run_page, suffixed_path, PageRunResult};
 use crate::engine::resource_planning::{
-    manifest_cache, page_cache_for, page_worker_threads, processing_worker_threads,
-    run_page_jobs_with_worker_threads, run_regular_page_jobs, PageDescriptor, PlanningOperation,
+    manifest_cache, page_cache_for, page_worker_threads_with_limit,
+    processing_worker_threads_with_limit, run_page_jobs_with_worker_threads, run_regular_page_jobs,
+    PageDescriptor, PlanningOperation,
 };
 use crate::engine::staged_input::{
     assert_paths_within_root, planning_operation, planning_page, preflight_paths, staged_lease,
@@ -61,6 +62,7 @@ enum ScanCleanupCliInvocation {
         options: Option<String>,
         ocr_mode: bool,
         experimental_auto_dewarp: bool,
+        max_threads: Option<usize>,
     },
     Manifest {
         path: PathBuf,
@@ -68,7 +70,15 @@ enum ScanCleanupCliInvocation {
         // intentionally retains its exit-code-only CLI contract for callers
         // that already own the input and output paths.
         allowed_path_root: Option<PathBuf>,
+        max_threads: Option<usize>,
     },
+}
+
+fn parse_positive_thread_limit(raw: &str, flag: &str) -> Result<usize, NativeError> {
+    raw.parse::<usize>()
+        .ok()
+        .filter(|&threads| threads >= 1)
+        .ok_or_else(|| invalid(format!("{flag} must be a positive integer")))
 }
 
 fn cli_value<'a>(
@@ -88,6 +98,7 @@ fn parse_cli_args(args: &[String]) -> Result<ScanCleanupCliInvocation, NativeErr
     let mut seen = HashSet::new();
     let mut manifest = None;
     let mut allowed_path_root = None;
+    let mut max_threads = None;
     let mut input = None;
     let mut output = None;
     let mut metadata = None;
@@ -110,6 +121,12 @@ fn parse_cli_args(args: &[String]) -> Result<ScanCleanupCliInvocation, NativeErr
             "--manifest" => manifest = Some(PathBuf::from(cli_value(args, &mut index, flag)?)),
             "--allowed-path-root" => {
                 allowed_path_root = Some(PathBuf::from(cli_value(args, &mut index, flag)?))
+            }
+            "--max-threads" => {
+                max_threads = Some(parse_positive_thread_limit(
+                    cli_value(args, &mut index, flag)?,
+                    flag,
+                )?);
             }
             "--input" => input = Some(PathBuf::from(cli_value(args, &mut index, flag)?)),
             "--output" => output = Some(PathBuf::from(cli_value(args, &mut index, flag)?)),
@@ -142,6 +159,7 @@ fn parse_cli_args(args: &[String]) -> Result<ScanCleanupCliInvocation, NativeErr
         return Ok(ScanCleanupCliInvocation::Manifest {
             path,
             allowed_path_root,
+            max_threads,
         });
     }
 
@@ -156,6 +174,7 @@ fn parse_cli_args(args: &[String]) -> Result<ScanCleanupCliInvocation, NativeErr
         options,
         ocr_mode,
         experimental_auto_dewarp,
+        max_threads,
     })
 }
 
@@ -181,7 +200,7 @@ fn run_inner(
     is_canceled: &AtomicBool,
 ) -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = args.into_iter().collect();
-    let (input, output, metadata, options, ocr_mode, experimental_auto_dewarp) =
+    let (input, output, metadata, options, ocr_mode, experimental_auto_dewarp, max_threads) =
         match parse_cli_args(&args)? {
             ScanCleanupCliInvocation::Direct {
                 input,
@@ -190,6 +209,7 @@ fn run_inner(
                 options,
                 ocr_mode,
                 experimental_auto_dewarp,
+                max_threads,
             } => (
                 input,
                 output,
@@ -197,11 +217,20 @@ fn run_inner(
                 options,
                 ocr_mode,
                 experimental_auto_dewarp,
+                max_threads,
             ),
             ScanCleanupCliInvocation::Manifest {
                 path,
                 allowed_path_root,
-            } => return run_manifest(&path, allowed_path_root.as_deref(), is_canceled),
+                max_threads,
+            } => {
+                return run_manifest(
+                    &path,
+                    allowed_path_root.as_deref(),
+                    max_threads,
+                    is_canceled,
+                )
+            }
         };
     let mut options = options
         .as_deref()
@@ -254,24 +283,36 @@ fn run_inner(
     preflight_paths(&admission)?;
     recover_direct_publication(&output, &page.input_path)?;
     preflight_paths(&admission)?;
+    let processing_threads = processing_worker_threads_with_limit(max_threads);
+    let direct_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(processing_threads)
+        .thread_name(|index| format!("scan-cleanup-direct-{index}"))
+        .build()
+        .map_err(|error| invalid(format!("Unable to initialize page workers: {error}")))?;
     run_publication_transaction(&output, paths.destination_paths, true, || {
-        run_page(
-            &page,
-            CanvasScope::Page,
-            false,
-            None,
-            Some((&output, &metadata)),
-            None,
-            &page_cache,
-            is_canceled,
-        )
-        .map(|_| ())
+        direct_pool
+            .install(|| {
+                run_page(
+                    &page,
+                    CanvasScope::Page,
+                    false,
+                    None,
+                    Some((&output, &metadata)),
+                    None,
+                    &page_cache,
+                    is_canceled,
+                )
+                .map(|_| ())
+                .map_err(|error| map_page_error(error.as_ref()))
+            })
+            .map_err(Into::into)
     })
 }
 
 fn run_manifest(
     path: &Path,
     allowed_path_root: Option<&Path>,
+    max_threads: Option<usize>,
     is_canceled: &AtomicBool,
 ) -> Result<(), Box<dyn Error>> {
     // Rootless manifest execution remains a direct-CLI affordance; sidecar
@@ -286,7 +327,7 @@ fn run_manifest(
     let total = manifest.pages.len();
     let mut resolved_ink_prior = None;
     let result = run_manifest_transaction(path, &manifest, || {
-        run_manifest_inner(&manifest, is_canceled, &mut resolved_ink_prior)
+        run_manifest_inner(&manifest, max_threads, is_canceled, &mut resolved_ink_prior)
     });
     match result {
         Ok(()) => {
@@ -320,32 +361,48 @@ fn derive_calibration_samples(
     is_canceled: &AtomicBool,
     worker_threads: usize,
 ) -> Result<Vec<Option<DocumentInkSample>>, Box<dyn Error>> {
+    derive_calibration_samples_with_observer(calibration_pages, is_canceled, worker_threads, |_| {})
+}
+
+fn derive_calibration_samples_with_observer<F>(
+    calibration_pages: &[InkCalibrationPage],
+    is_canceled: &AtomicBool,
+    worker_threads: usize,
+    observe_pool_threads: F,
+) -> Result<Vec<Option<DocumentInkSample>>, Box<dyn Error>>
+where
+    F: Fn(usize) + Sync,
+{
     if calibration_pages.is_empty() {
         return Ok(Vec::new());
     }
+    use rayon::prelude::*;
     type CalibrationSampleOutcome = Result<Option<DocumentInkSample>, NativeError>;
-    let next_index = std::sync::atomic::AtomicUsize::new(0);
     let failure_observed = AtomicBool::new(false);
-    let outcomes: Vec<Mutex<Option<CalibrationSampleOutcome>>> = (0..calibration_pages.len())
-        .map(|_| Mutex::new(None))
-        .collect();
     let workers = worker_threads.clamp(1, calibration_pages.len());
-    std::thread::scope(|scope| {
-        for _ in 0..workers {
-            let next_index = &next_index;
-            let failure_observed = &failure_observed;
-            let outcomes = &outcomes;
-            scope.spawn(move || loop {
+    // Execute calibration inside an explicit bounded Rayon pool (even when
+    // workers == 1) so inner Rayon calls such as `BinaryImage::from_fn_parallel`
+    // and erosion stay strictly inside the broker-admitted thread cap instead
+    // of falling back to Rayon's global thread pool.
+    let calibration_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(workers)
+        .build()
+        .map_err(|error| {
+            NativeError::new(
+                NativeErrorCode::NativeFailure,
+                format!("Failed to create ink calibration thread pool: {error}"),
+            )
+        })?;
+    let outcomes: Vec<Option<CalibrationSampleOutcome>> = calibration_pool.install(|| {
+        calibration_pages
+            .par_iter()
+            .map(|page| {
+                observe_pool_threads(rayon::current_num_threads());
                 if failure_observed.load(std::sync::atomic::Ordering::Acquire)
                     || is_canceled.load(std::sync::atomic::Ordering::Acquire)
                 {
-                    return;
+                    return None;
                 }
-                let index = next_index.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-                if index >= calibration_pages.len() {
-                    return;
-                }
-                let page = &calibration_pages[index];
                 let outcome = derive_ink_sample_from_paths(
                     &page.trusted_foreground_mask_path,
                     &page.trusted_mrc_background_path,
@@ -356,28 +413,31 @@ fn derive_calibration_samples(
                 if outcome.is_err() {
                     failure_observed.store(true, std::sync::atomic::Ordering::Release);
                 }
-                *outcomes[index]
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(outcome);
-            });
-        }
+                Some(outcome)
+            })
+            .collect()
     });
+    // Check completed page outcomes for errors in input order first so a
+    // failure on a later page is never masked by an earlier page that was
+    // skipped after `failure_observed` tripped.
+    let mut missing_outcome = false;
     let mut samples = Vec::with_capacity(calibration_pages.len());
     for outcome in outcomes {
-        let Some(result) = outcome
-            .into_inner()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-        else {
-            if is_canceled.load(std::sync::atomic::Ordering::Acquire) {
-                return Err(crate::engine::cancellation_error().into());
-            }
-            return Err(NativeError::new(
-                NativeErrorCode::NativeFailure,
-                "Ink calibration worker exited before completing every page",
-            )
-            .into());
-        };
-        samples.push(result?);
+        match outcome {
+            Some(Ok(sample)) => samples.push(sample),
+            Some(Err(error)) => return Err(error.into()),
+            None => missing_outcome = true,
+        }
+    }
+    if missing_outcome {
+        if is_canceled.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(crate::engine::cancellation_error().into());
+        }
+        return Err(NativeError::new(
+            NativeErrorCode::NativeFailure,
+            "Ink calibration worker exited before completing every page",
+        )
+        .into());
     }
     if is_canceled.load(std::sync::atomic::Ordering::Acquire) {
         return Err(crate::engine::cancellation_error().into());
@@ -387,6 +447,7 @@ fn derive_calibration_samples(
 
 fn run_manifest_inner(
     manifest: &ManifestV3,
+    max_threads: Option<usize>,
     is_canceled: &AtomicBool,
     resolved_ink_prior: &mut Option<ResolvedDocumentInkPrior>,
 ) -> Result<(), Box<dyn Error>> {
@@ -397,11 +458,12 @@ fn run_manifest_inner(
         planning_operation(manifest.operation),
         manifest.host_memory_bytes,
     );
-    // Compute the memory-derived page pool once. The render prepass and the
-    // final page run share this plan so a batch does not reread every raster
-    // header merely to arrive at the same worker count.
-    let worker_threads = page_worker_threads(manifest)?;
-    let processing_threads = processing_worker_threads();
+    // Compute the memory-derived page pool once under the broker-admitted
+    // processing thread cap. The render prepass and the final page run share
+    // this plan so a batch does not reread every raster header merely to arrive
+    // at the same worker count.
+    let processing_threads = processing_worker_threads_with_limit(max_threads);
+    let worker_threads = page_worker_threads_with_limit(manifest, processing_threads)?;
     let total_pages = manifest.pages.len();
     // Publish all progress off the worker threads so a slow stdout reader
     // cannot stall unrelated page workers behind JSON serialization or pipe
@@ -473,6 +535,7 @@ fn run_manifest_inner(
             manifest,
             is_canceled,
             &cache,
+            processing_threads,
             &announce_lease,
             &announce_alternate,
             &report_page_started,
@@ -656,6 +719,7 @@ fn analyze_document(
     manifest: &ManifestV3,
     is_canceled: &AtomicBool,
     cache: &Arc<Mutex<ByteLru>>,
+    processing_threads: usize,
     announce_lease: LeaseAnnouncer<'_>,
     announce_alternate: LeaseAnnouncer<'_>,
     report_page_started: &(dyn Fn(usize) -> Result<(), NativeError> + Sync),
@@ -682,6 +746,7 @@ fn analyze_document(
     let mut timings = vec![PageStageTimings::default(); manifest.pages.len()];
     let mut analyses = Vec::<PageAnalysis>::new();
     let mut primary_pass = Some(primary_pass);
+    let mut secondary_pool: Option<rayon::ThreadPool> = None;
     loop {
         let jobs = match next_analysis_step(&document, &analyses)? {
             AnalysisStep::Analyze(jobs) => jobs,
@@ -710,6 +775,18 @@ fn analyze_document(
             }
             continue;
         }
+        let pool = match &secondary_pool {
+            Some(pool) => pool,
+            None => secondary_pool.insert(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(processing_threads.max(1))
+                    .thread_name(|index| format!("scan-cleanup-recheck-{index}"))
+                    .build()
+                    .map_err(|error| {
+                        invalid(format!("Unable to initialize page workers: {error}"))
+                    })?,
+            ),
+        };
         for job in jobs {
             let manifest_page = &manifest.pages[job.index];
             let alternate = job.view == AnalysisView::Alternate;
@@ -755,22 +832,24 @@ fn analyze_document(
                 }
                 report_page_started(job.index)?;
                 let page_cache = page_cache_for(&planning_page(&page), cache)?;
-                let result = with_sub_page_progress_observer(
-                    &|sub_stage, _, _| report_page_stage(job.index, sub_stage),
-                    || {
-                        run_classification(
-                            &page,
-                            manifest.canvas_scope,
-                            job.document_prior,
-                            true,
-                            manifest.analysis_purpose == AnalysisPurpose::PagePlan,
-                            &page_cache,
-                            is_canceled,
-                        )
-                    },
-                )
-                .map(Some)
-                .map_err(|error| map_page_error(error.as_ref()));
+                let result = pool.install(|| {
+                    with_sub_page_progress_observer(
+                        &|sub_stage, _, _| report_page_stage(job.index, sub_stage),
+                        || {
+                            run_classification(
+                                &page,
+                                manifest.canvas_scope,
+                                job.document_prior,
+                                true,
+                                manifest.analysis_purpose == AnalysisPurpose::PagePlan,
+                                &page_cache,
+                                is_canceled,
+                            )
+                        },
+                    )
+                    .map(Some)
+                    .map_err(|error| map_page_error(error.as_ref()))
+                });
                 if result.is_ok() {
                     report_recheck_done(job.index)?;
                 }
@@ -1285,6 +1364,7 @@ mod tests {
             ScanCleanupCliInvocation::Manifest {
                 path: PathBuf::from("/tmp/manifest.json"),
                 allowed_path_root: None,
+                max_threads: None,
             },
         );
         assert_eq!(
@@ -1293,11 +1373,14 @@ mod tests {
                 "/tmp/manifest.json",
                 "--allowed-path-root",
                 "/tmp/run-root",
+                "--max-threads",
+                "4",
             ]))
             .unwrap(),
             ScanCleanupCliInvocation::Manifest {
                 path: PathBuf::from("/tmp/manifest.json"),
                 allowed_path_root: Some(PathBuf::from("/tmp/run-root")),
+                max_threads: Some(4),
             },
         );
         assert_eq!(
@@ -1312,6 +1395,8 @@ mod tests {
                 "/tmp/page.ppm",
                 "--options",
                 "{}",
+                "--max-threads",
+                "2",
             ]))
             .unwrap(),
             ScanCleanupCliInvocation::Direct {
@@ -1321,6 +1406,7 @@ mod tests {
                 options: Some("{}".to_string()),
                 ocr_mode: true,
                 experimental_auto_dewarp: true,
+                max_threads: Some(2),
             },
         );
     }
@@ -1399,6 +1485,26 @@ mod tests {
                     "/tmp/root",
                 ],
                 "--allowed-path-root requires --manifest",
+            ),
+            (&["--max-threads"], "--max-threads requires a value"),
+            (
+                &["--manifest", "/tmp/a.json", "--max-threads", "0"],
+                "--max-threads must be a positive integer",
+            ),
+            (
+                &["--manifest", "/tmp/a.json", "--max-threads", "abc"],
+                "--max-threads must be a positive integer",
+            ),
+            (
+                &[
+                    "--manifest",
+                    "/tmp/a.json",
+                    "--max-threads",
+                    "2",
+                    "--max-threads",
+                    "4",
+                ],
+                "Duplicate argument --max-threads",
             ),
             (&["--input=page.ppm"], "Unknown argument --input=page.ppm"),
             (&["--version"], "Unknown argument --version"),
@@ -1494,6 +1600,7 @@ mod tests {
         let error = super::run_manifest(
             &manifest_path,
             Some(&allowed_root),
+            None,
             &std::sync::atomic::AtomicBool::new(false),
         )
         .expect_err("outside-root calibration path must be rejected");
@@ -1655,5 +1762,85 @@ mod tests {
         assert!(!frames.iter().any(|(stage, page, _, _)| {
             *stage == super::ProgressStage::PageStage && *page == Some(2)
         }));
+    }
+
+    #[test]
+    fn ink_calibration_runs_inside_bounded_one_thread_rayon_pool() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-calibration-cap-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        // Write 3 synthetic MRC PNG masks (128x128) + lower-res PPM backgrounds
+        // (64x64) with dense dark strokes on white paper so
+        // `derive_calibration_samples` exercises `minority_selection_mask`
+        // (`BinaryImage::from_fn_parallel`) and `erode` across multiple pages.
+        let mut pages = Vec::new();
+        for index in 0..3usize {
+            let mask_path = dir.join(format!("mask-{index}.png"));
+            let bg_path = dir.join(format!("bg-{index}.ppm"));
+            let width = 128usize;
+            let height = 128usize;
+            let mut pixels = Vec::with_capacity(width * height);
+            for y in 0..height {
+                for x in 0..width {
+                    let ink = (x % 8 == 2 || x % 8 == 3 || x % 8 == 4) && (y % 8 != 0);
+                    pixels.push(if ink { 0u8 } else { 255u8 });
+                }
+            }
+            let mask_image = scan_primitives::GrayImage::from_vec(width, height, width, pixels)
+                .expect("valid gray image");
+            crate::io::png::write_gray_atomic(&mask_path, &mask_image).expect("write mask png");
+            let bg_w = 64usize;
+            let bg_h = 64usize;
+            let mut ppm = format!("P6\n{bg_w} {bg_h}\n255\n").into_bytes();
+            ppm.resize(ppm.len() + bg_w * bg_h * 3, 250u8);
+            std::fs::write(&bg_path, &ppm).expect("write bg ppm");
+            pages.push(super::InkCalibrationPage {
+                source_page_index: index,
+                trusted_foreground_mask_path: mask_path,
+                trusted_mrc_background_path: bg_path,
+                max_pixels: 100_000,
+                max_dimension: 1_000,
+            });
+        }
+        let canceled = std::sync::atomic::AtomicBool::new(false);
+        let max_observed_one_thread = std::sync::atomic::AtomicUsize::new(0);
+        let observed_calls_one_thread = std::sync::atomic::AtomicUsize::new(0);
+        let one_thread =
+            super::derive_calibration_samples_with_observer(&pages, &canceled, 1, |pool_threads| {
+                observed_calls_one_thread.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                max_observed_one_thread
+                    .fetch_max(pool_threads, std::sync::atomic::Ordering::AcqRel);
+            })
+            .expect("1-thread calibration succeeds");
+        let max_observed_two_thread = std::sync::atomic::AtomicUsize::new(0);
+        let two_thread =
+            super::derive_calibration_samples_with_observer(&pages, &canceled, 2, |pool_threads| {
+                max_observed_two_thread
+                    .fetch_max(pool_threads, std::sync::atomic::Ordering::AcqRel);
+            })
+            .expect("2-thread calibration succeeds");
+        assert_eq!(
+            observed_calls_one_thread.load(std::sync::atomic::Ordering::Acquire),
+            3
+        );
+        assert_eq!(
+            max_observed_one_thread.load(std::sync::atomic::Ordering::Acquire),
+            1,
+            "1-thread calibration must execute inside a 1-thread Rayon pool rather than the global pool"
+        );
+        assert_eq!(
+            max_observed_two_thread.load(std::sync::atomic::Ordering::Acquire),
+            2
+        );
+        assert_eq!(one_thread.len(), 3);
+        assert!(one_thread.iter().all(|sample| sample.is_some()));
+        assert_eq!(one_thread, two_thread);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
