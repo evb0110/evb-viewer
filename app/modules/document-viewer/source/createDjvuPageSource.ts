@@ -11,6 +11,41 @@ import {resolveDjvuPageSizeInPoints} from '@app/modules/document-viewer/source/r
 
 let nextDjvuPageSourceId = 0;
 
+interface ITransientWaitState {
+    activeCount: number;
+    waiters: Set<() => void>;
+}
+
+const transientStateByBudget = new WeakMap<IDjvuSurfaceBudget, ITransientWaitState>();
+
+function getTransientState(budget: IDjvuSurfaceBudget): ITransientWaitState {
+    let state = transientStateByBudget.get(budget);
+    if (!state) {
+        state = {activeCount: 0, waiters: new Set()};
+        transientStateByBudget.set(budget, state);
+    }
+    return state;
+}
+
+function notifyTransientWaiters(state: ITransientWaitState) {
+    if (state.waiters.size === 0) {
+        return;
+    }
+    const waiters = [...state.waiters];
+    state.waiters.clear();
+    for (const wake of waiters) {
+        wake();
+    }
+}
+
+function createAbortReason(signal: AbortSignal) {
+    return signal.reason instanceof Error ? signal.reason : new DOMException('DjVu render canceled', 'AbortError');
+}
+
+function createDisposedError() {
+    return new DOMException('DjVu page source was disposed', 'AbortError');
+}
+
 interface IDjvuPointPageSize {
     width: number;
     height: number;
@@ -97,6 +132,10 @@ export async function createDjvuPageSource(
         return size;
     };
     const scopeId = `djvu-page-source:${++nextDjvuPageSourceId}`;
+    const transientState = getTransientState(surfaceBudget);
+    const disposeWaiters = new Set<() => void>();
+    let disposed = false;
+    let inFlightTransientCount = 0;
     let nextRenderRequestId = 0;
     const urlLeases = new Map<
         string,
@@ -111,17 +150,87 @@ export async function createDjvuPageSource(
     >();
 
     const releaseUrl = (objectUrl: string) => {
-        urlLeases.get(objectUrl)?.lease?.release();
+        const entry = urlLeases.get(objectUrl);
         urlLeases.delete(objectUrl);
+        entry?.lease?.release();
         previewSource.revokeObjectURL(objectUrl);
+        notifyTransientWaiters(transientState);
+    };
+
+    const waitForTransientDrain = (signal: AbortSignal) =>
+        new Promise<void>((resolve, reject) => {
+            if (signal.aborted) {
+                reject(createAbortReason(signal));
+                return;
+            }
+            if (disposed) {
+                reject(createDisposedError());
+                return;
+            }
+            const wake = () => {
+                signal.removeEventListener('abort', onAbort);
+                disposeWaiters.delete(onDispose);
+                transientState.waiters.delete(wake);
+                resolve();
+            };
+            const onAbort = () => {
+                disposeWaiters.delete(onDispose);
+                transientState.waiters.delete(wake);
+                reject(createAbortReason(signal));
+            };
+            const onDispose = () => {
+                signal.removeEventListener('abort', onAbort);
+                transientState.waiters.delete(wake);
+                reject(createDisposedError());
+            };
+            transientState.waiters.add(wake);
+            disposeWaiters.add(onDispose);
+            signal.addEventListener('abort', onAbort, {once: true});
+        });
+
+    const reserveWithTransientRetry = async (
+        reservation: Parameters<IDjvuSurfaceBudget['reserve']>[0],
+        priority: TDocumentRenderPriority,
+        signal: AbortSignal,
+    ) => {
+        const claim = (lease: ReturnType<IDjvuSurfaceBudget['reserve']>) => {
+            // Count the transient reservation synchronously as soon as it takes budget,
+            // before returning across an await boundary to a sibling speculative render.
+            inFlightTransientCount += 1;
+            transientState.activeCount += 1;
+            return lease;
+        };
+        if (isRequiredVisiblePriority(priority) || !surfaceBudget.tryReserve) {
+            return claim(surfaceBudget.reserve(reservation));
+        }
+        for (;;) {
+            if (disposed) {
+                throw createDisposedError();
+            }
+            signal.throwIfAborted();
+            const lease = surfaceBudget.tryReserve(reservation);
+            if (lease) {
+                return claim(lease);
+            }
+            if (transientState.activeCount === 0) {
+                return null;
+            }
+            await waitForTransientDrain(signal);
+        }
     };
 
     const renderSurface = async (request: Parameters<IDocumentPageSource['renderPage']>[0]) => {
         assertDocumentPageNumber(request.pageNumber, pageCount);
+        if (disposed) {
+            throw createDisposedError();
+        }
         request.signal.throwIfAborted();
         nextRenderRequestId += 1;
         const previewRequestId = `${scopeId}:${request.pageNumber}:${nextRenderRequestId}`;
         const pageSize = await getPageSize(request.pageNumber);
+        if (disposed) {
+            throw createDisposedError();
+        }
         request.signal.throwIfAborted();
         const transientWidthPx = previewSource.fullResolutionDecodeBeforeScale
             ? Math.max(1, pageSize.width)
@@ -136,10 +245,7 @@ export async function createDjvuPageSource(
             priority: transientPriority,
             canEvict: () => false,
         } as const;
-        const transientLease = isRequiredVisiblePriority(request.priority)
-            ? surfaceBudget.reserve(transientReservation)
-            : (surfaceBudget.tryReserve?.(transientReservation) ??
-              (surfaceBudget.tryReserve ? null : surfaceBudget.reserve(transientReservation)));
+        const transientLease = await reserveWithTransientRetry(transientReservation, request.priority, request.signal);
         if (!transientLease) {
             throw new RangeError('DjVu preview exceeds the available raster surface budget');
         }
@@ -150,26 +256,39 @@ export async function createDjvuPageSource(
             }
             transientLeaseReleased = true;
             transientLease.release();
+            inFlightTransientCount = Math.max(0, inFlightTransientCount - 1);
+            transientState.activeCount = Math.max(0, transientState.activeCount - 1);
+            if (disposed && inFlightTransientCount === 0) {
+                surfaceBudget.releaseScope(scopeId);
+            }
+            notifyTransientWaiters(transientState);
         };
         const cancelPreview = () => {
-            releaseTransientLease();
             previewSource.cancelPagePreview?.(request.pageNumber, previewRequestId);
         };
         request.signal.addEventListener('abort', cancelPreview, {once: true});
         let rendered;
         try {
+            if (disposed) {
+                throw createDisposedError();
+            }
+            request.signal.throwIfAborted();
             rendered = await previewSource.renderPageObjectUrl(request.pageNumber, {
                 previewPriority: transientPriority,
                 previewRequestId,
                 targetWidthPx: request.widthPx,
+                signal: request.signal,
             });
         } finally {
             request.signal.removeEventListener('abort', cancelPreview);
             releaseTransientLease();
         }
-        if (request.signal.aborted) {
+        if (disposed || request.signal.aborted) {
             releaseUrl(rendered.objectUrl);
-            request.signal.throwIfAborted();
+            if (request.signal.aborted) {
+                request.signal.throwIfAborted();
+            }
+            throw createDisposedError();
         }
         const heightPx = Math.max(1, Math.round((rendered.renderedPx * Math.max(1, pageSize.height)) / Math.max(1, pageSize.width)));
         const bytes = rendered.renderedPx * heightPx * 4;
@@ -197,17 +316,28 @@ export async function createDjvuPageSource(
                 releaseUrl(rendered.objectUrl);
             },
         } as const;
-        leaseEntry.lease = isRequiredVisiblePriority(request.priority)
-            ? surfaceBudget.reserve(retainedReservation)
-            : (surfaceBudget.tryReserve?.(retainedReservation) ??
-              (surfaceBudget.tryReserve ? null : surfaceBudget.reserve(retainedReservation)));
+        leaseEntry.lease =
+            isRequiredVisiblePriority(request.priority) || !surfaceBudget.tryReserve
+                ? surfaceBudget.reserve(retainedReservation)
+                : surfaceBudget.tryReserve(retainedReservation);
         if (!leaseEntry.lease) {
             urlLeases.delete(rendered.objectUrl);
             previewSource.revokeObjectURL(rendered.objectUrl);
             throw new RangeError('DjVu preview exceeds the available raster surface budget');
         }
+        if (disposed || request.signal.aborted) {
+            leaseEntry.lease.release();
+            urlLeases.delete(rendered.objectUrl);
+            previewSource.revokeObjectURL(rendered.objectUrl);
+            notifyTransientWaiters(transientState);
+            if (request.signal.aborted) {
+                request.signal.throwIfAborted();
+            }
+            throw createDisposedError();
+        }
         if (!urlLeases.has(rendered.objectUrl)) {
             leaseEntry.lease.release();
+            notifyTransientWaiters(transientState);
             throw new Error('DjVu preview evicted under memory pressure');
         }
         let released = false;
@@ -303,10 +433,21 @@ export async function createDjvuPageSource(
         },
         renderPage: renderSurface,
         dispose() {
+            if (disposed) {
+                return;
+            }
+            disposed = true;
+            for (const wake of [...disposeWaiters]) {
+                wake();
+            }
+            disposeWaiters.clear();
             for (const objectUrl of [...urlLeases.keys()]) {
                 releaseUrl(objectUrl);
             }
-            surfaceBudget.releaseScope(scopeId);
+            if (inFlightTransientCount === 0) {
+                surfaceBudget.releaseScope(scopeId);
+                notifyTransientWaiters(transientState);
+            }
             previewSource.terminate();
         },
     };

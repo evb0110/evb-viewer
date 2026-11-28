@@ -1,10 +1,16 @@
 import type {IStorePort} from '@document-store/storePort';
-import type {IOcrRecognizedPage} from '@ocr-core/recognizeOcrPages';
+import {OcrFatalJobError, type IOcrRecognizedPage} from '@ocr-core/recognizeOcrPages';
 
 const OCR_CHECKPOINT_ROOT = 'ocr-checkpoints';
 const STALE_CHECKPOINT_TTL_MS = 24 * 60 * 60 * 1000;
 export const BROWSER_OCR_FINALIZE_MAX_PAGES_PER_CHUNK = 16;
 export const BROWSER_OCR_FINALIZE_MAX_CHUNK_BYTES = 2 * 1024 * 1024;
+/**
+ * Aggregate in-memory fallback ceiling shared across all concurrent browser OCR
+ * jobs when OPFS is unavailable or hits storage quota. Generous enough for
+ * ordinary no-OPFS documents while preventing unbounded tab OOM.
+ */
+export const BROWSER_OCR_MEMORY_FALLBACK_MAX_BYTES = 128 * 1024 * 1024;
 
 /** Lean per-page metadata needed for searchable-PDF finalization (omits PDF bytes, raw text, and diagnostics). */
 export type TBrowserOcrCheckpointRecord = Pick<
@@ -17,18 +23,34 @@ export interface IBrowserOcrCheckpointChunk {
     pagePdfs: Uint8Array[];
 }
 
+export interface IBrowserOcrCheckpointStoreOptions {
+    /** Overrides the aggregate memory-fallback ceiling checked by this store (primarily for tests). */
+    maxMemoryFallbackBytes?: number;
+}
+
 export interface IBrowserOcrCheckpointStore {
     readonly storageKind: 'opfs' | 'memory';
     readonly directory: string;
     stagePage(page: IOcrRecognizedPage): Promise<void>;
     getPageCount(): number;
-    iterateChunks(options?: {maxPages?: number; maxBytes?: number; signal?: AbortSignal}): AsyncGenerator<IBrowserOcrCheckpointChunk>;
+    iterateChunks(options?: {
+        maxPages?: number;
+        maxBytes?: number;
+        signal?: AbortSignal;
+        consume?: boolean;
+    }): AsyncGenerator<IBrowserOcrCheckpointChunk>;
     cleanup(): Promise<void>;
 }
 
 const activeCheckpointDirs = new Set<string>();
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+let aggregateMemoryFallbackBytes = 0;
+
+/** Total checkpoint bytes currently retained in the shared in-memory fallback across all active jobs. */
+export function getBrowserOcrMemoryFallbackBytes() {
+    return aggregateMemoryFallbackBytes;
+}
 
 function isQuotaError(error: unknown) {
     return error instanceof Error && error.name === 'QuotaExceededError';
@@ -85,8 +107,10 @@ export async function sweepStaleBrowserOcrCheckpoints(port: Pick<IStorePort, 'li
 export async function createBrowserOcrCheckpointStore(
     opfsPort: Pick<IStorePort, 'list' | 'read' | 'writeAtomic' | 'remove'> | null,
     jobId: string = crypto.randomUUID(),
+    storeOptions: IBrowserOcrCheckpointStoreOptions = {},
 ): Promise<IBrowserOcrCheckpointStore> {
     const dir = `${OCR_CHECKPOINT_ROOT}/${jobId}`;
+    const memoryCeilingBytes = Math.max(0, Math.trunc(storeOptions.maxMemoryFallbackBytes ?? BROWSER_OCR_MEMORY_FALLBACK_MAX_BYTES));
     let durablePort = opfsPort;
     let hasOpfsDirectory = false;
 
@@ -106,15 +130,47 @@ export async function createBrowserOcrCheckpointStore(
     const stagedBytesByPage = new Map<number, number>();
     // Fallback storage when OPFS is unavailable or hits QuotaExceededError mid-job.
     const memoryFallback = new Map<number, {record: TBrowserOcrCheckpointRecord; pdf: Uint8Array}>();
+    // Exact bytes reserved in `aggregateMemoryFallbackBytes` for each in-memory page of this store.
+    const memoryFallbackBytesByPage = new Map<number, number>();
     // Once OPFS hits QuotaExceededError, route all remaining writes straight to memory
     // so checkpoint staging does not starve `stageAppend` during finalization.
     let opfsWritesExhausted = false;
     let cleanedUp = false;
 
-    const readPage = async (pageNumber: number): Promise<{record: TBrowserOcrCheckpointRecord; pdf: Uint8Array}> => {
+    const reserveMemoryFallbackPage = (pageNumber: number, bytes: number) => {
+        const previous = memoryFallbackBytesByPage.get(pageNumber) ?? 0;
+        const delta = bytes - previous;
+        if (delta > 0 && aggregateMemoryFallbackBytes + delta > memoryCeilingBytes) {
+            throw new OcrFatalJobError(
+                'Browser storage quota was exceeded and the in-memory OCR checkpoint limit was reached. Free browser storage or run OCR on fewer pages at a time.',
+                {code: 'OCR_DOCUMENT_TOO_LARGE'},
+            );
+        }
+        aggregateMemoryFallbackBytes += delta;
+        memoryFallbackBytesByPage.set(pageNumber, bytes);
+    };
+
+    const releaseMemoryFallbackPage = (pageNumber: number) => {
+        const reserved = memoryFallbackBytesByPage.get(pageNumber);
+        if (reserved !== undefined) {
+            memoryFallbackBytesByPage.delete(pageNumber);
+            aggregateMemoryFallbackBytes = Math.max(0, aggregateMemoryFallbackBytes - reserved);
+        }
+        memoryFallback.delete(pageNumber);
+    };
+
+    const releaseAllMemoryFallback = () => {
+        for (const reserved of memoryFallbackBytesByPage.values()) {
+            aggregateMemoryFallbackBytes = Math.max(0, aggregateMemoryFallbackBytes - reserved);
+        }
+        memoryFallbackBytesByPage.clear();
+        memoryFallback.clear();
+    };
+
+    const readPage = async (pageNumber: number): Promise<{record: TBrowserOcrCheckpointRecord; pdf: Uint8Array; fromOpfs: boolean}> => {
         const inMemory = memoryFallback.get(pageNumber);
         if (inMemory) {
-            return inMemory;
+            return {...inMemory, fromOpfs: false};
         }
         if (!durablePort) {
             throw new Error(`OCR checkpoint missing for page ${pageNumber}`);
@@ -122,7 +178,7 @@ export async function createBrowserOcrCheckpointStore(
         const paths = pagePaths(dir, pageNumber);
         const [pdf, metaBytes] = await Promise.all([durablePort.read(paths.pdf), durablePort.read(paths.meta)]);
         const record = JSON.parse(decoder.decode(metaBytes)) as TBrowserOcrCheckpointRecord;
-        return {record, pdf};
+        return {record, pdf, fromOpfs: true};
     };
 
     return {
@@ -142,7 +198,11 @@ export async function createBrowserOcrCheckpointStore(
                 try {
                     await durablePort.writeAtomic(paths.pdf, page.pdf);
                     await durablePort.writeAtomic(paths.meta, metaBytes);
-                    memoryFallback.delete(page.pageNumber);
+                    if (cleanedUp) {
+                        await Promise.all([durablePort.remove(paths.pdf), durablePort.remove(paths.meta)]).catch(() => undefined);
+                        throw new Error('OCR checkpoint store was already cleaned up');
+                    }
+                    releaseMemoryFallbackPage(page.pageNumber);
                     stagedBytesByPage.set(page.pageNumber, totalBytes);
                     return;
                 } catch (error) {
@@ -155,6 +215,10 @@ export async function createBrowserOcrCheckpointStore(
                     await Promise.all([durablePort.remove(paths.pdf), durablePort.remove(paths.meta)]).catch(() => undefined);
                 }
             }
+            if (cleanedUp) {
+                throw new Error('OCR checkpoint store was already cleaned up');
+            }
+            reserveMemoryFallbackPage(page.pageNumber, totalBytes);
             memoryFallback.set(page.pageNumber, {record, pdf: page.pdf});
             stagedBytesByPage.set(page.pageNumber, totalBytes);
         },
@@ -164,6 +228,7 @@ export async function createBrowserOcrCheckpointStore(
         async *iterateChunks(options = {}) {
             const maxPages = Math.max(1, options.maxPages ?? BROWSER_OCR_FINALIZE_MAX_PAGES_PER_CHUNK);
             const maxBytes = Math.max(1, options.maxBytes ?? BROWSER_OCR_FINALIZE_MAX_CHUNK_BYTES);
+            const consume = options.consume === true;
             const sortedPages = [...stagedBytesByPage.keys()].sort((left, right) => left - right);
 
             let cursor = 0;
@@ -183,13 +248,41 @@ export async function createBrowserOcrCheckpointStore(
                 }
                 const records: TBrowserOcrCheckpointRecord[] = [];
                 const pagePdfs: Uint8Array[] = [];
+                const memoryConsumedPages: number[] = [];
+                const opfsRemovals: Array<Promise<void>> = [];
                 for (const pageNumber of batchPageNumbers) {
                     options.signal?.throwIfAborted();
                     const entry = await readPage(pageNumber);
                     records.push(entry.record);
                     pagePdfs.push(entry.pdf);
+                    if (consume) {
+                        if (entry.fromOpfs && durablePort) {
+                            // Free OPFS disk quota as soon as the chunk is loaded into memory,
+                            // before the consumer's append writes to OPFS.
+                            stagedBytesByPage.delete(pageNumber);
+                            const paths = pagePaths(dir, pageNumber);
+                            opfsRemovals.push(durablePort.remove(paths.pdf).catch(() => undefined));
+                            opfsRemovals.push(durablePort.remove(paths.meta).catch(() => undefined));
+                        } else {
+                            memoryConsumedPages.push(pageNumber);
+                        }
+                    }
                 }
-                yield {records, pagePdfs};
+                if (opfsRemovals.length > 0) {
+                    await Promise.all(opfsRemovals);
+                }
+                // Keep fallback memory charged while the consumer's async append holds the buffers,
+                // and release on both normal advance and early return/throw.
+                try {
+                    yield {records, pagePdfs};
+                } finally {
+                    if (consume) {
+                        for (const pageNumber of memoryConsumedPages) {
+                            stagedBytesByPage.delete(pageNumber);
+                            releaseMemoryFallbackPage(pageNumber);
+                        }
+                    }
+                }
             }
         },
         async cleanup() {
@@ -198,7 +291,7 @@ export async function createBrowserOcrCheckpointStore(
             }
             cleanedUp = true;
             stagedBytesByPage.clear();
-            memoryFallback.clear();
+            releaseAllMemoryFallback();
             if (hasOpfsDirectory && durablePort) {
                 await durablePort.remove(dir).catch(() => undefined);
             }

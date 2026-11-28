@@ -89,6 +89,7 @@ export async function decodeDjvuPageImageData(
 ) {
     throwIfDjvuCanceled(signal);
     const pageSize = (await getDjvuWorkerPageSizes(worker))[pageNumber - 1];
+    throwIfDjvuCanceled(signal);
     if (!pageSize) {
         throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
     }
@@ -143,6 +144,7 @@ export async function renderDjvuPage(
 ): Promise<IRenderedDjvuPage> {
     throwIfDjvuCanceled(signal);
     const pageSize = (await getDjvuWorkerPageSizes(worker))[pageNumber - 1];
+    throwIfDjvuCanceled(signal);
     if (!pageSize) {
         throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
     }
@@ -176,6 +178,7 @@ export async function renderDjvuPage(
 export async function renderDjvuPagePreviewPng(worker: IDjvuWorker, pageNumber: number, targetWidth: number, signal?: AbortSignal) {
     throwIfDjvuCanceled(signal);
     const pageSize = (await getDjvuWorkerPageSizes(worker))[pageNumber - 1];
+    throwIfDjvuCanceled(signal);
     if (!pageSize) {
         throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
     }
