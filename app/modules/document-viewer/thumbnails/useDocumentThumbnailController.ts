@@ -14,6 +14,7 @@ import {
 } from '@app/modules/document-viewer/thumbnails/documentThumbnailRenderMetrics';
 import {useEventListener, useResizeObserver} from '@vueuse/core';
 import {getHostCapability} from '@app/utils/getHostCapability';
+import {getPerformanceProfile} from '@app/utils/performanceProfile';
 import {resolveDocumentWheelInteraction} from '@app/modules/document-viewer/input/documentWheelInteraction';
 import {
     createDocumentViewportWritePort,
@@ -376,7 +377,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     }
 
     const scheduler = createDocumentThumbnailScheduler({
-        maxConcurrency: 3,
+        maxConcurrency: getPerformanceProfile().thumbnailBaseConcurrency,
         onError(_error, demand) {
             const previous = renderFailures.get(demand.pageNumber);
             // Attempts only accumulate across the same request: a width change in

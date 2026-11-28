@@ -273,6 +273,7 @@ function createViewportFixture(
         /** The view's real write port, for sequences whose verdict the port owns. */
         viewportWritePort?: IPdfViewportWritePort;
         viewMode?: 'single' | 'facing' | 'facing-first-single';
+        viewRotation?: Ref<0 | 90 | 180 | 270>;
         zoom?: Ref<number>;
         zoomMode?: 'custom' | 'fit-width' | 'fit-height';
     } = {},
@@ -291,6 +292,7 @@ function createViewportFixture(
     const outputScale = ref(1);
     const zoomMode = ref(input.zoomMode ?? 'fit-width');
     const viewMode = ref(input.viewMode ?? 'single');
+    const viewRotation = input.viewRotation ?? ref<0 | 90 | 180 | 270>(0);
     const fitMode = input.fitMode ?? ref<'width' | 'height'>('width');
     const isActive = input.isActive ?? ref(true);
     const emittedPages: number[] = [];
@@ -317,6 +319,7 @@ function createViewportFixture(
                     zoomMode: computed(() => zoomMode.value),
                     fitMode: computed(() => fitMode.value),
                     viewMode: computed(() => viewMode.value),
+                    viewRotation: computed(() => viewRotation.value),
                     continuousScroll: computed(() => input.continuousScroll ?? true),
                     bufferPages: computed(() => input.bufferPages ?? 3),
                     isActive: computed(() => isActive.value),
@@ -338,7 +341,11 @@ function createViewportFixture(
                     },
                     emitZoomState: (state) => {
                         if (state.kind === 'custom') {
+                            zoomMode.value = 'custom';
                             zoom.value = state.scale;
+                        } else if (state.kind === 'fit') {
+                            zoomMode.value = state.axis === 'width' ? 'fit-width' : 'fit-height';
+                            fitMode.value = state.axis;
                         }
                     },
                     summarizeViewerStateForLog: vi.fn(),
@@ -362,6 +369,7 @@ function createViewportFixture(
                         isActive: computed(() => isActive.value),
                         isResizing: computed(() => false),
                         viewMode: computed(() => viewMode.value),
+                        viewRotation: computed(() => viewRotation.value),
                         outputScale,
                         rasterDisplayProfile: computed(() => null),
                         bufferPages: computed(() => input.bufferPages ?? 3),
@@ -1497,6 +1505,7 @@ describe('PdfViewportSession behavior', () => {
                 }
                 fixture.viewport.markPageMounted(requirePageNumber(page));
             }
+            await new Promise((resolve) => window.requestAnimationFrame(resolve));
             expect(fixture.viewport.visibleRange.value).toEqual({
                 start: 9,
                 end: 12,
@@ -1625,6 +1634,7 @@ describe('PdfViewportSession behavior', () => {
             for (let page = 39; page <= 47; page += 1) {
                 fixture.viewport.markPageMounted(requirePageNumber(page));
             }
+            await new Promise((resolve) => window.requestAnimationFrame(resolve));
             await nextTick();
 
             expect(fixture.viewport.demand.value.requiredPages).toEqual([43]);
@@ -4215,5 +4225,563 @@ describe('PdfViewportSession layout placement receipt', () => {
         fixture.app.unmount();
 
         await expect(receipt).resolves.toBeUndefined();
+    });
+
+    it('skips identical visibleRange publication and batches markPageMounted with initial geometry delivery per frame', async () => {
+        const geometry = installGeometryObservers();
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            continuousScroll: true,
+            pageCount: 20,
+            zoomMode: 'custom',
+        });
+        try {
+            let visibleRangeWrites = 0;
+            const stopVisible = watch(
+                fixture.viewport.visibleRange,
+                () => {
+                    visibleRangeWrites += 1;
+                },
+                {flush: 'sync'},
+            );
+            fixture.viewport.visibleRange.value = {
+                start: 2,
+                end: 4,
+            };
+            expect(visibleRangeWrites).toBe(1);
+            fixture.viewport.visibleRange.value = {
+                start: 2,
+                end: 4,
+            };
+            expect(visibleRangeWrites).toBe(1);
+            stopVisible();
+            await nextTick();
+
+            const demandRevisions: number[] = [];
+            const stopDemand = watch(
+                fixture.viewport.demand,
+                (demand) => {
+                    demandRevisions.push(demand.revision);
+                },
+                {flush: 'sync'},
+            );
+            const mountedElements: HTMLElement[] = [];
+            for (let page = 1; page <= 8; page += 1) {
+                mountedElements.push(
+                    appendPageBox(fixture.container, page, {
+                        height: 300,
+                        top: (page - 1) * 310,
+                    }),
+                );
+                fixture.viewport.markPageMounted(requirePageNumber(page));
+            }
+            // No synchronous per-page demand churn while mounting in the same frame.
+            expect(demandRevisions).toHaveLength(0);
+
+            await new Promise((resolve) => window.requestAnimationFrame(resolve));
+            expect(demandRevisions).toHaveLength(1);
+            expect(fixture.viewport.demand.value.mountedPages).toEqual(expect.arrayContaining([1, 2, 3]));
+
+            // Initial ResizeObserver delivery with identical geometry does not double-publish.
+            geometry.deliver(mountedElements[0]!);
+            expect(demandRevisions).toHaveLength(1);
+
+            // A subsequent mount batch whose initial ResizeObserver fires before the rAF coalesces to one publish.
+            const page9 = appendPageBox(fixture.container, 9, {
+                height: 300,
+                top: 8 * 310,
+            });
+            fixture.viewport.markPageMounted(requirePageNumber(9));
+            geometry.deliver(page9);
+            await new Promise((resolve) => window.requestAnimationFrame(resolve));
+            expect(demandRevisions).toHaveLength(2);
+            stopDemand();
+        } finally {
+            fixture.app.unmount();
+            geometry.restore();
+        }
+    });
+
+    it('stretches shown rasters across a sustained >180ms zoom gesture, preserves in-flight first paint, protects promoted buffer pages, and guards stale stretch passes', async () => {
+        vi.useFakeTimers();
+        const frames: FrameRequestCallback[] = [];
+        const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+            frames.push(cb);
+            return frames.length;
+        });
+        const flushFrames = () => {
+            while (frames.length > 0) {
+                const pending = frames.splice(0, frames.length);
+                for (const cb of pending) {
+                    cb(performance.now());
+                }
+            }
+        };
+        const renderedPages: Array<{page: number; scale: number; cancelled: boolean}> = [];
+        let holdPage1: ReturnType<typeof Promise.withResolvers<void>> | null = null;
+        let holdPage3: ReturnType<typeof Promise.withResolvers<void>> | null = null;
+        let holdPage4: ReturnType<typeof Promise.withResolvers<void>> | null = null;
+        const createStubPage = (pageNumber: number) =>
+            cast<IPdfPage>({
+                pageNumber,
+                rotate: 0,
+                view: [0, 0, 600, 800],
+                getAnnotations: vi.fn(async () => []),
+                getTextContent: vi.fn(async () => ({items: [], styles: {}})),
+                getViewport: ({scale = 1}: {scale?: number}) => ({
+                    width: 600 * scale,
+                    height: 800 * scale,
+                    rotation: 0,
+                    scale,
+                    userUnit: 1,
+                    rawDims: {pageWidth: 600, pageHeight: 800},
+                }),
+                render: ({viewport}: {viewport: {scale: number}}) => {
+                    const entry = {page: pageNumber, scale: viewport.scale, cancelled: false};
+                    renderedPages.push(entry);
+                    return {
+                        cancel() {
+                            entry.cancelled = true;
+                        },
+                        promise: (async () => {
+                            if (pageNumber === 1 && holdPage1) {
+                                await holdPage1.promise;
+                            }
+                            if (pageNumber === 3 && holdPage3) {
+                                await holdPage3.promise;
+                            }
+                            if (pageNumber === 4 && holdPage4) {
+                                await holdPage4.promise;
+                            }
+                            if (entry.cancelled) {
+                                const err = new Error('cancelled');
+                                err.name = 'RenderingCancelledException';
+                                throw err;
+                            }
+                        })(),
+                    };
+                },
+            });
+        const pages = new Map<number, IPdfPage>([
+            [1, createStubPage(1)],
+            [2, createStubPage(2)],
+            [3, createStubPage(3)],
+            [4, createStubPage(4)],
+        ]);
+        // Tight surface budget: fits ~2.5 pages at scale 1 so an unprotected buffer page entering view
+        // would be evicted when a missing visible page reserves memory.
+        const pageBytes = 600 * 800 * 4;
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence: {loadToken: 1, documentVersion: 1, documentRevision: null},
+            maxConcurrency: 2,
+            leasePage: async (pageNumber) => ({
+                page: pages.get(pageNumber)!,
+                release() {},
+            }),
+            surfaceBudget: createWorkspaceSurfaceBudgetController(Math.floor(pageBytes * 2.5)),
+        });
+        const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(Object.create(null));
+        const fixture = createViewportFixture({
+            pageCount: 4,
+            bufferPages: 1,
+            continuousScroll: true,
+            rasterScheduler: scheduler,
+            zoomMode: 'custom',
+        });
+        document.body.append(fixture.container);
+        for (const page of [1, 2, 3, 4]) {
+            appendRasterTarget(fixture.container, page);
+            fixture.viewport.markPageMounted(requirePageNumber(page));
+        }
+        fixture.documentSession.ensurePageMetricsInRange.mockResolvedValue(false);
+        fixture.viewport.visibleRange.value = {start: 1, end: 1};
+        flushFrames();
+        try {
+            // Paint page 1 (visible) and page 2 (buffer: viewport-nearby).
+            await fixture.rendering!.renderVisiblePages({start: 1, end: 1});
+            await vi.waitFor(() => {
+                expect(fixture.rendering!.isPagePainted(requirePageNumber(1))).toBe(true);
+                expect(fixture.rendering!.isPagePainted(requirePageNumber(2))).toBe(true);
+            });
+            expect(scheduler.snapshot().residentPages.find((entry) => entry.pageNumber === 2)?.lane).toBe('viewport-nearby');
+            expect(fixture.rendering!.isPagePainted(requirePageNumber(3))).toBe(false);
+            const initialRenders = renderedPages.length;
+
+            // Sustained >180ms zoom gesture including a 170ms gap (within shared 180ms wheel grace).
+            fixture.viewport.markZoomGestureActivity(() => {
+                fixture.zoom.value = 1.15;
+            });
+            flushFrames();
+            await vi.advanceTimersByTimeAsync(170);
+            expect(fixture.viewport.isZoomGestureActive.value).toBe(true);
+
+            // Zoom out / expose buffered page 2 + blank page 3 while gesture is active and metrics are hydrating:
+            // buffered page 2 must be promoted to visible priority SYNCHRONOUSLY before metrics resolve!
+            const page3Metrics = Promise.withResolvers<boolean>();
+            let page3MetricsEntered = false;
+            fixture.documentSession.ensurePageMetricsInRange.mockImplementationOnce(async () => {
+                page3MetricsEntered = true;
+                return page3Metrics.promise;
+            });
+            holdPage3 = Promise.withResolvers<void>();
+            defineDimension(fixture.container, 'clientHeight', 2500);
+            fixture.viewport.visibleRange.value = {start: 1, end: 3};
+            fixture.viewport.markZoomGestureActivity(() => {
+                fixture.zoom.value = 1.3;
+            });
+            flushFrames();
+            expect(scheduler.snapshot().residentPages.find((entry) => entry.pageNumber === 2)?.lane).toBe('viewport-visible');
+            await vi.waitFor(() => {
+                expect(page3MetricsEntered).toBe(true);
+            });
+            page3Metrics.resolve(false);
+            await vi.waitFor(() => {
+                expect(renderedPages.slice(initialRenders).some((entry) => entry.page === 3)).toBe(true);
+            });
+            // Buffered page 2 remained painted and NOT evicted by tight budget when page 3 reserved.
+            expect(fixture.rendering!.isPagePainted(requirePageNumber(2))).toBe(true);
+            expect(scheduler.snapshot().residentPages.find((entry) => entry.pageNumber === 2)?.lane).toBe('viewport-visible');
+
+            // Further zoom packets change scale beyond tolerance while page 3's first paint is still in-flight:
+            // page 3's first paint must NOT be cancelled and restarted mid-gesture!
+            for (const nextZoom of [1.45, 1.6, 1.75]) {
+                await vi.advanceTimersByTimeAsync(40);
+                fixture.viewport.markZoomGestureActivity(() => {
+                    fixture.zoom.value = nextZoom;
+                });
+                flushFrames();
+                await Promise.resolve();
+            }
+            const page3DuringGesture = renderedPages.slice(initialRenders).filter((entry) => entry.page === 3);
+            expect(page3DuringGesture).toHaveLength(1);
+            expect(page3DuringGesture[0]!.cancelled).toBe(false);
+            // Page 1 and page 2 were stretched without replacement renders during the gesture.
+            expect(renderedPages.slice(initialRenders).filter((entry) => entry.page === 1 || entry.page === 2)).toHaveLength(0);
+
+            // Let page 3's first paint commit while gesture is still active: page 3 becomes painted (stretched).
+            holdPage3.resolve();
+            holdPage3 = null;
+            await vi.waitFor(() => {
+                expect(fixture.rendering!.isPagePainted(requirePageNumber(3))).toBe(true);
+            });
+
+            // Expose blank page 4 at the final gesture scale (1.9) and settle while page 4 is still in-flight:
+            // repairing stretched sibling pages must NOT drop page 4's scale-current in-flight first paint!
+            holdPage4 = Promise.withResolvers<void>();
+            defineDimension(fixture.container, 'clientHeight', 3400);
+            fixture.viewport.visibleRange.value = {start: 1, end: 4};
+            fixture.viewport.markZoomGestureActivity(() => {
+                fixture.zoom.value = 1.9;
+            });
+            flushFrames();
+            await vi.waitFor(() => {
+                expect(renderedPages.slice(initialRenders).some((entry) => entry.page === 4)).toBe(true);
+            });
+            // Settle after 180ms quiet while page 4 is still in-flight at 1.9.
+            await vi.advanceTimersByTimeAsync(190);
+            expect(fixture.viewport.isZoomGestureActive.value).toBe(false);
+            flushFrames();
+            await vi.waitFor(() => {
+                expect(fixture.rendering!.isPageVisualReady(requirePageNumber(1))).toBe(true);
+            });
+            // Page 4's scale-current first paint was NOT cancelled by sibling repair!
+            const page4Renders = renderedPages.slice(initialRenders).filter((entry) => entry.page === 4);
+            expect(page4Renders).toHaveLength(1);
+            expect(page4Renders[0]!.cancelled).toBe(false);
+            holdPage4.resolve();
+            holdPage4 = null;
+            await vi.waitFor(() => {
+                expect(fixture.rendering!.isPageVisualReady(requirePageNumber(4))).toBe(true);
+            });
+            // Page 1 reconciled once at the final settled scale (1.9).
+            const postGesturePage1Renders = renderedPages.slice(initialRenders).filter((entry) => entry.page === 1);
+            expect(postGesturePage1Renders).toHaveLength(1);
+            expect(postGesturePage1Renders[0]!.scale).toBeCloseTo(1.9, 2);
+
+            // Stale stretch pass awaiting metrics must NOT overwrite settled demand after gesture ends.
+            const slowStretchMetrics = Promise.withResolvers<boolean>();
+            let stretchMetricsEntered = false;
+            fixture.documentSession.ensurePageMetricsInRange.mockImplementationOnce(async () => {
+                stretchMetricsEntered = true;
+                return slowStretchMetrics.promise;
+            });
+            fixture.rendering!.releaseUnmountedPage(requirePageNumber(4));
+            fixture.viewport.markZoomGestureActivity(() => {
+                fixture.zoom.value = 2.05;
+            });
+            flushFrames();
+            // Wait until the stretch pass is actually suspended on ensurePageMetricsInRange.
+            await vi.waitFor(() => {
+                expect(stretchMetricsEntered).toBe(true);
+            });
+            // Sub-deadzone/clamped markZoomGestureActivity() must NOT suppress a synchronous non-gesture zoom write.
+            // Hold the settled 2.5 render on page 1 so a stale stretch pass overwriting scheduler demand would cancel it.
+            holdPage1 = Promise.withResolvers<void>();
+            fixture.viewport.markZoomGestureActivity();
+            fixture.zoom.value = 2.5;
+            expect(fixture.viewport.isZoomGestureActive.value).toBe(false);
+            flushFrames();
+            await vi.waitFor(() => {
+                expect(renderedPages.some((entry) => entry.page === 1 && Math.abs(entry.scale - 2.5) < 0.01)).toBe(true);
+            });
+            const settledPage1Entry = renderedPages.filter((entry) => entry.page === 1 && Math.abs(entry.scale - 2.5) < 0.01).at(-1)!;
+            slowStretchMetrics.resolve(false);
+            await vi.advanceTimersByTimeAsync(20);
+            expect(settledPage1Entry.cancelled).toBe(false);
+            holdPage1.resolve();
+            holdPage1 = null;
+            await vi.waitFor(() => {
+                expect(fixture.rendering!.isPageVisualReady(requirePageNumber(1))).toBe(true);
+            });
+            const finalPage1Render = renderedPages.filter((entry) => entry.page === 1).at(-1);
+            expect(finalPage1Render?.scale).toBeCloseTo(2.5, 2);
+
+            // Ordinary settled pass awaiting metrics when a new zoom gesture starts must NOT overwrite stretch demand.
+            const slowOrdinaryMetrics = Promise.withResolvers<boolean>();
+            let ordinaryMetricsEntered = false;
+            fixture.documentSession.ensurePageMetricsInRange.mockImplementationOnce(async () => {
+                ordinaryMetricsEntered = true;
+                return slowOrdinaryMetrics.promise;
+            });
+            fixture.zoom.value = 2.75;
+            flushFrames();
+            await vi.waitFor(() => {
+                expect(ordinaryMetricsEntered).toBe(true);
+            });
+            const rendersBeforeGestureOverride = renderedPages.length;
+            fixture.viewport.markZoomGestureActivity(() => {
+                fixture.zoom.value = 2.9;
+            });
+            expect(fixture.viewport.isZoomGestureActive.value).toBe(true);
+            slowOrdinaryMetrics.resolve(false);
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(renderedPages.slice(rendersBeforeGestureOverride)).toHaveLength(0);
+            fixture.viewport.endZoomGesture();
+        } finally {
+            holdPage1?.resolve();
+            holdPage3?.resolve();
+            holdPage4?.resolve();
+            await fixture.dispose();
+            await scheduler.dispose();
+            fixture.container.remove();
+            context.mockRestore();
+            rafSpy.mockRestore();
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps a pending canvas-only-buffer first paint across stretch and settle while a stale sibling repairs', async () => {
+        vi.useFakeTimers();
+        const frames: FrameRequestCallback[] = [];
+        const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+            frames.push(cb);
+            return frames.length;
+        });
+        const flushFrames = () => {
+            while (frames.length > 0) {
+                const pending = frames.splice(0, frames.length);
+                for (const cb of pending) {
+                    cb(performance.now());
+                }
+            }
+        };
+        const renderedPages: Array<{page: number; scale: number; cancelled: boolean}> = [];
+        let holdPage5: ReturnType<typeof Promise.withResolvers<void>> | null = null;
+        const createStubPage = (pageNumber: number) =>
+            cast<IPdfPage>({
+                pageNumber,
+                rotate: 0,
+                view: [0, 0, 600, 800],
+                getAnnotations: vi.fn(async () => []),
+                getTextContent: vi.fn(async () => ({items: [], styles: {}})),
+                getViewport: ({scale = 1}: {scale?: number}) => ({
+                    width: 600 * scale,
+                    height: 800 * scale,
+                    rotation: 0,
+                    scale,
+                    userUnit: 1,
+                    rawDims: {pageWidth: 600, pageHeight: 800},
+                }),
+                render: ({viewport}: {viewport: {scale: number}}) => {
+                    const entry = {page: pageNumber, scale: viewport.scale, cancelled: false};
+                    renderedPages.push(entry);
+                    return {
+                        cancel() {
+                            entry.cancelled = true;
+                        },
+                        promise: (async () => {
+                            if (pageNumber === 5 && holdPage5) {
+                                await holdPage5.promise;
+                            }
+                            if (entry.cancelled) {
+                                const err = new Error('cancelled');
+                                err.name = 'RenderingCancelledException';
+                                throw err;
+                            }
+                        })(),
+                    };
+                },
+            });
+        const pages = new Map<number, IPdfPage>([
+            [1, createStubPage(1)],
+            [2, createStubPage(2)],
+            [3, createStubPage(3)],
+            [4, createStubPage(4)],
+            [5, createStubPage(5)],
+        ]);
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence: {loadToken: 1, documentVersion: 1, documentRevision: null},
+            maxConcurrency: 2,
+            leasePage: async (pageNumber) => ({
+                page: pages.get(pageNumber)!,
+                release() {},
+            }),
+            surfaceBudget: createWorkspaceSurfaceBudgetController(64 * 1024 * 1024),
+        });
+        const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(Object.create(null));
+        const fixture = createViewportFixture({
+            pageCount: 5,
+            bufferPages: 1,
+            continuousScroll: true,
+            rasterScheduler: scheduler,
+            zoomMode: 'custom',
+        });
+        document.body.append(fixture.container);
+        for (const page of [1, 2, 3, 4, 5]) {
+            appendRasterTarget(fixture.container, page);
+            fixture.viewport.markPageMounted(requirePageNumber(page));
+        }
+        fixture.documentSession.ensurePageMetricsInRange.mockResolvedValue(false);
+        fixture.viewport.visibleRange.value = {start: 1, end: 1};
+        flushFrames();
+        try {
+            // Paint page 1 at scale 1.0.
+            await fixture.rendering!.renderVisiblePages({start: 1, end: 1});
+            expect(fixture.rendering!.isPagePainted(requirePageNumber(1))).toBe(true);
+
+            // Move to visibleRange [3..4] at scale 1.5 (buffer = [2, 5]) so page 1 stays painted at stale scale 1.0,
+            // while page 5 starts an in-flight canvas-only-buffer first paint at scale 1.5.
+            holdPage5 = Promise.withResolvers<void>();
+            setCurrentPage(fixture.viewport, 3);
+            fixture.zoom.value = 1.5;
+            await nextTick();
+            defineDimension(fixture.container, 'scrollTop', 1840);
+            defineDimension(fixture.container, 'clientHeight', 1600);
+            fixture.viewport.visibleRange.value = {start: 3, end: 4};
+            flushFrames();
+            await vi.waitFor(() => {
+                flushFrames();
+                expect(fixture.rendering!.isPageVisualReady(requirePageNumber(3))).toBe(true);
+                expect(fixture.rendering!.isPageVisualReady(requirePageNumber(4))).toBe(true);
+            });
+            await vi.waitFor(() => {
+                flushFrames();
+                expect(renderedPages.some((entry) => entry.page === 5 && entry.scale === 1.5)).toBe(true);
+            });
+            const bufferPage5Entry = renderedPages.filter((entry) => entry.page === 5 && entry.scale === 1.5).at(-1)!;
+            expect(fixture.rendering!.isPagePainted(requirePageNumber(1))).toBe(true);
+            expect(fixture.rendering!.isPageVisualReady(requirePageNumber(1))).toBe(false);
+
+            // Bring stale-scale page 1 (1.0) and pending buffer page 5 (1.5) into view during a stretch gesture,
+            // move away to 1.7 and back to 1.5, then settle while page 5 is still pending.
+            defineDimension(fixture.container, 'scrollTop', 0);
+            defineDimension(fixture.container, 'clientHeight', 4600);
+            fixture.viewport.visibleRange.value = {start: 1, end: 5};
+            fixture.viewport.markZoomGestureActivity(() => {
+                fixture.zoom.value = 1.7;
+            });
+            flushFrames();
+            fixture.viewport.markZoomGestureActivity(() => {
+                fixture.zoom.value = 1.5;
+            });
+            flushFrames();
+            await vi.advanceTimersByTimeAsync(190);
+            expect(fixture.viewport.isZoomGestureActive.value).toBe(false);
+            flushFrames();
+            await vi.waitFor(() => {
+                flushFrames();
+                expect(fixture.rendering!.isPageVisualReady(requirePageNumber(1))).toBe(true);
+            });
+            // Sibling page 1 repaired to 1.5 without cancelling page 5's scale-current buffer first paint!
+            expect(bufferPage5Entry.cancelled).toBe(false);
+            holdPage5.resolve();
+            holdPage5 = null;
+            await vi.waitFor(() => {
+                expect(fixture.rendering!.isPagePainted(requirePageNumber(5))).toBe(true);
+            });
+        } finally {
+            holdPage5?.resolve();
+            await fixture.dispose();
+            await scheduler.dispose();
+            fixture.container.remove();
+            context.mockRestore();
+            rafSpy.mockRestore();
+            vi.useRealTimers();
+        }
+    });
+
+    it('defers automatic Fit Width snap until a live wheel zoom gesture settles', async () => {
+        vi.useFakeTimers();
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            continuousScroll: true,
+            pageCount: 2,
+            zoomMode: 'custom',
+        });
+        document.body.append(fixture.container);
+        try {
+            fixture.viewport.scale.computeFitWidthScale(fixture.container, {page: 1});
+            const fitWidthScale = fixture.viewport.scale.fitWidthScale.value;
+            expect(fitWidthScale).toBeGreaterThan(0);
+
+            fixture.viewport.markZoomGestureActivity(() => {
+                fixture.zoom.value = fitWidthScale;
+            });
+            await nextTick();
+            // Still in live gesture: must not snap zoomMode to fit-width mid-pinch.
+            expect(fixture.viewport.isZoomGestureActive.value).toBe(true);
+            expect(fixture.zoomMode.value).toBe('custom');
+
+            await vi.advanceTimersByTimeAsync(190);
+            await nextTick();
+            expect(fixture.viewport.isZoomGestureActive.value).toBe(false);
+            expect(fixture.zoomMode.value).toBe('fit-width');
+        } finally {
+            await fixture.dispose();
+            fixture.container.remove();
+            vi.useRealTimers();
+        }
+    });
+
+    it('publishes demand when viewRotation or pageMetricsVersion changes on a custom-zoom single-page document', async () => {
+        const viewRotation = ref<0 | 90 | 180 | 270>(0);
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            continuousScroll: true,
+            pageCount: 1,
+            viewRotation,
+            zoom: ref(2.62),
+            zoomMode: 'custom',
+        });
+        document.body.append(fixture.container);
+        try {
+            appendPageBox(fixture.container, 1, {height: 800, top: 0});
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+            await new Promise((resolve) => window.requestAnimationFrame(resolve));
+            const settledRevision = fixture.viewport.demand.value.revision;
+
+            // Rotating in custom zoom mode keeps effectiveScale (2.62) and visibleRange ({1,1}) identical;
+            // demand must still advance so the renderer repaints page 1 at the new rotation.
+            viewRotation.value = 270;
+            expect(fixture.viewport.demand.value.revision).toBeGreaterThan(settledRevision);
+            const afterRotationRevision = fixture.viewport.demand.value.revision;
+
+            fixture.documentSession.pageMetricsVersion.value += 1;
+            expect(fixture.viewport.demand.value.revision).toBeGreaterThan(afterRotationRevision);
+        } finally {
+            await fixture.dispose();
+            fixture.container.remove();
+        }
     });
 });

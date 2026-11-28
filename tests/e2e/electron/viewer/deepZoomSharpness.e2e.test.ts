@@ -561,4 +561,178 @@ describe('Electron E2E - deep zoom sharpness', () => {
         },
         E2E_TIMEOUT_MS,
     );
+
+    it(
+        'stretches the shown raster across a >180ms wheel zoom gesture, reconciles once on settle, paints L6 sharp detail, and honors follow-up navigation',
+        async () => {
+            session = await startConfiguredElectronE2ESession(`e2e-deep-zoom-gesture-${Date.now()}`, 'low');
+            const {page} = session;
+            const devicePixelRatio = await page.evaluate(() => window.devicePixelRatio);
+            const barWidthPt = 2 / (TARGET_ZOOM_PERCENT / 100) / devicePixelRatio;
+            const doc = await PDFDocument.create();
+            const page1 = doc.addPage([PAGE_WIDTH_PT, PAGE_HEIGHT_PT]);
+            for (let x = GRATING_MARGIN_PT; x + barWidthPt <= PAGE_WIDTH_PT - GRATING_MARGIN_PT; x += 2 * barWidthPt) {
+                page1.drawRectangle({
+                    x,
+                    y: GRATING_MARGIN_PT,
+                    width: barWidthPt,
+                    height: PAGE_HEIGHT_PT - 2 * GRATING_MARGIN_PT,
+                    color: rgb(0, 0, 0),
+                });
+            }
+            doc.addPage([PAGE_WIDTH_PT, PAGE_HEIGHT_PT]);
+            const fixturePath = createFixturePath(`deep-zoom-gesture-${Date.now()}.pdf`);
+            await writeFile(fixturePath, await doc.save());
+            await openPdfInApp(page, fixturePath);
+            await waitForViewerInteractive(page);
+
+            // Part 1: Uncapped zoom (100% -> ~180%) proves stretch-and-settle suppresses intermediate
+            // canvas replacements during a sustained >180ms wheel gesture and replaces once on settle.
+            await zoomToPercentAsUser(page, 100);
+            await waitForSettledPage(page, 100);
+
+            const uncappedSetup = await page.evaluate(() => {
+                const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer')!;
+                const rect = viewer.getBoundingClientRect();
+                const layer = document.querySelector<HTMLElement>('.page_container[data-page="1"] .page_canvas__render-layer')!;
+                const initialCanvas = layer.querySelector<HTMLCanvasElement>('canvas');
+                const probe = {
+                    gestureEndedAt: Number.POSITIVE_INFINITY,
+                    duringGesture: 0,
+                    afterGesture: 0,
+                };
+                (window as unknown as {__zoomGestureProbe?: typeof probe}).__zoomGestureProbe = probe;
+                const observer = new MutationObserver((records) => {
+                    for (const record of records) {
+                        for (const node of record.addedNodes) {
+                            if (node instanceof HTMLCanvasElement) {
+                                if (performance.now() <= probe.gestureEndedAt) {
+                                    probe.duringGesture += 1;
+                                } else {
+                                    probe.afterGesture += 1;
+                                }
+                            }
+                        }
+                    }
+                });
+                observer.observe(layer, {childList: true});
+                return {
+                    initialCanvasWidth: initialCanvas?.width ?? 0,
+                    x: Math.round(rect.left + rect.width / 2),
+                    y: Math.round(rect.top + rect.height / 2),
+                };
+            });
+
+            const waitTwoFrames = () =>
+                page.evaluate(
+                    () =>
+                        new Promise<void>((resolve) => {
+                            window.requestAnimationFrame(() => {
+                                window.requestAnimationFrame(() => resolve());
+                            });
+                        }),
+                );
+
+            const zoomModifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+            await page.mouse.move(uncappedSetup.x, uncappedSetup.y);
+            await page.keyboard.down(zoomModifier);
+            try {
+                // Sustained >180ms wheel zoom gesture paced across compositor frames.
+                for (let step = 0; step < 16; step += 1) {
+                    await page.mouse.wheel({deltaY: -18});
+                    await waitTwoFrames();
+                }
+                await page.evaluate(() => {
+                    const probe = (window as unknown as {__zoomGestureProbe?: {gestureEndedAt: number}}).__zoomGestureProbe;
+                    if (probe) {
+                        probe.gestureEndedAt = performance.now();
+                    }
+                });
+            } finally {
+                await page.keyboard.up(zoomModifier);
+            }
+
+            await page.waitForFunction(
+                (initialWidth: number) => {
+                    const container = document.querySelector<HTMLElement>('.page_container[data-page="1"]');
+                    const canvas = container?.querySelector<HTMLCanvasElement>('.page_canvas__render-layer canvas');
+                    return (
+                        container?.classList.contains('page_container--rendered') === true &&
+                        container.dataset.pageRaster === 'current' &&
+                        (canvas?.width ?? 0) > initialWidth
+                    );
+                },
+                {timeout: SETTLE_TIMEOUT_MS},
+                uncappedSetup.initialCanvasWidth,
+            );
+            const uncappedResult = await page.evaluate(() => {
+                const probe = (window as unknown as {__zoomGestureProbe?: {duringGesture: number; afterGesture: number}})
+                    .__zoomGestureProbe;
+                const canvas = document.querySelector<HTMLCanvasElement>(
+                    '.page_container[data-page="1"] .page_canvas__render-layer canvas',
+                );
+                const zoomText = document.querySelector('.zoom-controls-display-value')?.textContent?.trim() ?? '';
+                return {
+                    zoomText,
+                    canvasWidth: canvas?.width ?? 0,
+                    duringGesture: probe?.duringGesture ?? -1,
+                    afterGesture: probe?.afterGesture ?? -1,
+                };
+            });
+            expect(uncappedResult.zoomText).not.toBe('100%');
+            expect(uncappedResult.duringGesture).toBe(0);
+            expect(uncappedResult.afterGesture).toBeGreaterThanOrEqual(1);
+            expect(uncappedResult.canvasWidth).toBeGreaterThan(uncappedSetup.initialCanvasWidth);
+
+            // Part 2: Sustained wheel gesture into L6 clamped detail territory (~1000%) resolves the
+            // grating bars crisply at 1:1 physical pixel density and honors follow-up navigation.
+            await zoomToPercentAsUser(page, 600);
+            await waitForSettledPage(page, 600);
+            await page.mouse.move(uncappedSetup.x, uncappedSetup.y);
+            await page.keyboard.down(zoomModifier);
+            try {
+                for (let step = 0; step < 18; step += 1) {
+                    await page.mouse.wheel({deltaY: -18});
+                    await waitTwoFrames();
+                }
+            } finally {
+                await page.keyboard.up(zoomModifier);
+            }
+            await page.waitForFunction(
+                () => {
+                    const container = document.querySelector<HTMLElement>('.page_container[data-page="1"]');
+                    return container?.classList.contains('page_container--rendered') === true && container.dataset.pageRaster === 'current';
+                },
+                {timeout: SETTLE_TIMEOUT_MS},
+            );
+            const region = await readGratingRegion(page);
+            await waitForDetailCanvasCovering(page, region);
+            const detailShares = await measureDetailRasterBarShare(page, region);
+            expect(region.baseDensity).toBeLessThan(0.6);
+            expect(detailShares.resolution).toBeGreaterThan(0.99);
+            expect(detailShares.resolution).toBeLessThan(1.01);
+            expect(detailShares.darkShare).toBeGreaterThan(0.2);
+            expect(detailShares.lightShare).toBeGreaterThan(0.2);
+
+            // Follow-up navigation lands cleanly on page 2.
+            await clickAsUser(page, '.page-controls-current-primary');
+            await page.waitForSelector('.page-controls-inline-input', {visible: true});
+            await clickAsUser(page, '.page-controls-inline-input');
+            const selectAllModifier = process.platform === 'darwin' ? 'MetaLeft' : 'ControlLeft';
+            await page.keyboard.down(selectAllModifier);
+            await page.keyboard.press('KeyA');
+            await page.keyboard.up(selectAllModifier);
+            await page.keyboard.type('2');
+            await page.keyboard.press('Enter');
+            await page.waitForFunction(
+                () => {
+                    const primary = document.querySelector('.page-controls-current-primary')?.textContent?.trim();
+                    const page2 = document.querySelector<HTMLElement>('.page_container[data-page="2"]');
+                    return primary === '2' && page2?.dataset.pageRaster === 'current';
+                },
+                {timeout: SETTLE_TIMEOUT_MS},
+            );
+        },
+        E2E_TIMEOUT_MS,
+    );
 });

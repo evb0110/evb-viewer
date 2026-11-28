@@ -8,6 +8,7 @@ import type {IPageRange} from '@app/types/pdfUi';
 import type {ILinkAnnotation} from '@app/types/annotations';
 import {
     consumeDocumentViewportPaneRelocationScrollFence,
+    DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS,
     hasCommittedDocumentOpeningLayout,
     type IDocumentViewerRuntime,
     createPageNavigationRequest,
@@ -186,8 +187,56 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     });
     const visibleRange = computed<IPageRange>({
         get: () => clampPageRange(measuredVisibleRange.value, Math.max(1, numPages.value)),
-        set: (range) => (measuredVisibleRange.value = range),
+        set: (range) => {
+            if (measuredVisibleRange.value.start === range.start && measuredVisibleRange.value.end === range.end) {
+                return;
+            }
+            measuredVisibleRange.value = range;
+        },
     });
+    const isZoomGestureActive = ref(false);
+    let zoomGestureSettleTimer: ReturnType<typeof setTimeout> | null = null;
+    let acceptingZoomGestureStep = false;
+    function clearZoomGestureSettleTimer() {
+        if (zoomGestureSettleTimer !== null) {
+            clearTimeout(zoomGestureSettleTimer);
+            zoomGestureSettleTimer = null;
+        }
+    }
+    function endZoomGesture() {
+        clearZoomGestureSettleTimer();
+        acceptingZoomGestureStep = false;
+        if (isZoomGestureActive.value) {
+            isZoomGestureActive.value = false;
+        }
+    }
+    function armZoomGestureSettleTimer() {
+        clearZoomGestureSettleTimer();
+        zoomGestureSettleTimer = setTimeout(() => {
+            zoomGestureSettleTimer = null;
+            isZoomGestureActive.value = false;
+        }, DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS);
+    }
+    function markZoomGestureActivity(writeZoom?: () => void) {
+        if (writeZoom) {
+            if (!isZoomGestureActive.value) {
+                isZoomGestureActive.value = true;
+            }
+            armZoomGestureSettleTimer();
+            acceptingZoomGestureStep = true;
+            try {
+                writeZoom();
+            } finally {
+                acceptingZoomGestureStep = false;
+            }
+            return;
+        }
+        // A sub-deadzone wheel packet extends an active gesture without arming
+        // synchronous zoom attribution for an unrelated write in the same turn.
+        if (isZoomGestureActive.value) {
+            armZoomGestureSettleTimer();
+        }
+    }
     const pageLayoutScaleResolver = shallowRef<((pageNumber: TPageNumber) => number) | null>(null);
     const horizontalScrollLockOwner = shallowRef<ComputedRef<boolean> | null>(null);
     function seedPreparedOpeningFitScale() {
@@ -273,7 +322,9 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             return visibleRange.value;
         }
         const visibility = getViewportVisibility(container, totalPages, getPageLayout(), getActivePhysicalScrollOrigin());
-        visibleRange.value = visibility.range ?? visibleRange.value;
+        if (visibility.range) {
+            visibleRange.value = visibility.range;
+        }
         return visibleRange.value;
     }
     /**
@@ -509,6 +560,33 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     function publishDemand() {
         demand.value = resolveDemand();
     }
+    let mountedPageFlushFrameId: number | null = null;
+    function cancelMountedPageFlush() {
+        if (mountedPageFlushFrameId !== null && typeof window !== 'undefined') {
+            window.cancelAnimationFrame(mountedPageFlushFrameId);
+        }
+        mountedPageFlushFrameId = null;
+    }
+    function flushMountedPageProjection() {
+        mountedPageFlushFrameId = null;
+        const revisionBefore = demandRevision;
+        if (options.continuousScroll.value) {
+            projectViewportVisibleRange(options.viewerContainer.value, numPages.value);
+        }
+        if (demandRevision === revisionBefore) {
+            publishDemand();
+        }
+    }
+    function scheduleMountedPageFlush() {
+        if (mountedPageFlushFrameId !== null) {
+            return;
+        }
+        if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+            flushMountedPageProjection();
+            return;
+        }
+        mountedPageFlushFrameId = window.requestAnimationFrame(flushMountedPageProjection);
+    }
     // A newly mounted row can settle after its mount, moving the rows below
     // it without a scroll. Its own resize is the notification; a page
     // container's first observation is its mount.
@@ -516,9 +594,16 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         typeof ResizeObserver === 'undefined'
             ? null
             : new ResizeObserver(() => {
-                  if (options.continuousScroll.value) {
-                      projectViewportVisibleRange(options.viewerContainer.value, numPages.value);
-                      publishDemand();
+                  if (!options.continuousScroll.value) {
+                      return;
+                  }
+                  const revisionBefore = demandRevision;
+                  projectViewportVisibleRange(options.viewerContainer.value, numPages.value);
+                  if (mountedPageFlushFrameId !== null) {
+                      cancelMountedPageFlush();
+                      if (demandRevision === revisionBefore) {
+                          publishDemand();
+                      }
                   }
               });
     const observedPageContainers = new Map<TPageNumber, HTMLElement>();
@@ -586,8 +671,11 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 renderedPagesKey.value,
                 options.bufferPages.value,
                 scale.effectiveScale.value,
+                viewRotation.value,
+                pageMetricsVersion.value,
                 options.outputScale.value,
                 options.isResizing.value,
+                isZoomGestureActive.value,
                 options.isActive.value,
                 isLoading.value,
                 Boolean(pdfDocument.value),
@@ -776,6 +864,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             projectViewportVisibleRange(container, numPages.value);
             return;
         }
+        endZoomGesture();
         cancelSupersededRaster();
         // A direct scroll can arrive without a preceding wheel/pointer event
         // (scrollbar drags, accessibility input, or automation). Clear the
@@ -795,8 +884,11 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         projectViewportVisibleRange(container, numPages.value);
     }
     // A custom zoom that lands on the continuous fit-width scale is Fit Width.
+    // Defer the automatic snap while a wheel/pinch zoom gesture is live so it
+    // does not split the gesture with a viewer-owned zoom write mid-pinch.
     function snapCustomZoomToFitWidth() {
         if (
+            !isZoomGestureActive.value &&
             options.zoomMode.value === 'custom' &&
             options.continuousScroll.value &&
             pdfDocument.value &&
@@ -813,6 +905,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     watch(
         () =>
             [
+                isZoomGestureActive.value,
                 options.zoomMode.value,
                 options.fitMode.value,
                 options.continuousScroll.value,
@@ -894,6 +987,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     });
     onBeforeUnmount(() => {
         physicalScrollTransitionSequence += 1;
+        endZoomGesture();
+        cancelMountedPageFlush();
         mountedPageGeometryObserver?.disconnect();
         observedPageContainers.clear();
     });
@@ -1010,14 +1105,30 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     }
     watch(
         [options.zoom, options.zoomMode, viewRotation],
-        ([, , rotation], [, , previousRotation]) => relayoutRotation(fitToViewport, rotation - previousRotation),
+        ([, , rotation], [, , previousRotation]) => {
+            if (rotation !== previousRotation || !acceptingZoomGestureStep) {
+                endZoomGesture();
+            }
+            acceptingZoomGestureStep = false;
+            return relayoutRotation(fitToViewport, rotation - previousRotation);
+        },
         {flush: 'sync'},
     );
     // No reading-point rule changes view/scroll mode's page-top placement.
     watch(
         [options.viewMode, options.continuousScroll],
         () => {
+            endZoomGesture();
             singlePageScroll.relayout(fitToViewport, pageTopAnchor());
+        },
+        {flush: 'sync'},
+    );
+    watch(
+        viewportAuthority.activeWorkKind,
+        (workKind) => {
+            if (workKind === 'navigation' || workKind === 'reload') {
+                endZoomGesture();
+            }
         },
         {flush: 'sync'},
     );
@@ -1031,6 +1142,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         [options.isActive, options.isResizing],
         ([active, resizing], [wasActive]) => {
             if (!active) {
+                endZoomGesture();
                 viewportAuthority.suspend();
                 return;
             }
@@ -1208,6 +1320,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             return;
         }
         if (transition.phase === 'invalidated') {
+            endZoomGesture();
             lastObservedScrollTop = null;
             singlePageScroll.viewportAuthority.suspend();
             cancelMandatoryRaster();
@@ -1244,6 +1357,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         }
     });
     documentSession.registerDisposable(() => {
+        endZoomGesture();
+        cancelMountedPageFlush();
         mountedPageGeometryObserver?.disconnect();
         observedPageContainers.clear();
         unsubscribeDocumentTransitions();
@@ -1255,6 +1370,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     return {
         currentPage,
         visibleRange,
+        isZoomGestureActive: readonly(isZoomGestureActive),
         demand: shallowReadonly(demand),
         pageSlots,
         scroll,
@@ -1273,6 +1389,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         getProtectedVisibleRange,
         setupPagePlaceholders,
         markUserViewportInteraction,
+        markZoomGestureActivity,
+        endZoomGesture,
         admitReload,
         handleLinkDestination,
         handleTrustedScroll,
@@ -1282,10 +1400,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         markPageMounted(pageNumber: TPageNumber) {
             pageSlots.markMounted(pageNumber);
             observePageContainer(pageNumber);
-            if (options.continuousScroll.value) {
-                projectViewportVisibleRange(options.viewerContainer.value, numPages.value);
-            }
-            publishDemand();
+            scheduleMountedPageFlush();
         },
         markPageUnmounted(pageNumber: TPageNumber) {
             pageSlots.markUnmounted(pageNumber);

@@ -45,7 +45,7 @@ export interface IUsePdfPageRendererOptions {
     /** RenderingSession owns the page resources; layer work changes them only as their owner. */
     pageResources: TPdfPageResources;
     /** Shared with the annotation session so link overlays follow renderer page lifetime. */
-    linkAnnotations?: Ref<ILinkAnnotation[]> | undefined;
+    linkAnnotations?: Map<number, readonly ILinkAnnotation[]> | undefined;
     getCommittedRender: (pageNumber: TPageNumber) => IPdfLayerRenderResult | null;
     requestSearchPageRaster: (pageNumber: TPageNumber, replace?: boolean) => Promise<void>;
 }

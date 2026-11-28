@@ -92,6 +92,25 @@ export const usePdfTextLayerRenderer = (deps: {
         continuationRafId: 0,
         refreshVersion: 0,
     };
+    let hasDirtyHighlights = false;
+
+    function isSearchHighlightActive(
+        searchMatches: Map<number, IPdfPageMatches> | null | undefined,
+        currentMatch: IPdfSearchMatch | null | undefined,
+    ) {
+        if (currentMatch) {
+            return true;
+        }
+        if (!searchMatches || searchMatches.size === 0) {
+            return false;
+        }
+        for (const pageMatchData of searchMatches.values()) {
+            if (pageMatchData.matches.length > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     function wakeDeferredTextLayer(pageNumber: number) {
         const wakers = deferredTextLayerWakers.get(pageNumber);
@@ -139,6 +158,7 @@ export const usePdfTextLayerRenderer = (deps: {
         deferredTextLayerWakers.clear();
         pageHighlightState.pendingRoot = null;
         pageHighlightState.signatureByPage.clear();
+        hasDirtyHighlights = false;
     });
 
     function collectWordsFromPageMatches(pageMatchData: IPdfPageMatches) {
@@ -369,14 +389,34 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function exposeMarkedContentNames(structure: HTMLElement, textLayerDiv: HTMLElement) {
-        for (const element of structure.querySelectorAll<HTMLElement>('[aria-owns]')) {
+        const owners = structure.querySelectorAll<HTMLElement>('[aria-owns]');
+        if (owners.length === 0) {
+            return;
+        }
+        let elementsById: Map<string, Element> | null = null;
+        for (const element of owners) {
+            if (element.hasAttribute('aria-label')) {
+                continue;
+            }
             const ownedIds = element.getAttribute('aria-owns')?.split(/\s+/u).filter(Boolean) ?? [];
+            if (ownedIds.length === 0) {
+                continue;
+            }
+            if (elementsById === null) {
+                elementsById = new Map();
+                for (const candidate of textLayerDiv.querySelectorAll('[id]')) {
+                    const id = candidate.id;
+                    if (id && !elementsById.has(id)) {
+                        elementsById.set(id, candidate);
+                    }
+                }
+            }
             const text = ownedIds
-                .map((id) => textLayerDiv.querySelector<HTMLElement>(`#${CSS.escape(id)}`)?.textContent ?? '')
+                .map((id) => elementsById!.get(id)?.textContent ?? '')
                 .join(' ')
                 .replace(/\s+/gu, ' ')
                 .trim();
-            if (text && !element.hasAttribute('aria-label')) {
+            if (text) {
                 element.setAttribute('aria-label', text);
             }
         }
@@ -477,9 +517,11 @@ export const usePdfTextLayerRenderer = (deps: {
                     pageIndex,
                     renderedTextLayers.get(textLayerDiv)?.viewport,
                 );
+                hasDirtyHighlights = true;
             } else if (pageMatchData && pageMatchData.matches.length > 0) {
                 highlightPage(textLayerDiv, pageMatchData, currentMatchValue);
                 clearWordBoxes(container);
+                hasDirtyHighlights = true;
             } else {
                 clearHighlights(textLayerDiv);
                 clearWordBoxes(container);
@@ -495,6 +537,19 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function scheduleSearchHighlightRefresh(containerRoot: HTMLElement) {
+        if (!isSearchHighlightActive(toValue(deps.searchPageMatches), toValue(deps.currentSearchMatch)) && !hasDirtyHighlights) {
+            if (pageHighlightState.rafId !== 0 && typeof window !== 'undefined') {
+                window.cancelAnimationFrame(pageHighlightState.rafId);
+                pageHighlightState.rafId = 0;
+            }
+            if (pageHighlightState.continuationRafId !== 0 && typeof window !== 'undefined') {
+                window.cancelAnimationFrame(pageHighlightState.continuationRafId);
+                pageHighlightState.continuationRafId = 0;
+            }
+            pageHighlightState.pendingRoot = null;
+            return;
+        }
+
         const scheduleContinuation = (callback: () => void) => {
             if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
                 callback();
@@ -512,12 +567,17 @@ export const usePdfTextLayerRenderer = (deps: {
                 return;
             }
 
-            const pageContainers = Array.from(root.querySelectorAll<HTMLElement>('.page_container'));
             const searchMatchesValue = toValue(deps.searchPageMatches);
             const currentMatchValue = toValue(deps.currentSearchMatch);
+            const searchActive = isSearchHighlightActive(searchMatchesValue, currentMatchValue);
+            if (!searchActive && !hasDirtyHighlights) {
+                return;
+            }
+
+            const pageContainers = Array.from(root.querySelectorAll<HTMLElement>('.page_container'));
             const currentMatchPresentationReady =
                 currentMatchValue === null ||
-                Array.from(root.querySelectorAll<HTMLElement>('.page_container')).some((pageContainer) => {
+                pageContainers.some((pageContainer) => {
                     if (pageContainer.dataset.page !== String(currentMatchValue.pageIndex + 1)) {
                         return false;
                     }
@@ -580,6 +640,12 @@ export const usePdfTextLayerRenderer = (deps: {
 
                 if (pageHighlightState.pendingRoot && pageHighlightState.pendingRoot !== root) {
                     runPendingHighlightRefresh(flushSearchHighlightRefresh);
+                    return;
+                }
+
+                if (!searchActive && !isSearchHighlightActive(toValue(deps.searchPageMatches), toValue(deps.currentSearchMatch))) {
+                    hasDirtyHighlights = false;
+                    pageHighlightState.signatureByPage.clear();
                 }
             };
 
@@ -993,7 +1059,10 @@ export const usePdfTextLayerRenderer = (deps: {
         const pageIndex = pageNumberToPageIndex(requirePageNumber(pageNumber));
         const searchMatches = toValue(deps.searchPageMatches);
         const currentMatch = toValue(deps.currentSearchMatch) ?? null;
-        if (!searchMatches || searchMatches.size === 0) {
+        if (!isSearchHighlightActive(searchMatches, currentMatch)) {
+            if (!hasDirtyHighlights) {
+                return;
+            }
             clearHighlights(textLayerDiv);
             clearWordBoxes(container);
             pageHighlightState.signatureByPage.set(pageNumber, buildPageHighlightSignature(null, currentMatch));
@@ -1017,11 +1086,13 @@ export const usePdfTextLayerRenderer = (deps: {
         if (hasGeometryHighlights) {
             clearHighlights(textLayerDiv);
             renderWordBoxesForPageMatch(container, pageMatchData, currentMatch, pageIndex, viewport);
+            hasDirtyHighlights = true;
             pageHighlightState.signatureByPage.set(pageNumber, signature);
             return;
         }
 
         const highlightResult = highlightPage(textLayerDiv, pageMatchData, currentMatch);
+        hasDirtyHighlights = true;
 
         const isCssHighlightMode = getHighlightMode() === 'css';
         const hasInTextHighlights =

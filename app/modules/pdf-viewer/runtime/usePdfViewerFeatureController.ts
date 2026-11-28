@@ -71,7 +71,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
     const viewportSessionRef = shallowRef<TPdfViewportSession | null>(null);
     const renderingSessionRef = shallowRef<TPdfRenderingSession | null>(null);
     const annotationSessionRef = shallowRef<TPdfAnnotationSession | null>(null);
-    const linkAnnotations = ref<ILinkAnnotation[]>([]);
+    const linkAnnotations = shallowReactive(new Map<number, readonly ILinkAnnotation[]>());
     const viewerCurrentPage = computed(() => viewportSessionRef.value?.currentPage.value ?? 1);
     const viewerEffectiveScale = computed(() => viewportSessionRef.value?.scale.effectiveScale.value ?? 1);
 
@@ -217,6 +217,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         handlePagedWheel: viewportSession.singlePageScroll.handleWheel,
         cancelPendingSearchScroll: renderingSession.cancelPendingSearchScroll,
         markUserViewportInteraction: viewportSession.markUserViewportInteraction,
+        markZoomGestureActivity: viewportSession.markZoomGestureActivity,
         captureRelayoutAnchor: viewportSession.singlePageScroll.captureRelayoutAnchor,
         relayout: viewportSession.singlePageScroll.relayout,
         isSnipActive: () => regionSnip.isActive.value || cropSelection.isSelecting.value,

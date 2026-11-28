@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {ref} from 'vue';
+import {ref, shallowReactive} from 'vue';
 import {usePdfAnnotationLayerRenderer} from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
 import type {ILinkAnnotation} from '@app/types/annotations';
 import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
@@ -170,8 +170,8 @@ describe('usePdfAnnotationLayerRenderer', () => {
         );
     });
 
-    it('publishes link geometry from the same page annotations used for PDF.js rendering', async () => {
-        const linkAnnotations = ref<ILinkAnnotation[]>([]);
+    it('publishes link geometry into the page-keyed map and releases per page or all layers', async () => {
+        const linkAnnotations = shallowReactive(new Map<number, readonly ILinkAnnotation[]>());
         const renderer = createRenderer({linkAnnotations});
         const pdfPage = createPageProxy([
             {
@@ -204,8 +204,8 @@ describe('usePdfAnnotationLayerRenderer', () => {
             1,
         );
 
-        expect(linkAnnotations.value).toHaveLength(2);
-        expect(linkAnnotations.value).toEqual(
+        expect(linkAnnotations.get(1)).toHaveLength(2);
+        expect(linkAnnotations.get(1)).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
                     id: 'external-link',
@@ -224,8 +224,31 @@ describe('usePdfAnnotationLayerRenderer', () => {
             ]),
         );
 
+        await renderer.renderAnnotationLayer(
+            createPageProxy([
+                {
+                    id: 'page-2-link',
+                    annotationType: 2,
+                    rect: [10, 10, 50, 50],
+                    url: 'https://example.com/p2',
+                },
+            ]) as never,
+            document.createElement('div'),
+            {
+                width: 200,
+                height: 300,
+                rotation: 0,
+            } as never,
+            2,
+        );
+        expect(linkAnnotations.has(2)).toBe(true);
+
+        renderer.releasePageLinks(1);
+        expect(linkAnnotations.has(1)).toBe(false);
+        expect(linkAnnotations.has(2)).toBe(true);
+
         renderer.clearAllLayers();
-        expect(linkAnnotations.value).toEqual([]);
+        expect(linkAnnotations.size).toBe(0);
     });
 
     it('leaves the existing layer untouched when a render is aborted', async () => {

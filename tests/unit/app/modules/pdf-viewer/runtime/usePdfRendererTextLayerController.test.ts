@@ -602,4 +602,69 @@ describe('usePdfRendererTextLayerController', () => {
             harness.dispose();
         }
     });
+
+    it('resolves marked-content aria-owns labels in a single pass preserving first-match semantics', async () => {
+        pdfjsStructure.holds.length = 0;
+        const harness = createHarness();
+        const spanFirst = document.createElement('span');
+        spanFirst.id = 'mc-dup';
+        spanFirst.textContent = 'First Match';
+        const spanSecond = document.createElement('span');
+        spanSecond.id = 'mc-dup';
+        spanSecond.textContent = 'Second Match';
+        const spanTail = document.createElement('span');
+        spanTail.id = 'mc-tail';
+        spanTail.textContent = 'Tail';
+
+        const structTree = document.createElement('span');
+        structTree.className = 'structTree';
+        const ownerNode = document.createElement('span');
+        ownerNode.setAttribute('aria-owns', 'mc-dup mc-tail');
+        const labeledNode = document.createElement('span');
+        labeledNode.setAttribute('aria-owns', 'mc-tail');
+        labeledNode.setAttribute('aria-label', 'Keep existing');
+        structTree.append(ownerNode, labeledNode);
+
+        const holdStruct = Promise.withResolvers<HTMLElement>();
+        const facade = await import('@app/services/pdfjs/pdfViewerFacade');
+        const spy = vi.spyOn(facade, 'createPdfjsStructTreeLayer').mockResolvedValueOnce({
+            render: () => holdStruct.promise,
+            updateTextLayer() {},
+        } as never);
+        const page = createPage('Fresh', true, 1);
+        try {
+            const pending = harness.render(page, 1);
+            await vi.waitFor(() => expect(spy).toHaveBeenCalledOnce());
+            harness.textLayerDiv.append(spanFirst, spanSecond, spanTail);
+            holdStruct.resolve(structTree);
+            await expect(pending).resolves.toBe(true);
+
+            expect(ownerNode.getAttribute('aria-label')).toBe('First Match Tail');
+            expect(labeledNode.getAttribute('aria-label')).toBe('Keep existing');
+        } finally {
+            holdStruct.resolve(structTree);
+            spy.mockRestore();
+            harness.dispose();
+        }
+    });
+
+    it('skips search highlight refresh passes when no search is active and no highlights are dirty', () => {
+        const rafSpy = vi.spyOn(window, 'requestAnimationFrame');
+        const querySpy = vi.spyOn(HTMLElement.prototype, 'querySelectorAll');
+        const harness = createHarness();
+        try {
+            rafSpy.mockClear();
+            querySpy.mockClear();
+
+            harness.textLayerRenderer.applyAllSearchHighlights(harness.viewport);
+            harness.textLayerRenderer.applyPageSearchHighlights(harness.container, harness.textLayerDiv, 1);
+
+            expect(rafSpy).not.toHaveBeenCalled();
+            expect(querySpy).not.toHaveBeenCalled();
+        } finally {
+            rafSpy.mockRestore();
+            querySpy.mockRestore();
+            harness.dispose();
+        }
+    });
 });
