@@ -726,4 +726,215 @@ describe('runOcrJob', () => {
             pool3.terminate();
         }
     });
+
+    it('groups mixed-DPI and mixed-language pages within a batch while preserving exact document order in merged output', async () => {
+        const policySpy = vi.spyOn(ocrRuntimePolicy, 'getOcrRuntimePolicy').mockReturnValue({
+            globalPageSlots: 1,
+            modelDownloadConcurrency: 1,
+        });
+        vi.stubEnv('OCR_CONCURRENCY', '1');
+        try {
+            // Alternating source DPIs across 6 pages: [150, 300, 150, 200, 300, 150].
+            const dpiByPage = new Map<number, number>([
+                [1, 150],
+                [2, 300],
+                [3, 150],
+                [4, 200],
+                [5, 300],
+                [6, 150],
+            ]);
+            mocks.detectSourceDpiDetails.mockResolvedValue({
+                documentDpi: 300,
+                getPageRaster: async (pageNumber: number) => ({dpi: dpiByPage.get(pageNumber)!}),
+            });
+            const recognizedOrder: Array<{pageNumber: number; dpi: string}> = [];
+            mocks.renderOcrPageToPpm.mockImplementation(async (args: unknown[]) => {
+                const pageNumber = args[2] as number;
+                const dpi = String(args[5]);
+                recognizedOrder.push({pageNumber, dpi});
+                await writeFile(args[4] as string, 'P5\n1 1\n255\n\x00');
+            });
+
+            const result = await runOcrJob(
+                createJob({
+                    pages: [1, 2, 3, 4, 5, 6].map((pageNumber) => ({
+                        pageNumber: requirePageNumber(pageNumber),
+                        languages: ['eng'],
+                    })),
+                    options: {supersessionPolicy: 'missing-only'},
+                }),
+            );
+
+            expect(result.success).toBe(true);
+            // Grouped stably by DPI in order of first appearance: 150 -> [1,3,6], 300 -> [2,5], 200 -> [4].
+            expect(recognizedOrder).toEqual([
+                {pageNumber: 1, dpi: '150'},
+                {pageNumber: 3, dpi: '150'},
+                {pageNumber: 6, dpi: '150'},
+                {pageNumber: 2, dpi: '300'},
+                {pageNumber: 5, dpi: '300'},
+                {pageNumber: 4, dpi: '200'},
+            ]);
+            // Checkpointed pages merge back in exact original document order.
+            expect(mergedPageNumbers).toEqual([1, 2, 3, 4, 5, 6]);
+
+            // Normalized language order groups equivalent RTL+Latin sets together (ara+eng === eng+ara).
+            recognizedOrder.length = 0;
+            mergedPageNumbers = [];
+            const langOrder: number[] = [];
+            mocks.detectSourceDpiDetails.mockResolvedValue(null);
+            mocks.renderOcrPageToPpm.mockImplementation(async (args: unknown[]) => {
+                langOrder.push(args[2] as number);
+                await writeFile(args[4] as string, 'P5\n1 1\n255\n\x00');
+            });
+
+            const langResult = await runOcrJob(
+                createJob({
+                    jobId: 'job-mixed-lang',
+                    pages: [
+                        {pageNumber: requirePageNumber(1), languages: ['eng', 'ara']},
+                        {pageNumber: requirePageNumber(2), languages: ['rus']},
+                        {pageNumber: requirePageNumber(3), languages: ['ara', 'eng']},
+                        {pageNumber: requirePageNumber(4), languages: ['rus']},
+                    ],
+                    options: {renderDpi: 300, supersessionPolicy: 'missing-only'},
+                }),
+            );
+
+            expect(langResult.success).toBe(true);
+            expect(langOrder).toEqual([1, 3, 2, 4]);
+            expect(mergedPageNumbers).toEqual([1, 2, 3, 4]);
+        } finally {
+            policySpy.mockRestore();
+            vi.unstubAllEnvs();
+        }
+    });
+
+    it('preserves exact checkpoint resume semantics and merged page order across grouped mixed-DPI jobs', async () => {
+        const policySpy = vi.spyOn(ocrRuntimePolicy, 'getOcrRuntimePolicy').mockReturnValue({
+            globalPageSlots: 1,
+            modelDownloadConcurrency: 1,
+        });
+        vi.stubEnv('OCR_CONCURRENCY', '1');
+        try {
+            const dpiByPage = new Map<number, number>([
+                [1, 150],
+                [2, 300],
+                [3, 150],
+                [4, 200],
+                [5, 300],
+                [6, 150],
+            ]);
+            mocks.detectSourceDpiDetails.mockResolvedValue({
+                documentDpi: 300,
+                getPageRaster: async (pageNumber: number) => ({dpi: dpiByPage.get(pageNumber)!}),
+            });
+
+            const pages = [1, 2, 3, 4, 5, 6].map((pageNumber) => ({
+                pageNumber: requirePageNumber(pageNumber),
+                languages: ['eng'],
+            }));
+            const abortController = new AbortController();
+            const firstRunRendered: number[] = [];
+            mocks.renderOcrPageToPpm.mockImplementation(async (args: unknown[]) => {
+                const pageNumber = args[2] as number;
+                firstRunRendered.push(pageNumber);
+                if (pageNumber === 6) {
+                    abortController.abort(new DOMException('interrupted mid-batch', 'AbortError'));
+                    throw abortController.signal.reason;
+                }
+                await writeFile(args[4] as string, 'P5\n1 1\n255\n\x00');
+            });
+
+            await expect(
+                runOcrJob(
+                    createJob({
+                        jobId: 'job-resume-1',
+                        pages,
+                        options: {supersessionPolicy: 'missing-only'},
+                        signal: abortController.signal,
+                    }),
+                ),
+            ).rejects.toMatchObject({name: 'AbortError'});
+            expect(firstRunRendered).toEqual([1, 3, 6]);
+
+            // Resume the identical job: pages 1 and 3 must restore from checkpoints without re-rendering.
+            const resumedRendered: number[] = [];
+            mocks.renderOcrPageToPpm.mockImplementation(async (args: unknown[]) => {
+                resumedRendered.push(args[2] as number);
+                await writeFile(args[4] as string, 'P5\n1 1\n255\n\x00');
+            });
+
+            const resumed = await runOcrJob(
+                createJob({
+                    jobId: 'job-resume-2',
+                    pages,
+                    options: {supersessionPolicy: 'missing-only'},
+                }),
+            );
+
+            expect(resumed.success).toBe(true);
+            expect(resumedRendered).toEqual([6, 2, 5, 4]);
+            expect(mergedPageNumbers).toEqual([1, 2, 3, 4, 5, 6]);
+        } finally {
+            policySpy.mockRestore();
+            vi.unstubAllEnvs();
+        }
+    });
+
+    it('keeps mixed-DPI grouping strictly bounded inside each 5,000-page checkpoint batch', async () => {
+        const policySpy = vi.spyOn(ocrRuntimePolicy, 'getOcrRuntimePolicy').mockReturnValue({
+            globalPageSlots: 1,
+            modelDownloadConcurrency: 1,
+        });
+        vi.stubEnv('OCR_CONCURRENCY', '1');
+        try {
+            // Two batches (1..5000 and 5001..5004), each keeping 3 mixed-DPI targets.
+            const keptPages = new Set([1, 2, 3, 5001, 5002, 5003]);
+            const dpiByPage = new Map<number, number>([
+                [1, 150],
+                [2, 300],
+                [3, 150],
+                [5001, 300],
+                [5002, 150],
+                [5003, 300],
+            ]);
+            mocks.selectOcrPagesForSupersession.mockImplementation(async ({pages}: {pages: Array<{pageNumber: number}>}) => ({
+                pages: pages.filter((page) => keptPages.has(page.pageNumber)),
+                warnings: [],
+                diagnostics: [],
+            }));
+            mocks.detectSourceDpiDetails.mockResolvedValue({
+                documentDpi: 300,
+                getPageRaster: async (pageNumber: number) => ({dpi: dpiByPage.get(pageNumber)!}),
+            });
+            const renderedOrder: number[] = [];
+            mocks.renderOcrPageToPpm.mockImplementation(async (args: unknown[]) => {
+                renderedOrder.push(args[2] as number);
+                await writeFile(args[4] as string, 'P5\n1 1\n255\n\x00');
+            });
+
+            const result = await runOcrJob(
+                createJob({
+                    jobId: 'job-batch-bounded-dpi',
+                    pages: {
+                        kind: 'range',
+                        firstPage: requirePageNumber(1),
+                        lastPage: requirePageNumber(5003),
+                        languages: ['eng'],
+                    },
+                    options: {supersessionPolicy: 'missing-only'},
+                }),
+            );
+
+            expect(result.success).toBe(true);
+            // Batch 1 (1, 2, 3) finishes grouped [1, 3, 2] before Batch 2 (5001, 5002, 5003) runs grouped [5001, 5003, 5002].
+            expect(renderedOrder).toEqual([1, 3, 2, 5001, 5003, 5002]);
+            // Writer still receives all recognized pages in exact document order.
+            expect(mergedPageNumbers).toEqual([1, 2, 3, 5001, 5002, 5003]);
+        } finally {
+            policySpy.mockRestore();
+            vi.unstubAllEnvs();
+        }
+    });
 });

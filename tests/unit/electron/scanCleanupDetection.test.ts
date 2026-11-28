@@ -1917,4 +1917,152 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         expect(detection.results.map((result) => result.classification)).toEqual(['two-page-spread', 'two-page-spread', 'two-page-spread']);
         expect(detection.results.map((result) => result.sourcePageMetadata?.renderBox)).toEqual(['mediabox', 'mediabox', 'mediabox']);
     });
+
+    it('batches contiguous same-DPI runs when pre-staging under serializeStages instead of spawning one pdftoppm per page', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-serialize-batch-'));
+        dirs.push(tempDir);
+        const retainedPage4Path = join(tempDir, 'page-4-150.png');
+        await writeFile(retainedPage4Path, PNG_1X1);
+
+        // Pages 1-6 are standard A4 (150 DPI); pages 7-8 are oversized sheets whose
+        // analysis DPI is capped below 150 DPI so splitContiguousPageRuns splits by DPI.
+        const pageSizes = [1, 2, 3, 4, 5, 6, 7, 8].map((pageNumber) => ({
+            pageNumber,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: pageNumber >= 7 ? 4_800 : 595,
+            heightPoints: pageNumber >= 7 ? 4_800 : 842,
+            rotation: 0,
+        }));
+        const stagedPath = (pageNumber: number, dpi: number) => join(tempDir, `page-${String(pageNumber)}-${String(dpi)}.png`);
+        const retention: IScanCleanupDetectionRetention<{id: string}> = {
+            openDocument: vi.fn(async () => ({id: 'doc'})),
+            pageCount: vi.fn(async () => pageSizes.length),
+            pageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore(pageSizes)),
+            rasterPages: vi.fn(async () => rasterSource(false)),
+            retainedPaths: vi.fn(async (_doc, pageNumbers, dpi) => {
+                const map = new Map();
+                if (dpi === 150 && pageNumbers.includes(4)) {
+                    map.set(4, {dpi: 150, height: 1, pageNumber: 4, path: retainedPage4Path, sizeBytes: PNG_1X1.length, width: 1});
+                }
+                return map;
+            }),
+            rasterScratchPath: vi.fn(async (_doc, pageNumber, dpi) => `${stagedPath(pageNumber, dpi)}.part`),
+            stagedRasterPath: vi.fn(async (_doc, pageNumber, dpi) => stagedPath(pageNumber, dpi)),
+            retain: vi.fn(async (input: IScanCleanupRetainedRasterInput<{id: string}>) => {
+                const path = stagedPath(input.pageNumber, input.dpi);
+                await rename(input.scratchPath, path);
+                return {
+                    dpi: input.dpi,
+                    height: input.height,
+                    pageNumber: input.pageNumber,
+                    path,
+                    sizeBytes: input.sizeBytes,
+                    width: input.width,
+                };
+            }),
+            releaseRaster: vi.fn(async (_doc, pageNumber, dpi) => {
+                await rm(stagedPath(pageNumber, dpi), {force: true});
+            }),
+            release: vi.fn(async () => undefined),
+        };
+
+        let sidecarStarted = false;
+        let renderDuringSidecar = false;
+        const batchRuns: Array<{dpi: number; pages: number[]}> = [];
+        const renderPage = vi.fn();
+        const renderPageBatch = vi.fn(
+            async (input: {
+                dpi: number;
+                targets: ReadonlyArray<{outputPath: string; pageNumber: number}>;
+                onPageRendered?: (pageNumber: number) => void;
+            }) => {
+                if (sidecarStarted) {
+                    renderDuringSidecar = true;
+                }
+                batchRuns.push({dpi: input.dpi, pages: input.targets.map((target) => target.pageNumber)});
+                for (const target of input.targets) {
+                    await writeFile(target.outputPath, PNG_1X1);
+                    input.onPageRendered?.(target.pageNumber);
+                }
+                return input.targets.map((target) => ({pageNumber: target.pageNumber, width: 1, height: 1}));
+            },
+        );
+        const runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+            sidecarStarted = true;
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+                pages: Array<{pageMetadataPath: string; sourcePageIndex: number}>;
+            };
+            for (const [index, page] of manifest.pages.entries()) {
+                await writeFile(
+                    page.pageMetadataPath,
+                    JSON.stringify({
+                        layoutClassification: 'single-uncut-page',
+                        cutterXPx: null,
+                        rotationDegrees: 0,
+                        canvasScope: 'page',
+                        excluded: false,
+                        blankOutputsSkipped: 0,
+                        outputCount: 0,
+                    }),
+                );
+                await onProgress({
+                    stage: 'page-complete',
+                    completedPages: index + 1,
+                    totalPages: manifest.pages.length,
+                    pageNumber: requirePageNumber(index + 1),
+                    classification: 'single-uncut-page',
+                    confidence: 1,
+                    tier1Verdict: 'single-uncut-page',
+                    reconciled: false,
+                });
+            }
+        });
+
+        const detection = await runScanCleanupDetection(
+            {
+                ownerId: 'owner',
+                sourcePdfPath: '/tmp/serialize-batch.pdf',
+                documentRevision: 'rev',
+                options: {
+                    preserveOriginalQuality: false,
+                    layoutMode: 'auto',
+                    outputMode: 'auto',
+                    readingOrder: 'ltr',
+                    thickness: 0,
+                    crop: true,
+                    matchPageSize: false,
+                    pageAlignment: 'top-center',
+                    marginsMm: {leftMm: 0, topMm: 0, rightMm: 0, bottomMm: 0},
+                    skipBlankPages: false,
+                    pageOverrides: {},
+                },
+            },
+            new AbortController().signal,
+            retention,
+            {
+                fileSystem,
+                getAvailableScratchBytes: vi.fn(async () => 4 * 1024 * 1024 * 1024),
+                getTempDir: () => tempDir,
+                getPdftoppmBinary: () => 'pdftoppm',
+                resolveBinary: () => 'evb-scan-cleanup',
+                renderPage,
+                renderPageBatch,
+                renderPagePpm: vi.fn(),
+                runSidecar,
+            },
+            {rasterConcurrency: 1, serializeStages: true} as Parameters<typeof runScanCleanupDetection>[4],
+            () => undefined,
+        );
+        resultStores.push(detection.resultStore);
+
+        expect(renderPage).not.toHaveBeenCalled();
+        expect(renderDuringSidecar).toBe(false);
+        expect(batchRuns).toHaveLength(3);
+        expect(batchRuns[0]).toEqual({dpi: 150, pages: [1, 2, 3]});
+        expect(batchRuns[1]).toEqual({dpi: 150, pages: [5, 6]});
+        expect(batchRuns[2]?.pages).toEqual([7, 8]);
+        expect(batchRuns[2]?.dpi).toBeLessThan(150);
+        expect(detection.results).toHaveLength(8);
+    });
 });

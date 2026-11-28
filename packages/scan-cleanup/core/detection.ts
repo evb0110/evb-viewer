@@ -801,19 +801,13 @@ async function runBatchedScanCleanupDetection<TDocument>(
         await fileSystem.writeFile(manifestPath, JSON.stringify(manifest));
         if (preStagePageNumbers.length > 0) {
             try {
-                if (batchRenderer !== undefined && totalPages > SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
+                if (batchRenderer !== undefined) {
                     for (const run of splitContiguousPageRuns(preStagePageNumbers, analysisDpi)) {
                         await renderAndRetainBatch(run);
                         for (const pageNumber of run) {
                             preStagedPages.add(pageNumber);
                             recordRasterizedPage(pageNumber);
                         }
-                    }
-                } else if (batchRenderer !== undefined) {
-                    for (const pageNumber of preStagePageNumbers) {
-                        await renderAndRetainBatch([pageNumber]);
-                        preStagedPages.add(pageNumber);
-                        recordRasterizedPage(pageNumber);
                     }
                 } else {
                     for (const pageNumber of preStagePageNumbers) {
