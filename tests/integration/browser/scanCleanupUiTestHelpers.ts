@@ -289,7 +289,7 @@ export const conversionModes = [
     },
     {
         name: 'Keep original images',
-        radio: 'Auto — recommended per page',
+        radio: 'Original images',
         outputMode: 'auto',
     },
 ] as const;
@@ -298,12 +298,7 @@ export type TConversionMode = (typeof conversionModes)[number];
 
 /** Pin geometry through the controls, including the lossless no-resample path. */
 export async function prepareConversionSource(page: Page) {
-    for (const name of [
-        'Crop each output page to its content',
-        'Match page size with other pages',
-        'Skip blank pages',
-        'Keep original images',
-    ]) {
+    for (const name of ['Crop each output page to its content', 'Match page size with other pages', 'Skip blank pages']) {
         await page
             .getByRole('checkbox', {
                 name,
@@ -312,12 +307,6 @@ export async function prepareConversionSource(page: Page) {
             .setChecked(false);
     }
     await select(page, 'Page layout', 'Force single pages');
-    await page
-        .getByRole('radio', {
-            name: 'Left to right',
-            exact: true,
-        })
-        .click();
     const linked = page.getByRole('switch', {
         name: 'Link margins',
         exact: true,

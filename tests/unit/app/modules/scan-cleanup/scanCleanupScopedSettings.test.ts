@@ -327,7 +327,7 @@ describe('scan cleanup selection override state', () => {
         expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1))).not.toHaveProperty('manualZones');
         expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1))).not.toHaveProperty('manualSkewDegrees');
 
-        selection.setSettingsScope('page');
+        selection.setSettingsTab('pages');
         selection.updateScopeOverrides((current) => ({
             ...current,
             rotationDegrees: 90,
@@ -393,7 +393,7 @@ describe('scan cleanup selection override state', () => {
             },
         });
 
-        selection.setSettingsScope('page');
+        selection.setSettingsTab('pages');
         expect(marginsLinked.value).toBe(true);
         selection.updateScopeMargins('leftMm', 7);
         expect(

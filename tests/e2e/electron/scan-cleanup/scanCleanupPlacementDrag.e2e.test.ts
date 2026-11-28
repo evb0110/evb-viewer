@@ -156,7 +156,7 @@ describe('scan cleanup placement drag', () => {
         await clickVisibleToolbarButton(page, 'Scan cleanup');
         await page.waitForSelector('.scan-cleanup-surface', {visible: true});
         await dismissScanCleanupFirstRunGuidance(page);
-        await clickAsUser(page, '[data-settings-scope="page"]');
+        await clickAsUser(page, '[data-settings-tab="pages"]');
         await clickAsUser(page, '[role="combobox"][aria-label="Page layout"]');
         await clickFoundAsUser(
             page,
@@ -167,6 +167,7 @@ describe('scan cleanup placement drag', () => {
             undefined,
             {description: 'Two-page spread'},
         );
+        await clickAsUser(page, '[data-settings-tab="document"]');
         for (const text of ['Crop each output page to its content', 'Match page size with other pages']) {
             const checked = await page.evaluate((labelText: string) => {
                 const label = [...document.querySelectorAll('label')].find((candidate) => candidate.textContent?.trim() === labelText);

@@ -41,22 +41,13 @@ export default {
         settings: {
             title: 'Instellingen',
             changedFromDefaults: 'Gewijzigd ten opzichte van de standaard: {settings}',
-            scope: {
-                label: 'Bereik van instellingen',
-                all: 'Alle pagina’s',
+            tabs: {
+                document: 'Document',
                 page: 'Pagina {page}',
-                selected: plural({
-                    one: '{count} geselecteerd',
-                    other: '{count} geselecteerd',
-                }),
+                pages: '{count} pagina’s',
+            },
+            scope: {
                 pageCustomized: 'Deze pagina heeft aangepaste instellingen',
-                allContext: 'Geldt voor elke pagina.',
-                allContextCustomized: 'Geldt voor elke pagina, behalve waar een pagina eigen instellingen heeft.',
-                pageContext: 'Geldt alleen voor pagina {page}.',
-                selectedContext: plural({
-                    one: 'Geldt alleen voor de geselecteerde pagina.',
-                    other: 'Geldt alleen voor de {count} geselecteerde pagina’s.',
-                }),
             },
             applyThisPageTo: 'Instellingen van deze pagina kopiëren naar…',
             rotation: 'Rotatie',
@@ -70,20 +61,16 @@ export default {
             manual: 'Handmatig',
             manualSkew: 'Rechtzethoek',
             manualSkewRange: '{min}° tot {max}°',
-            detectedSkew: 'Gedetecteerd: {angle}°',
             returnToAutomatic: 'Terug naar automatisch',
             contentPlacement: 'Plaatsing van inhoud',
             inkNeedsContentBoxes:
                 'Automatisch rechttrekken vervangt de gedetecteerde inhoud, dus de inktplaatsing valt terug op “boven, gecentreerd”.',
-            resetScope: {
-                all: 'Alle overschrijvingen resetten…',
-                page: 'Deze pagina opnieuw instellen…',
-                selected: "Geselecteerde pagina's opnieuw instellen…",
-                confirm: 'Overeenkomende paginaoverschrijvingen opnieuw instellen?',
-                allBody: 'Elke overschrijving per pagina in dit document wordt gewist.',
-                pageBody: 'Overschrijvingen voor pagina {page} worden gewist.',
-                selectedBody: "Overschrijvingen voor geselecteerde {count}-pagina's worden gewist.",
+            resetDocument: {
+                confirm: 'Alles terugzetten naar de standaardwaarden?',
+                body: 'Alle instellingen en de eigen instellingen van elke pagina worden teruggezet naar de standaardwaarden. Dit kan niet ongedaan worden gemaakt.',
             },
+            resetPage: 'Pagina resetten',
+            resetPages: '{count} pagina’s resetten',
             applyScopes: {
                 menuLabel: 'Kopiëren naar',
                 allPages: "Alle pagina's",
@@ -93,8 +80,8 @@ export default {
             },
         },
         groups: {
-            pageSettings: 'Pagina-instellingen',
-            documentSettings: 'Documentinstellingen',
+            layout: 'Indeling',
+            cropAndSize: 'Bijsnijden en grootte',
         },
         layout: {
             label: 'Pagina-indeling',
@@ -107,9 +94,9 @@ export default {
         },
         output: {
             label: 'Uitvoer',
-            preserveOriginalQuality: 'Originele afbeeldingen behouden',
+            preserveOriginalQuality: 'Originele afbeeldingen',
             losslessDisabledOptions:
-                'Pagina’s behouden hun gescande afbeeldingen en worden alleen gesplitst, bijgesneden en gedraaid. Opschonen, kleurconversie en rechtzetten staan uit.',
+                'De gescande afbeeldingen van de pagina’s blijven ongewijzigd. Splitsen van spreads, draaien, bijsnijden en paginaformaat worden nog steeds toegepast.',
             autoShort: 'Auto',
             autoDescription: 'Automatisch — aanbevolen per pagina',
             pageLabel: 'Uitvoermodus',
@@ -224,15 +211,8 @@ export default {
             lowConfidenceHint:
                 'Gedetecteerd als ‘{classification}’ met lage betrouwbaarheid. Controleer deze pagina en stel de indeling handmatig in als deze onjuist is.',
             textAxisHint: 'Tekst wordt zijdelings weergegeven: stel de rotatie in (90° of 270°).',
-            outputModeFollowDocument: 'Documentinstelling volgen',
-            outputModeRecommendationHintKnown:
-                'Aanbevolen: {mode} — betrouwbaarheid: {confidence}. Kies een modus om de aanbeveling te overschrijven.',
-            outputModeRecommendationHintUnknown: 'Aanbevolen: {mode}. Kies een modus om de aanbeveling te overschrijven.',
-            outputModeRecommendationPending: 'De automatische aanbeveling voor de uitvoermodus is nog niet beschikbaar.',
-            outputModeOverrideHint: 'Pagina-instelling: {mode}. Kies ‘Documentinstelling volgen’ om de documentinstelling te gebruiken.',
-            outputModeDocumentHint: 'Effectieve modus: {mode} — volgt de documentinstelling.',
-            outputModeLosslessControlHint:
-                'De uitvoermodus per pagina is niet beschikbaar, omdat bij behoud van de oorspronkelijke kwaliteit kleur verplicht is.',
+            outputModeFollowDocument: 'Document volgen',
+            outputModeFollowDocumentWithMode: 'Document volgen · {mode}',
             processed: 'Verwerkt',
             processing: 'Pagina {page} verwerken',
             sourceLoading: "Bronpagina's laden…",
@@ -337,7 +317,6 @@ export default {
             previous: 'Voorbeeld vorige pagina',
             next: 'Voorbeeld volgende pagina',
             comparison: 'Voorbeeldvergelijking',
-            preview: 'Voorbeeld',
             original: 'Origineel',
             cleaned: 'Opgeschoond',
             zoomControls: 'Voorbeeldzoom',
@@ -391,7 +370,7 @@ export default {
         rasterNotice:
             "Kleur behoudt de scankleur; grijswaarden converteert het naar grijs. Pagina's worden gerasterd met de gedetecteerde bronresolutie (150–600 DPI).",
         lossNotice:
-            'Brontekst en annotaties blijven behouden op de opgeschoonde pagina’s. Een pagina waarvan de kromming wordt gecorrigeerd of die anders wordt vervormd (niet-affien) behoudt alleen haar afbeelding, dus een verwerking die een pagina met annotaties zou vervormen, stopt. Zet de correctie van paginakromming uit of ‘Originele afbeeldingen behouden’ aan om ze te behouden. Formulieren, bijlagen en vectortekeningen worden niet overgedragen.',
+            'Brontekst en annotaties blijven behouden op de opgeschoonde pagina’s. Een pagina waarvan de kromming wordt gecorrigeerd of die anders wordt vervormd (niet-affien) behoudt alleen haar afbeelding, dus een verwerking die een pagina met annotaties zou vervormen, stopt. Zet de correctie van paginakromming uit of ‘Originele afbeeldingen’ aan om ze te behouden. Formulieren, bijlagen en vectortekeningen worden niet overgedragen.',
         imageOnly: 'Pagina’s worden opnieuw opgebouwd als afbeeldingen —',
         details: 'Details',
         cleanUp: 'Opschonen',

@@ -62,7 +62,7 @@ describe('public catalog cleanup proof', () => {
             await clickAsUser(page, '.scan-cleanup-first-run-guidance button');
             await page.waitForSelector('.scan-cleanup-first-run-guidance', {hidden: true});
         }
-        await clickAsUser(page, '[data-settings-scope="all"]');
+        await clickAsUser(page, '[data-settings-tab="document"]');
         await clickAsUser(page, '[aria-label="Page layout"]');
         await clickFoundAsUser(
             page,
@@ -73,12 +73,7 @@ describe('public catalog cleanup proof', () => {
             undefined,
             {description: 'Force single pages'},
         );
-        for (const label of [
-            'Keep original images',
-            'Crop each output page to its content',
-            'Match page size with other pages',
-            'Skip blank pages',
-        ]) {
+        for (const label of ['Crop each output page to its content', 'Match page size with other pages', 'Skip blank pages']) {
             const id = await page.$$eval(
                 'label',
                 (labels, text) => labels.find((el) => el.textContent?.trim() === text)?.getAttribute('for'),
@@ -244,7 +239,7 @@ describe('public catalog cleanup proof', () => {
                 const exclusion = '.scan-thumbnail-overlay[data-page-number="3"] .scan-thumbnail-exclude-toggle';
                 await toggle(exclusion, mode === 'identity-lossless');
 
-                await toggle('[data-settings-scope="all"]', true);
+                await toggle('[data-settings-tab="document"]', true);
                 const layout = mode === 'compact-fit-split' ? 'Force two-page spreads' : 'Force single pages';
                 if ((await page.$eval('[aria-label="Page layout"]', (el) => el.textContent?.trim())) !== layout) {
                     await clickAsUser(page, '[aria-label="Page layout"]');
@@ -266,6 +261,13 @@ describe('public catalog cleanup proof', () => {
                     {},
                     layout,
                 );
+                await clickAsUser(page, '[data-document-output]');
+                await clickFoundAsUser(
+                    page,
+                    (label) => [...document.querySelectorAll('[role=option]')].find((el) => el.textContent?.trim() === label),
+                    mode.startsWith('compact') ? 'Auto — recommended per page' : 'Original images',
+                    {description: 'Document output'},
+                );
                 async function checkbox(label: string, wanted: boolean) {
                     const id = await page.$$eval(
                         'label',
@@ -275,13 +277,20 @@ describe('public catalog cleanup proof', () => {
                     expect(id, label).toBeTruthy();
                     await toggle(`[id="${id}"]`, wanted);
                 }
-                await checkbox('Keep original images', !mode.startsWith('compact'));
-                if (mode.startsWith('compact')) {
-                    await toggle('[role=radio][aria-label="Auto — recommended per page"]', true);
-                }
                 await checkbox('Crop each output page to its content', false);
                 await checkbox('Match page size with other pages', false);
-                await checkbox('Skip blank pages', false);
+                if (mode.startsWith('compact')) {
+                    await checkbox('Skip blank pages', false);
+                }
+                expect(
+                    await page.evaluate(
+                        (choices) =>
+                            Object.entries(choices).every(
+                                (choice) => document.querySelector(choice[0])?.getAttribute('aria-checked') === choice[1],
+                            ),
+                        choices,
+                    ),
+                ).toBe(true);
                 // Auto Color bypasses illumination normalization; keep this fixture on that path.
                 if (mode.startsWith('compact')) {
                     await page.waitForFunction(() => {
@@ -300,15 +309,6 @@ describe('public catalog cleanup proof', () => {
                 expect(
                     await page.$$eval('.scan-thumbnail-exclude-toggle', (els) => els.map((el) => el.getAttribute('aria-checked'))),
                 ).toEqual(inclusion);
-                expect(
-                    await page.evaluate(
-                        (choices) =>
-                            Object.entries(choices).every(
-                                (choice) => document.querySelector(choice[0])?.getAttribute('aria-checked') === choice[1],
-                            ),
-                        choices,
-                    ),
-                ).toBe(true);
                 expect(await page.$eval('[aria-label="Page layout"]', (el) => el.textContent?.trim())).toBe(layout);
                 await page.screenshot({path: resolve(evidence, `${mode}-settings.png`)});
                 await clickAsUser(page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);

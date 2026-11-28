@@ -65,7 +65,6 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         editDocumentSettings: settings.editDocumentSettings,
         updateDocumentMargin: settings.updateMargin,
         setDocumentMarginsLinked: settings.setMarginsLinked,
-        resetPageOverrides: settings.resetPageOverrides,
         settings: settings.values,
         saveLeader: () => saveViewState(),
     });
@@ -176,15 +175,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         placementAnchorsByPage,
         previewTotalPages: () => previewResult.totalPages.value,
         resolveConversionEvidence: detection.resolveConversionEvidence,
-        sourcePageNumbers: computed(() => {
-            if (selection.settingsScope.value === 'all') {
-                return null;
-            }
-            if (selection.settingsScope.value === 'page') {
-                return [selection.leader.value];
-            }
-            return [...selection.selectedPages.value].sort((left, right) => left - right);
-        }),
+        selectionPageNumbers: selection.pageTabPageNumbers,
         resolvedOptions,
         settings: settings.values,
         sourcePath,

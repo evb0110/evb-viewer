@@ -41,22 +41,13 @@ export default {
         settings: {
             title: 'Impostazioni',
             changedFromDefaults: 'Modificato rispetto ai valori predefiniti: {settings}',
-            scope: {
-                label: 'Ambito delle impostazioni',
-                all: 'Tutte le pagine',
+            tabs: {
+                document: 'Documento',
                 page: 'Pagina {page}',
-                selected: plural({
-                    one: '{count} selezionata',
-                    other: '{count} selezionate',
-                }),
+                pages: '{count} pagine',
+            },
+            scope: {
                 pageCustomized: 'Questa pagina ha impostazioni personalizzate',
-                allContext: 'Si applica a tutte le pagine.',
-                allContextCustomized: 'Si applica a tutte le pagine, tranne dove una pagina ha impostazioni proprie.',
-                pageContext: 'Si applica solo alla pagina {page}.',
-                selectedContext: plural({
-                    one: 'Si applica solo alla pagina selezionata.',
-                    other: 'Si applica solo alle {count} pagine selezionate.',
-                }),
             },
             applyThisPageTo: 'Copia le impostazioni di questa pagina in…',
             rotation: 'Rotazione',
@@ -70,20 +61,16 @@ export default {
             manual: 'Manuale',
             manualSkew: 'Angolo di raddrizzamento',
             manualSkewRange: 'da {min}° a {max}°',
-            detectedSkew: 'Rilevata: {angle}°',
             returnToAutomatic: 'Torna alla modalità automatica',
             contentPlacement: 'Posizionamento dei contenuti',
             inkNeedsContentBoxes:
                 'Il raddrizzamento automatico sostituisce il contenuto rilevato, quindi la posizione dell’inchiostro passa a «In alto al centro».',
-            resetScope: {
-                all: 'Ripristina tutte le impostazioni specifiche…',
-                page: 'Reimposta questa pagina…',
-                selected: 'Reimposta le pagine selezionate…',
-                confirm: 'Ripristinare le impostazioni specifiche corrispondenti?',
-                allBody: 'Tutte le impostazioni specifiche delle pagine di questo documento verranno cancellate.',
-                pageBody: 'Le impostazioni specifiche della pagina {page} verranno cancellate.',
-                selectedBody: 'Le impostazioni specifiche delle {count} pagine selezionate verranno cancellate.',
+            resetDocument: {
+                confirm: 'Ripristinare tutto ai valori predefiniti?',
+                body: 'Tutte le impostazioni, comprese quelle specifiche delle pagine, torneranno ai valori predefiniti. Questa operazione non può essere annullata.',
             },
+            resetPage: 'Ripristina pagina',
+            resetPages: 'Ripristina {count} pagine',
             applyScopes: {
                 menuLabel: 'Copia in',
                 allPages: 'Tutte le pagine',
@@ -93,8 +80,8 @@ export default {
             },
         },
         groups: {
-            pageSettings: 'Impostazioni della pagina',
-            documentSettings: 'Impostazioni del documento',
+            layout: 'Layout',
+            cropAndSize: 'Ritaglio e dimensioni',
         },
         layout: {
             label: 'Layout della pagina',
@@ -107,9 +94,9 @@ export default {
         },
         output: {
             label: 'Output',
-            preserveOriginalQuality: 'Mantieni le immagini originali',
+            preserveOriginalQuality: 'Immagini originali',
             losslessDisabledOptions:
-                'Le pagine mantengono le immagini scansionate e vengono solo divise, ritagliate e ruotate. Pulizia, conversione del colore e raddrizzamento sono disattivati.',
+                'Le immagini acquisite delle pagine rimangono invariate. La separazione delle pagine affiancate, la rotazione, il ritaglio e le dimensioni della pagina vengono comunque applicati.',
             autoShort: 'Auto',
             autoDescription: 'Automatico — consigliato per ogni pagina',
             pageLabel: 'Modalità di output',
@@ -224,16 +211,8 @@ export default {
             lowConfidenceHint:
                 'Rilevato come "{classification}" con scarsa probabilità: controlla questa pagina e impostane manualmente il layout se errato.',
             textAxisHint: 'Il testo appare lateralmente: imposta la rotazione (90° o 270°).',
-            outputModeFollowDocument: 'Usa impostazione documento',
-            outputModeRecommendationHintKnown:
-                'Consigliata: {mode} — attendibilità: {confidence}. Scegli una modalità per sostituire il consiglio.',
-            outputModeRecommendationHintUnknown: 'Consigliata: {mode}. Scegli una modalità per sostituire il consiglio.',
-            outputModeRecommendationPending: 'Il consiglio automatico per la modalità di output è in attesa.',
-            outputModeOverrideHint:
-                'Impostazione pagina: {mode}. Scegli «Usa impostazione documento» per applicare l’impostazione del documento.',
-            outputModeDocumentHint: 'Modalità effettiva: {mode} — segue l’impostazione del documento.',
-            outputModeLosslessControlHint:
-                'La modalità di output per pagina non è disponibile perché il mantenimento della qualità originale impone il colore.',
+            outputModeFollowDocument: 'Segui il documento',
+            outputModeFollowDocumentWithMode: 'Segui il documento · {mode}',
             processed: 'Elaborato',
             processing: 'Elaborazione pagina {page}',
             sourceLoading: 'Caricamento delle pagine di origine…',
@@ -337,7 +316,6 @@ export default {
             previous: 'Anteprima della pagina precedente',
             next: 'Anteprima della pagina successiva',
             comparison: 'Confronto in anteprima',
-            preview: 'Anteprima',
             original: 'Originale',
             cleaned: 'Pulito',
             zoomControls: 'Zoom anteprima',
@@ -390,7 +368,7 @@ export default {
         rasterNotice:
             'Il colore conserva il colore della scansione; la scala di grigi lo converte in grigio. Le pagine vengono rasterizzate alla risoluzione sorgente rilevata (150–600 DPI).',
         lossNotice:
-            'Il testo di origine e le annotazioni vengono conservati sulle pagine pulite. Una pagina di cui si corregge la curvatura o che viene altrimenti deformata (non affine) conserva solo la sua immagine, quindi un’elaborazione che deformerebbe una pagina con annotazioni si interrompe. Disattiva la correzione della curvatura della pagina o attiva «Mantieni le immagini originali» per mantenerle. Moduli, allegati e disegni vettoriali non vengono trasferiti.',
+            'Il testo di origine e le annotazioni vengono conservati sulle pagine pulite. Una pagina di cui si corregge la curvatura o che viene altrimenti deformata (non affine) conserva solo la sua immagine, quindi un’elaborazione che deformerebbe una pagina con annotazioni si interrompe. Disattiva la correzione della curvatura della pagina o attiva «Immagini originali» per mantenerle. Moduli, allegati e disegni vettoriali non vengono trasferiti.',
         imageOnly: 'Le pagine vengono ricostruite come immagini —',
         details: 'Dettagli',
         cleanUp: 'Pulisci',

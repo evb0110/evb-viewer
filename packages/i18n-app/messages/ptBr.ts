@@ -41,22 +41,13 @@ export default {
         settings: {
             title: 'Configurações',
             changedFromDefaults: 'Alterado em relação ao padrão: {settings}',
-            scope: {
-                label: 'Escopo das configurações',
-                all: 'Todas as páginas',
+            tabs: {
+                document: 'Documento',
                 page: 'Página {page}',
-                selected: plural({
-                    one: '{count} selecionada',
-                    other: '{count} selecionadas',
-                }),
+                pages: '{count} páginas',
+            },
+            scope: {
                 pageCustomized: 'Esta página tem configurações personalizadas',
-                allContext: 'Vale para todas as páginas.',
-                allContextCustomized: 'Vale para todas as páginas, exceto onde uma página tem configurações próprias.',
-                pageContext: 'Vale só para a página {page}.',
-                selectedContext: plural({
-                    one: 'Vale só para a página selecionada.',
-                    other: 'Vale só para as {count} páginas selecionadas.',
-                }),
             },
             applyThisPageTo: 'Copiar as configurações desta página para…',
             rotation: 'Rotação',
@@ -70,20 +61,16 @@ export default {
             manual: 'Manual',
             manualSkew: 'Ângulo de alinhamento',
             manualSkewRange: 'de {min}° a {max}°',
-            detectedSkew: 'Detectada: {angle}°',
             returnToAutomatic: 'Voltar ao automático',
             contentPlacement: 'Posicionamento de conteúdo',
             inkNeedsContentBoxes:
                 'A correção automática da curvatura substitui as caixas de conteúdo detectadas, por isso o posicionamento pela tinta passa a «Coloque próximo ao topo, centralizado».',
-            resetScope: {
-                all: 'Redefinir todas as substituições…',
-                page: 'Redefinir esta página…',
-                selected: 'Redefinir páginas selecionadas…',
-                confirm: 'Redefinir substituições de páginas correspondentes?',
-                allBody: 'Cada substituição por página neste documento será apagada.',
-                pageBody: 'As substituições da página {page} serão apagadas.',
-                selectedBody: 'As substituições das páginas selecionadas {count} serão apagadas.',
+            resetDocument: {
+                confirm: 'Restaurar tudo para os padrões?',
+                body: 'Todas as configurações, inclusive as configurações próprias de cada página, voltarão aos padrões. Esta ação não pode ser desfeita.',
             },
+            resetPage: 'Restaurar página',
+            resetPages: 'Restaurar {count} páginas',
             applyScopes: {
                 menuLabel: 'Copiar para',
                 allPages: 'Todas as páginas',
@@ -93,8 +80,8 @@ export default {
             },
         },
         groups: {
-            pageSettings: 'Configurações da página',
-            documentSettings: 'Configurações do documento',
+            layout: 'Layout',
+            cropAndSize: 'Recorte e tamanho',
         },
         layout: {
             label: 'Layout da página',
@@ -107,9 +94,9 @@ export default {
         },
         output: {
             label: 'Saída',
-            preserveOriginalQuality: 'Manter as imagens originais',
+            preserveOriginalQuality: 'Imagens originais',
             losslessDisabledOptions:
-                'As páginas mantêm as imagens digitalizadas e são apenas divididas, recortadas e giradas. Limpeza, conversão de cor e endireitamento ficam desligados.',
+                'As imagens digitalizadas das páginas permanecem inalteradas. A divisão de páginas duplas, a rotação, o recorte e o tamanho da página continuam sendo aplicados.',
             autoShort: 'Auto',
             autoDescription: 'Automático — recomendado por página',
             pageLabel: 'Modo de saída',
@@ -225,16 +212,8 @@ export default {
             lowConfidenceHint:
                 'Detectado como "{classification}" com baixa confiança — verifique esta página e defina seu layout manualmente se estiver errado.',
             textAxisHint: 'O texto aparece lateralmente — defina a rotação (90° ou 270°).',
-            outputModeFollowDocument: 'Seguir configuração do documento',
-            outputModeRecommendationHintKnown:
-                'Recomendado: {mode} — confiança: {confidence}. Escolha um modo para substituir a recomendação.',
-            outputModeRecommendationHintUnknown: 'Recomendado: {mode}. Escolha um modo para substituir a recomendação.',
-            outputModeRecommendationPending: 'A recomendação automática do modo de saída está pendente.',
-            outputModeOverrideHint:
-                'Configuração da página: {mode}. Escolha “Seguir configuração do documento” para usar a configuração do documento.',
-            outputModeDocumentHint: 'Modo efetivo: {mode} — segue a configuração do documento.',
-            outputModeLosslessControlHint:
-                'O modo de saída por página não está disponível porque preservar a qualidade original obriga a usar cor.',
+            outputModeFollowDocument: 'Seguir o documento',
+            outputModeFollowDocumentWithMode: 'Seguir o documento · {mode}',
             processed: 'Processado',
             processing: 'Processando página {page}',
             sourceLoading: 'Carregando páginas de origem…',
@@ -338,7 +317,6 @@ export default {
             previous: 'Pré-visualizar a página anterior',
             next: 'Pré-visualizar a próxima página',
             comparison: 'Comparação da pré-visualização',
-            preview: 'Pré-visualização',
             original: 'Original',
             cleaned: 'Limpo',
             zoomControls: 'Zoom da pré-visualização',
@@ -391,7 +369,7 @@ export default {
         rasterNotice:
             'A cor preserva as cores da digitalização; os tons de cinza as convertem em cinza. As páginas são rasterizadas na resolução de origem detectada (150–600 DPI).',
         lossNotice:
-            'O texto de origem e as anotações são preservados nas páginas limpas. Uma página cuja curvatura é corrigida ou que é deformada de outra forma (não afim) mantém apenas a imagem, então um processamento que deformaria uma página com anotações é interrompido. Desative a correção da curvatura da página ou ative “Manter as imagens originais” para mantê-las. Formulários, anexos e desenhos vetoriais não são transferidos.',
+            'O texto de origem e as anotações são preservados nas páginas limpas. Uma página cuja curvatura é corrigida ou que é deformada de outra forma (não afim) mantém apenas a imagem, então um processamento que deformaria uma página com anotações é interrompido. Desative a correção da curvatura da página ou ative “Imagens originais” para mantê-las. Formulários, anexos e desenhos vetoriais não são transferidos.',
         imageOnly: 'As páginas são reconstruídas como imagens —',
         details: 'Detalhes',
         cleanUp: 'Limpar',

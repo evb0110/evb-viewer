@@ -364,12 +364,7 @@ function naturalPage(position: number) {
 }
 
 function pageOverride(page: number) {
-    return getScanCleanupPageOverride(
-        overrides,
-        requirePageNumber(page, Math.max(1, railPageCount.value)),
-        pageOverrideDefaults,
-        marginsMm,
-    );
+    return getScanCleanupPageOverride(overrides, requirePageNumber(page), pageOverrideDefaults, marginsMm);
 }
 
 function isCustomized(override: IScanCleanupPageOverride) {
@@ -429,7 +424,8 @@ function classificationKind(page: number) {
 
 // One sentence per thumbnail instead of a strip of chips: what the page will be
 // cut into, rendered as, and rotated by, dropped to "Excluded" when it will not
-// reach the output at all.
+// reach the output at all. Original images keeps every scan as it is, so no
+// page has an output mode to name.
 function statusSummary(page: number, override: IScanCleanupPageOverride) {
     if (override.excluded) {
         return t('scanCleanup.pages.excludedBadge');
@@ -437,7 +433,7 @@ function statusSummary(page: number, override: IScanCleanupPageOverride) {
     const rotation = override.rotationDegrees;
     return [
         scanCleanupLayoutLabel(t, override, classifications.get(page)),
-        scanCleanupOutputModeShortLabel(t, displayedOutputMode(page, override)),
+        preserveOriginalQuality ? '' : scanCleanupOutputModeShortLabel(t, displayedOutputMode(page, override)),
         rotation === 0 ? '' : `${rotation}°`,
     ]
         .filter(Boolean)

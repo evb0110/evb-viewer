@@ -42,22 +42,13 @@ export default {
         settings: {
             title: 'Einstellungen',
             changedFromDefaults: 'Gegenüber den Standardwerten geändert: {settings}',
-            scope: {
-                label: 'Einstellungsbereich',
-                all: 'Alle Seiten',
+            tabs: {
+                document: 'Dokument',
                 page: 'Seite {page}',
-                selected: plural({
-                    one: '{count} ausgewählt',
-                    other: '{count} ausgewählt',
-                }),
+                pages: '{count} Seiten',
+            },
+            scope: {
                 pageCustomized: 'Diese Seite hat eigene Einstellungen',
-                allContext: 'Gilt für alle Seiten.',
-                allContextCustomized: 'Gilt für alle Seiten, außer wo eine Seite eigene Einstellungen hat.',
-                pageContext: 'Gilt nur für Seite {page}.',
-                selectedContext: plural({
-                    one: 'Gilt nur für die ausgewählte Seite.',
-                    other: 'Gilt nur für die {count} ausgewählten Seiten.',
-                }),
             },
             applyThisPageTo: 'Einstellungen dieser Seite kopieren nach…',
             rotation: 'Rotation',
@@ -71,20 +62,16 @@ export default {
             manual: 'Manuell',
             manualSkew: 'Neigungswinkel',
             manualSkewRange: '{min}° bis {max}°',
-            detectedSkew: 'Erkannt: {angle}°',
             returnToAutomatic: 'Auf automatisch zurücksetzen',
             contentPlacement: 'Inhaltsplatzierung',
             inkNeedsContentBoxes:
                 'Die automatische Entzerrung ersetzt den erkannten Inhalt, daher weicht die Tintenplatzierung auf „oben mittig“ aus.',
-            resetScope: {
-                all: 'Alle Überschreibungen zurücksetzen…',
-                page: 'Diese Seite zurücksetzen…',
-                selected: 'Ausgewählte Seiten zurücksetzen…',
-                confirm: 'Entsprechende Seitenüberschreibungen zurücksetzen?',
-                allBody: 'Jede seitenweise Überschreibung in diesem Dokument wird gelöscht.',
-                pageBody: 'Überschreibungen für die Seite {page} werden gelöscht.',
-                selectedBody: 'Überschreibungen für {count} ausgewählte Seiten werden gelöscht.',
+            resetDocument: {
+                confirm: 'Alles auf die Standardwerte zurücksetzen?',
+                body: 'Alle Einstellungen und individuellen Seiteneinstellungen werden auf die Standardwerte zurückgesetzt. Dies kann nicht rückgängig gemacht werden.',
             },
+            resetPage: 'Seite zurücksetzen',
+            resetPages: '{count} Seiten zurücksetzen',
             applyScopes: {
                 menuLabel: 'Kopieren nach',
                 allPages: 'Alle Seiten',
@@ -94,8 +81,8 @@ export default {
             },
         },
         groups: {
-            pageSettings: 'Seiteneinstellungen',
-            documentSettings: 'Dokumenteinstellungen',
+            layout: 'Layout',
+            cropAndSize: 'Zuschnitt und Größe',
         },
         layout: {
             label: 'Seitenlayout',
@@ -108,9 +95,9 @@ export default {
         },
         output: {
             label: 'Ausgabe',
-            preserveOriginalQuality: 'Originalbilder behalten',
+            preserveOriginalQuality: 'Originalbilder',
             losslessDisabledOptions:
-                'Seiten behalten ihre gescannten Bilder und werden nur geteilt, zugeschnitten und gedreht. Bereinigung, Farbumwandlung und Begradigung sind aus.',
+                'Die gescannten Bilder der Seiten bleiben unverändert. Das Teilen von Doppelseiten, Drehen, Zuschneiden und die Seitengröße werden weiterhin angewendet.',
             autoShort: 'Auto',
             autoDescription: 'Auto — pro Seite empfohlen',
             pageLabel: 'Ausgabemodus',
@@ -225,16 +212,8 @@ export default {
             lowConfidenceHint:
                 'Mit geringer Sicherheit als „{classification}“ erkannt – überprüfen Sie diese Seite und legen Sie das Layout manuell fest, wenn es falsch ist.',
             textAxisHint: 'Text erscheint seitlich – stellen Sie die Drehung ein (90° oder 270°).',
-            outputModeFollowDocument: 'Dokumenteinstellung verwenden',
-            outputModeRecommendationHintKnown:
-                'Empfohlen: {mode} — Sicherheit: {confidence}. Wählen Sie einen Modus, um die Empfehlung zu überschreiben.',
-            outputModeRecommendationHintUnknown: 'Empfohlen: {mode}. Wählen Sie einen Modus, um die Empfehlung zu überschreiben.',
-            outputModeRecommendationPending: 'Die automatische Empfehlung für den Ausgabemodus steht noch aus.',
-            outputModeOverrideHint:
-                'Seitenüberschreibung: {mode}. Wählen Sie „Dokumenteinstellung verwenden“, um die Dokumenteinstellung zu übernehmen.',
-            outputModeDocumentHint: 'Wirksamer Modus: {mode} — entspricht der Dokumenteinstellung.',
-            outputModeLosslessControlHint:
-                'Der Ausgabemodus pro Seite ist nicht verfügbar, da beim Beibehalten der Originalqualität Farbe erzwungen wird.',
+            outputModeFollowDocument: 'Dokumenteinstellung übernehmen',
+            outputModeFollowDocumentWithMode: 'Dokumenteinstellung übernehmen · {mode}',
             processed: 'Verarbeitet',
             processing: 'Seite {page} wird verarbeitet',
             sourceLoading: 'Quellseiten werden geladen…',
@@ -339,7 +318,6 @@ export default {
             previous: 'Vorschau der vorherigen Seite',
             next: 'Vorschau der nächsten Seite',
             comparison: 'Vorschauvergleich',
-            preview: 'Vorschau',
             original: 'Original',
             cleaned: 'Gereinigt',
             zoomControls: 'Vorschaumaßstab',
@@ -392,7 +370,7 @@ export default {
         rasterNotice:
             'Farbe erhält die Farben des Scans; Graustufen wandeln ihn in Grau um. Die Seiten werden mit der erkannten Quellauflösung (150–600 DPI) gerastert.',
         lossNotice:
-            'Quelltext und Anmerkungen bleiben auf den bereinigten Seiten erhalten. Eine Seite, deren Krümmung korrigiert oder die anders umgeformt wird (nicht affin), behält nur ihr Bild; ein Lauf, der eine Seite mit Anmerkungen umformen würde, bricht daher ab. Schalten Sie die Korrektur der Seitenkrümmung aus oder „Originalbilder behalten“ ein, um sie zu behalten. Formulare, Anhänge und Vektorgrafiken werden nicht übernommen.',
+            'Quelltext und Anmerkungen bleiben auf den bereinigten Seiten erhalten. Eine Seite, deren Krümmung korrigiert oder die anders umgeformt wird (nicht affin), behält nur ihr Bild; ein Lauf, der eine Seite mit Anmerkungen umformen würde, bricht daher ab. Schalten Sie die Korrektur der Seitenkrümmung aus oder „Originalbilder“ ein, um sie zu behalten. Formulare, Anhänge und Vektorgrafiken werden nicht übernommen.',
         imageOnly: 'Seiten werden als Bilder neu aufgebaut –',
         details: 'Details',
         cleanUp: 'Bereinigen',

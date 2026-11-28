@@ -188,18 +188,7 @@ describe('browser Scan Cleanup workspace', () => {
                 };
                 try {
                     observations.sourceSha256 = sha256(sourceBytes);
-                    await page
-                        .getByRole('radio', {
-                            name: mode.radio,
-                            exact: true,
-                        })
-                        .click();
-                    await page
-                        .getByRole('checkbox', {
-                            name: 'Keep original images',
-                            exact: true,
-                        })
-                        .setChecked(mode.name === 'Keep original images');
+                    await select(page, 'Output', mode.radio);
                     timings.optionsMs = Math.round(performance.now() - startedAt);
                     const cleanUp = page.locator('.scan-cleanup-toolbar button').filter({hasText: /^Clean up/u});
                     observations.beforeRun = {
@@ -276,10 +265,18 @@ describe('browser Scan Cleanup workspace', () => {
                         name: 'Advanced',
                         exact: true,
                     });
-                    await advanced.click();
-                    expect(await advanced.getAttribute('aria-expanded')).toBe('false');
-                    await advanced.click();
-                    expect(await advanced.getAttribute('aria-expanded')).toBe('true');
+                    if (mode.name === 'Keep original images') {
+                        expect(await advanced.count()).toBe(0);
+                        await page.locator('[data-settings-tab="pages"]').click();
+                        await page.locator('[data-settings-tab-panel="pages"]').waitFor({state: 'visible'});
+                        await page.locator('[data-settings-tab="document"]').click();
+                        await page.locator('[data-settings-tab-panel="document"]').waitFor({state: 'visible'});
+                    } else {
+                        await advanced.click();
+                        expect(await advanced.getAttribute('aria-expanded')).toBe('false');
+                        await advanced.click();
+                        expect(await advanced.getAttribute('aria-expanded')).toBe('true');
+                    }
                     expect(
                         Buffer.from(await readPersistedDocumentBytes(page, sourceRef, true)).toString('hex'),
                         'source bytes stay unchanged',
@@ -366,12 +363,7 @@ describe('browser Scan Cleanup workspace', () => {
             }> = [];
             const observePage = async (stage: string, pageNumber: number, expectedMode: string) => {
                 await page.locator(`.scan-thumbnail-rail [data-thumbnail-page="${String(pageNumber)}"]`).click();
-                await page
-                    .getByRole('radio', {
-                        name: `Page ${String(pageNumber)}`,
-                        exact: true,
-                    })
-                    .click();
+                await page.locator('[data-settings-tab="pages"]').click();
                 recordPhase(`${stage}: page ${String(pageNumber)} preview wait`);
                 await waitForPixels(page, pageNumber);
                 recordPhase(`${stage}: page ${String(pageNumber)} preview ready`);
@@ -381,12 +373,9 @@ describe('browser Scan Cleanup workspace', () => {
                         exact: true,
                     })
                     .innerText();
-                const documentGrayscale = await page
-                    .getByRole('radio', {
-                        name: 'Grayscale',
-                        exact: true,
-                    })
-                    .getAttribute('aria-checked');
+                await page.locator('[data-settings-tab="document"]').click();
+                const documentGrayscale = await page.locator('[data-document-output]').innerText();
+                await page.locator('[data-settings-tab="pages"]').click();
                 const previewSha256 = await cleanedPixels(page);
                 observations.push({
                     stage,
@@ -403,7 +392,7 @@ describe('browser Scan Cleanup workspace', () => {
                     );
                 }
                 expect(outputMode, `${stage}: Page ${String(pageNumber)} output mode`).toBe(expectedMode);
-                expect(documentGrayscale, `${stage}: document output remains Grayscale`).toBe('true');
+                expect(documentGrayscale, `${stage}: document output remains Grayscale`).toBe('Grayscale');
                 return previewSha256;
             };
             try {
@@ -417,12 +406,7 @@ describe('browser Scan Cleanup workspace', () => {
                 recordPhase('workspace opened');
                 const originalRef = await documentRef(page);
                 expect(originalRef).toBeTypeOf('string');
-                await page
-                    .getByRole('radio', {
-                        name: 'Grayscale',
-                        exact: true,
-                    })
-                    .click();
+                await select(page, 'Output', 'Grayscale');
                 // Pixel references must use the completed document layout; its
                 // provisional preview can still become a spread during analysis.
                 recordPhase('initial document analysis wait');
@@ -432,12 +416,7 @@ describe('browser Scan Cleanup workspace', () => {
                 await waitForPixels(page, 1);
                 const grayscalePage1 = await cleanedPixels(page);
                 recordPhase('Grayscale preview ready');
-                await page
-                    .getByRole('radio', {
-                        name: 'Page 1',
-                        exact: true,
-                    })
-                    .click();
+                await page.locator('[data-settings-tab="pages"]').click();
                 await select(page, 'Output mode', 'Color');
                 recordPhase('Color preview wait');
                 await waitForPixels(page, 1);
@@ -445,7 +424,7 @@ describe('browser Scan Cleanup workspace', () => {
                 const colorPage1 = await observePage('before-save', 1, 'Color');
                 recordPhase('Color override ready');
                 expect(colorPage1, 'the painted Color preview differs from Grayscale on the same scan').not.toBe(grayscalePage1);
-                const grayscalePage2 = await observePage('before-save', 2, 'Follow document setting');
+                const grayscalePage2 = await observePage('before-save', 2, 'Follow document · Grayscale');
                 recordPhase('inherited Grayscale ready');
                 // Finish editing as a person would, before using the reader's save controls.
                 await page
@@ -525,7 +504,7 @@ describe('browser Scan Cleanup workspace', () => {
                 recordPhase('reopened document analysis ready');
                 expect(await observePage('after-reload', 1, 'Color')).toBe(colorPage1);
                 recordPhase('reopened Color override verified');
-                expect(await observePage('after-reload', 2, 'Follow document setting')).toBe(grayscalePage2);
+                expect(await observePage('after-reload', 2, 'Follow document · Grayscale')).toBe(grayscalePage2);
                 recordPhase('reopened inherited Grayscale verified');
                 await assertBrowserScope(page);
                 recordPhase('browser scope verified');
@@ -579,12 +558,7 @@ describe('browser Scan Cleanup workspace', () => {
                 await openWorkspace(page, source);
                 const originalRef = await documentRef(page);
                 expect(originalRef).toBeTypeOf('string');
-                await page
-                    .getByRole('radio', {
-                        name: 'Grayscale',
-                        exact: true,
-                    })
-                    .click();
+                await select(page, 'Output', 'Grayscale');
                 await waitForPixels(page, 1);
                 await page
                     .getByRole('button', {
@@ -624,12 +598,7 @@ describe('browser Scan Cleanup workspace', () => {
                 await expect.poll(() => newDocumentRef(page, originalRef)).toBe(true);
                 await showWorkspace(page);
                 await waitForPixels(page, 1);
-                await page
-                    .getByRole('radio', {
-                        name: 'Page 1',
-                        exact: true,
-                    })
-                    .click();
+                await page.locator('[data-settings-tab="pages"]').click();
                 await page.screenshot({path: join(evidenceRoot, 'replacement-page-1.png')});
                 expect(
                     await page
@@ -639,11 +608,14 @@ describe('browser Scan Cleanup workspace', () => {
                         })
                         .innerText(),
                     'the replacement has no page override',
-                ).toBe('Follow document setting');
+                ).toMatch(/^Follow document/u);
                 expect(
-                    await page.getByRole('radio', {name: /^Auto.*recommended per page$/u}).getAttribute('aria-checked'),
+                    await (async () => {
+                        await page.locator('[data-settings-tab="document"]').click();
+                        return page.locator('[data-document-output]').innerText();
+                    })(),
                     'the replacement starts with its own document output setting',
-                ).toBe('true');
+                ).toBe('Auto — recommended per page');
                 await assertBrowserScope(page);
                 expect(problems).toEqual([]);
             } finally {
@@ -753,12 +725,7 @@ describe('browser Scan Cleanup workspace', () => {
             try {
                 await installProbe(page);
                 await openWorkspace(page, await fixture());
-                await page
-                    .getByRole('radio', {
-                        name: 'Black and white',
-                        exact: true,
-                    })
-                    .click();
+                await select(page, 'Output', 'Black and white');
                 await waitForPixels(page, 1);
                 await page
                     .getByRole('radio', {
@@ -777,12 +744,7 @@ describe('browser Scan Cleanup workspace', () => {
                     .click();
                 await waitForPixels(page, 1);
                 await page.screenshot({path: join(evidenceRoot, 'cleaned.png')});
-                await page
-                    .getByRole('radio', {
-                        name: 'Grayscale',
-                        exact: true,
-                    })
-                    .click();
+                await select(page, 'Output', 'Grayscale');
                 await expect
                     .poll(() => page.locator('.uniform-canvas[data-render-dpi]').first().getAttribute('data-render-dpi'))
                     .toBe('150');
@@ -836,12 +798,7 @@ describe('browser Scan Cleanup workspace', () => {
             try {
                 await installProbe(page);
                 await openWorkspace(page, await fixture());
-                await page
-                    .getByRole('radio', {
-                        name: 'Grayscale',
-                        exact: true,
-                    })
-                    .click();
+                await select(page, 'Output', 'Grayscale');
                 await assertBrowserScope(page);
                 await waitForPixels(page, 1);
                 const content = page.locator('.content-overlay').first();
@@ -927,12 +884,7 @@ describe('browser Scan Cleanup workspace', () => {
                         exact: true,
                     })
                     .click();
-                await page
-                    .getByRole('radio', {
-                        name: 'Page 1',
-                        exact: true,
-                    })
-                    .click();
+                await page.locator('[data-settings-tab="pages"]').click();
                 await select(page, 'Output mode', 'Color');
                 await assertBrowserScope(page);
                 await waitForPixels(page, 1);
@@ -982,14 +934,7 @@ describe('browser Scan Cleanup workspace', () => {
                         2,
                     ),
                 );
-                expect(
-                    await page
-                        .getByRole('radio', {
-                            name: 'Grayscale',
-                            exact: true,
-                        })
-                        .getAttribute('aria-checked'),
-                ).toBe('true');
+                expect(await page.locator('[data-document-output]').innerText()).toBe('Grayscale');
                 expect(
                     await page
                         .getByRole('combobox', {
@@ -998,12 +943,7 @@ describe('browser Scan Cleanup workspace', () => {
                         })
                         .innerText(),
                 ).toBe('Force two-page spreads');
-                await page
-                    .getByRole('radio', {
-                        name: 'Page 1',
-                        exact: true,
-                    })
-                    .click();
+                await page.locator('[data-settings-tab="pages"]').click();
                 expect(
                     await page
                         .getByRole('combobox', {
@@ -1064,12 +1004,7 @@ describe('browser Scan Cleanup workspace', () => {
             try {
                 await installProbe(page);
                 await openWorkspace(page, await fixture());
-                await page
-                    .getByRole('radio', {
-                        name: 'Grayscale',
-                        exact: true,
-                    })
-                    .click();
+                await select(page, 'Output', 'Grayscale');
                 await waitForPixels(page, 1);
                 // Navigate while adjacent preparation and the detail debounce can settle.
                 for (let step = 0; step < 5; step += 1) {
@@ -1086,24 +1021,14 @@ describe('browser Scan Cleanup workspace', () => {
                         exact: true,
                     })
                     .click();
-                await page
-                    .getByRole('radio', {
-                        name: 'Color',
-                        exact: true,
-                    })
-                    .click();
+                await select(page, 'Output', 'Color');
                 await page
                     .getByRole('button', {
                         name: 'Preview next page',
                         exact: true,
                     })
                     .click();
-                await page
-                    .getByRole('radio', {
-                        name: 'Grayscale',
-                        exact: true,
-                    })
-                    .click();
+                await select(page, 'Output', 'Grayscale');
                 await waitForPixels(page, 3);
                 await page.locator('.preview-detail-pixel').first().waitFor({
                     state: 'visible',
@@ -1121,12 +1046,7 @@ describe('browser Scan Cleanup workspace', () => {
                 await page.evaluate(() => {
                     (Reflect.get(window, '__sc3bProbe') as IProbe).holdNext = true;
                 });
-                await page
-                    .getByRole('radio', {
-                        name: 'Color',
-                        exact: true,
-                    })
-                    .click();
+                await select(page, 'Output', 'Color');
                 await page.waitForFunction(() => (Reflect.get(window, '__sc3bProbe') as IProbe).held.length > 0);
                 await page.screenshot({path: join(evidenceRoot, 'preview-in-flight.png')});
                 await page
@@ -1143,12 +1063,7 @@ describe('browser Scan Cleanup workspace', () => {
                         exact: true,
                     })
                     .click();
-                await page
-                    .getByRole('radio', {
-                        name: 'Grayscale',
-                        exact: true,
-                    })
-                    .click();
+                await select(page, 'Output', 'Grayscale');
                 await page
                     .locator('[data-document-thumbnail-item]')
                     .filter({has: page.locator('[data-page-number="3"]')})
@@ -1315,18 +1230,7 @@ describe('browser Scan Cleanup workspace', () => {
                     }
                     const sourceRef = await documentRef(page);
                     await prepareConversionSource(page);
-                    await page
-                        .getByRole('radio', {
-                            name: gray.radio,
-                            exact: true,
-                        })
-                        .click();
-                    await page
-                        .getByRole('checkbox', {
-                            name: 'Keep original images',
-                            exact: true,
-                        })
-                        .setChecked(false);
+                    await select(page, 'Output', gray.radio);
                     const tabCount = await page.locator('.tab[data-tab-id]').count();
                     const cleanUp = page.locator('.scan-cleanup-toolbar button').filter({hasText: /^Clean up/u});
                     await cleanUp.click();

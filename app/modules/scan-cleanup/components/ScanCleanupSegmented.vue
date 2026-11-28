@@ -16,6 +16,7 @@
             :aria-checked="item.value === modelValue"
             :disabled="disabled"
             :tabindex="item.value === modelValue || (!hasSelectedItem && index === 0) ? 0 : -1"
+            v-bind="item.attrs"
             @click="select(item.value)"
             @keydown="handleKeydown($event, index)"
         >
@@ -27,6 +28,8 @@
 <script setup lang="ts">
 interface IScanCleanupSegmentedItem {
     ariaLabel?: string;
+    /** Extra attributes for this option's button, such as a stable `data-*` hook. */
+    attrs?: Record<string, string>;
     label: string;
     value: string;
 }

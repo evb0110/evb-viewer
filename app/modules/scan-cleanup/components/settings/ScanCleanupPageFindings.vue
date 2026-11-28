@@ -1,5 +1,6 @@
 <template>
     <div
+        v-if="part === 'hints' && attentionHints.length > 0"
         class="scan-cleanup-page-findings"
         :data-page-findings="pageNumber"
     >
@@ -14,36 +15,37 @@
             />
             <span>{{ hint }}</span>
         </p>
-        <details
-            v-if="diagnosticGroups.length > 0"
-            class="scan-cleanup-page-findings-technical"
-        >
-            <summary>{{ t('scanCleanup.pages.technicalDetails') }}</summary>
-            <dl>
-                <div
-                    v-for="group in diagnosticGroups"
-                    :key="group.title"
-                    class="scan-cleanup-page-findings-group"
-                >
-                    <h4>{{ group.title }}</h4>
-                    <div
-                        v-for="note in group.notes"
-                        :key="note"
-                        class="scan-cleanup-page-findings-note"
-                        >{{ note }}</div
-                    >
-                    <div
-                        v-for="(row, rowIndex) in group.rows"
-                        :key="`${group.title}-${rowIndex}`"
-                        class="scan-cleanup-page-findings-row"
-                    >
-                        <dt>{{ row.label }}</dt>
-                        <dd>{{ row.value }}</dd>
-                    </div>
-                </div>
-            </dl>
-        </details>
     </div>
+    <details
+        v-else-if="part === 'details' && diagnosticGroups.length > 0"
+        class="scan-cleanup-page-findings-technical"
+        :data-page-technical-details="pageNumber"
+    >
+        <summary>{{ t('scanCleanup.pages.technicalDetails') }}</summary>
+        <dl>
+            <div
+                v-for="group in diagnosticGroups"
+                :key="group.title"
+                class="scan-cleanup-page-findings-group"
+            >
+                <h4>{{ group.title }}</h4>
+                <div
+                    v-for="note in group.notes"
+                    :key="note"
+                    class="scan-cleanup-page-findings-note"
+                    >{{ note }}</div
+                >
+                <div
+                    v-for="(row, rowIndex) in group.rows"
+                    :key="`${group.title}-${rowIndex}`"
+                    class="scan-cleanup-page-findings-row"
+                >
+                    <dt>{{ row.label }}</dt>
+                    <dd>{{ row.value }}</dd>
+                </div>
+            </div>
+        </dl>
+    </details>
 </template>
 
 <script setup lang="ts">
@@ -53,13 +55,17 @@ import {
     type IScanCleanupPageFacts,
 } from '@app/modules/scan-cleanup/runtime/describeScanCleanupPage';
 
-const {facts, pageNumber} = defineProps<{
+// The rail shows a page's findings in two places: the hints that need the
+// user's attention at the top of the Pages tab, its technical details at the
+// foot. `part` picks which one this instance renders.
+const {facts, pageNumber, part} = defineProps<{
     facts: IScanCleanupPageFacts;
     pageNumber: number;
+    part: 'hints' | 'details';
 }>();
 const {t} = useTypedI18n();
-const attentionHints = computed(() => scanCleanupPageAttentionHints(t, facts));
-const diagnosticGroups = computed(() => scanCleanupPageDiagnosticGroups(t, facts));
+const attentionHints = computed(() => (part === 'hints' ? scanCleanupPageAttentionHints(t, facts) : []));
+const diagnosticGroups = computed(() => (part === 'details' ? scanCleanupPageDiagnosticGroups(t, facts) : []));
 </script>
 
 <style scoped>
@@ -67,10 +73,6 @@ const diagnosticGroups = computed(() => scanCleanupPageDiagnosticGroups(t, facts
     display: grid;
     gap: var(--app-space-3xl);
     font-size: var(--app-text-size-body-sm);
-}
-
-.scan-cleanup-page-findings:empty {
-    display: none;
 }
 
 .scan-cleanup-page-findings-notice {
@@ -89,6 +91,10 @@ const diagnosticGroups = computed(() => scanCleanupPageDiagnosticGroups(t, facts
     flex: none;
     margin-block-start: var(--app-space-2xs);
     color: var(--ui-warning);
+}
+
+.scan-cleanup-page-findings-technical {
+    font-size: var(--app-text-size-body-sm);
 }
 
 .scan-cleanup-page-findings-technical > summary {

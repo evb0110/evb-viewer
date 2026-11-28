@@ -1264,7 +1264,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             manualSplit: null,
             manualContentBoxes: {left: box(0.118)},
         });
-        mounted.session.selection.setSettingsScope('page');
+        mounted.session.selection.setSettingsTab('pages');
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
         await settle();
         const state = detectionState('detect-2', 'completed');
@@ -1318,7 +1318,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             currentPage: () => 1,
         });
         mounted.session.settings.values.pageAlignment = 'ink';
-        mounted.session.selection.setSettingsScope('page');
+        mounted.session.selection.setSettingsTab('pages');
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
 
         const state = detectionState('detect-1', 'completed');
@@ -1384,7 +1384,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             totalPages: () => 20_001,
         });
         mounted.session.settings.values.pageAlignment = 'ink';
-        mounted.session.selection.setSettingsScope('page');
+        mounted.session.selection.setSettingsTab('pages');
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
 
         const completed = detectionState('detect-1', 'completed');
@@ -1602,20 +1602,20 @@ describe('scan cleanup workspace session detection guidance', () => {
             totalPages: () => pages.value,
         });
         mounted.session.selection.selectPage(3, 'single', [1, 2, 3, 4]);
-        mounted.session.selection.setSettingsScope('page');
+        mounted.session.selection.setSettingsTab('pages');
         await nextTick();
 
         pages.value = 0;
         await nextTick();
-        const whileLoading = {leader: mounted.session.selection.leader.value, scope: mounted.session.selection.settingsScope.value};
+        const whileLoading = {leader: mounted.session.selection.leader.value, scope: mounted.session.selection.settingsTab.value};
         pages.value = 4;
         await nextTick();
         expect({
             whileLoading,
-            loaded: {leader: mounted.session.selection.leader.value, scope: mounted.session.selection.settingsScope.value},
+            loaded: {leader: mounted.session.selection.leader.value, scope: mounted.session.selection.settingsTab.value},
         }).toEqual({
-            whileLoading: {leader: 3, scope: 'page'},
-            loaded: {leader: 3, scope: 'page'},
+            whileLoading: {leader: 3, scope: 'pages'},
+            loaded: {leader: 3, scope: 'pages'},
         });
         mounted.unmount();
     });
@@ -1624,26 +1624,24 @@ describe('scan cleanup workspace session detection guidance', () => {
         capability.value = capabilityHarness().value;
         const mounted = mountSession(`scope-selection-${Date.now()}`);
 
-        expect(mounted.session.selection.settingsScope.value).toBe('all');
+        expect(mounted.session.selection.settingsTab.value).toBe('document');
         expect(mounted.session.run.runLabel.value).toBe('scanCleanup.cleanUp');
         mounted.session.selection.selectPage(2, 'single', [1, 2, 3]);
-        expect(mounted.session.selection.settingsScope.value).toBe('all');
+        expect(mounted.session.selection.settingsTab.value).toBe('document');
 
         mounted.session.selection.selectPage(3, 'toggle', [1, 2, 3]);
         expect(mounted.session.selection.selectedPages.value).toEqual(new Set([2, 3]));
-        expect(mounted.session.selection.settingsScope.value).toBe('selected');
-        expect(mounted.session.selection.highlightedScope.value).toBe('selected');
-        expect(mounted.session.run.runLabel.value).toBe('scanCleanup.cleanUpPages');
+        expect(mounted.session.selection.settingsTab.value).toBe('pages');
+        expect(mounted.session.run.runLabel.value).toBe('scanCleanup.cleanUp');
 
         mounted.session.selection.selectPage(2, 'single', [1, 2, 3]);
         expect(mounted.session.selection.selectedPages.value).toEqual(new Set([2]));
-        expect(mounted.session.selection.settingsScope.value).toBe('page');
-        expect(mounted.session.selection.highlightedScope.value).toBe('page');
-        expect(mounted.session.run.runLabel.value).toBe('scanCleanup.cleanUpPage');
+        expect(mounted.session.selection.settingsTab.value).toBe('pages');
+        expect(mounted.session.run.runLabel.value).toBe('scanCleanup.cleanUp');
 
-        mounted.session.selection.setSettingsScope('all');
+        mounted.session.selection.setSettingsTab('document');
         mounted.session.selection.selectPage(1, 'single', [1, 2, 3]);
-        expect(mounted.session.selection.settingsScope.value).toBe('all');
+        expect(mounted.session.selection.settingsTab.value).toBe('document');
         mounted.unmount();
     });
 
@@ -1661,7 +1659,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
 
         mounted.session.selection.selectPage(5, 'single', [1, 2, 3, 4, 5, 6]);
-        mounted.session.selection.setSettingsScope('page');
+        mounted.session.selection.setSettingsTab('pages');
         mounted.session.selection.updateScopeOverrides((current) => ({
             ...current,
             outputModeOverride: 'color',
@@ -1674,7 +1672,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(mounted.session.selection.leader.value).toBe(1);
         expect([...mounted.session.selection.selectedPages.value]).toEqual([1]);
-        expect(mounted.session.selection.settingsScope.value).toBe('all');
+        expect(mounted.session.selection.settingsTab.value).toBe('document');
         expect([...mounted.session.selection.selectedPages.value].every((page) => page <= 2)).toBe(true);
         expect(mounted.session.selection.currentPageOverride.value.outputModeOverride).toBeUndefined();
 
@@ -1696,7 +1694,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
 
         mounted.session.selection.selectPage(5, 'single', [1, 2, 3, 4, 5, 6]);
-        mounted.session.selection.setSettingsScope('page');
+        mounted.session.selection.setSettingsTab('pages');
         mounted.session.selection.updateScopeOverrides((current) => ({
             ...current,
             outputModeOverride: 'color',
@@ -1709,7 +1707,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(mounted.session.selection.leader.value).toBe(2);
         expect([...mounted.session.selection.selectedPages.value]).toEqual([2]);
-        expect(mounted.session.selection.settingsScope.value).toBe('page');
+        expect(mounted.session.selection.settingsTab.value).toBe('pages');
         expect(mounted.session.selection.currentPageOverride.value.outputModeOverride).toBeUndefined();
         expect([...mounted.session.selection.selectedPages.value].every((page) => page <= 2)).toBe(true);
 
@@ -1731,7 +1729,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
 
         mounted.session.selection.selectPage(2, 'single', [1, 2, 3]);
-        mounted.session.selection.setSettingsScope('page');
+        mounted.session.selection.setSettingsTab('pages');
         mounted.session.selection.updateScopeOverrides((current) => ({
             ...current,
             outputModeOverride: 'color',
@@ -1743,7 +1741,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(mounted.session.selection.leader.value).toBe(1);
         expect([...mounted.session.selection.selectedPages.value]).toEqual([1]);
-        expect(mounted.session.selection.settingsScope.value).toBe('all');
+        expect(mounted.session.selection.settingsTab.value).toBe('document');
         expect(mounted.session.selection.currentPageOverride.value.outputModeOverride).toBeUndefined();
 
         mounted.unmount();
@@ -4009,7 +4007,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         mounted.session.settings.values.outputMode = 'mixed';
         mounted.session.settings.values.thickness = 2;
-        mounted.session.selection.setSettingsScope('page');
+        mounted.session.selection.setSettingsTab('pages');
         vi.mocked(harness.value.start).mockResolvedValue({
             started: true,
             jobId: requireJobId('atomic-cleanup'),
@@ -4049,7 +4047,6 @@ describe('scan cleanup workspace session detection guidance', () => {
                     thickness: 2,
                     marginsMm: expect.objectContaining({leftMm: 5}),
                 }),
-                sourcePageNumbers: [1],
             }),
         );
         mounted.unmount();
@@ -4119,7 +4116,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
 
         mounted.session.selection.selectPage(pageNumbers.at(-1)!, 'range', pageNumbers);
-        expect(mounted.session.selection.settingsScope.value).toBe('selected');
+        expect(mounted.session.selection.settingsTab.value).toBe('pages');
         vi.mocked(harness.value.start).mockResolvedValue({
             started: false,
             jobId: requireJobId('partial-large-run-start'),
@@ -4127,7 +4124,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             errorCode: 'internal',
         });
 
-        const run = mounted.session.run.run();
+        const run = mounted.session.run.runSelection();
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
 
         const refreshed = detectionState('detect-2', 'completed', pageNumbers.length);

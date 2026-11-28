@@ -9,7 +9,6 @@ import type {
     IScanCleanupTextAxis,
     TScanCleanupOutputMode,
     TScanCleanupOutputModeRecommendationReason,
-    TScanCleanupOutputModeSetting,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 
 const LOW_LAYOUT_CONFIDENCE = 0.6;
@@ -120,36 +119,6 @@ export function scanCleanupPageAttentionHints(
         lowConfidence ? t('scanCleanup.pages.lowConfidenceHint', {classification}) : '',
         sideways ? t('scanCleanup.pages.textAxisHint') : '',
     ].filter(Boolean);
-}
-
-/** Which output mode the page gets, and why, in one sentence. */
-export function scanCleanupPageOutputModeHint(
-    t: TTranslateFn,
-    facts: Pick<IScanCleanupPageFacts, 'override' | 'recommendedOutputMode' | 'recommendedOutputModeConfidence'>,
-    documentOutputMode: TScanCleanupOutputModeSetting,
-    preserveOriginalQuality: boolean,
-) {
-    if (preserveOriginalQuality) {
-        return t('scanCleanup.pages.outputModeLosslessControlHint');
-    }
-    const override = facts.override.outputModeOverride;
-    if (override !== undefined) {
-        return t('scanCleanup.pages.outputModeOverrideHint', {mode: scanCleanupOutputModeLabel(t, override)});
-    }
-    if (documentOutputMode !== 'auto') {
-        return t('scanCleanup.pages.outputModeDocumentHint', {mode: scanCleanupOutputModeLabel(t, documentOutputMode)});
-    }
-    const recommended = facts.recommendedOutputMode;
-    if (recommended === undefined) {
-        return t('scanCleanup.pages.outputModeRecommendationPending');
-    }
-    const confidence = facts.recommendedOutputModeConfidence;
-    return confidence === undefined
-        ? t('scanCleanup.pages.outputModeRecommendationHintUnknown', {mode: scanCleanupOutputModeLabel(t, recommended)})
-        : t('scanCleanup.pages.outputModeRecommendationHintKnown', {
-              mode: scanCleanupOutputModeLabel(t, recommended),
-              confidence: `${Math.round(confidence * 100)}%`,
-          });
 }
 
 function definedRows(rows: ReadonlyArray<readonly [string, string | null]>) {
