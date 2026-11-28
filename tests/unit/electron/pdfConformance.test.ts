@@ -96,9 +96,9 @@ vi.mock('@electron/resources/jobBroker', async (importOriginal) => {
 beforeEach(async () => {
     const {JobBroker} = await vi.importActual<typeof TJobBrokerModule>('@electron/resources/jobBroker');
     mocks.broker.current = new JobBroker({
-        cpuTokens: 2,
+        cpuTokens: 1,
         estimatedResidentBytes: 512 * 1024 * 1024,
-        nativeProcesses: 2,
+        nativeProcesses: 1,
         ioWeight: 1,
     });
 });
@@ -253,6 +253,45 @@ describe('analyzePdfConformanceFile', () => {
         await expect(analyzePdfConformanceFile('/tmp/canceled.pdf', {signal: controller.signal})).rejects.toThrow('canceled');
 
         expect(mocks.loggerWarn).not.toHaveBeenCalled();
+    });
+
+    it('admits conformance analysis on a 2-core 4 GiB low-tier broker capacity', async () => {
+        const {JobBroker, resolveMainJobBrokerCapacity} = await vi.importActual<typeof TJobBrokerModule>('@electron/resources/jobBroker');
+        mocks.broker.current = new JobBroker(
+            resolveMainJobBrokerCapacity({
+                logicalCpus: 2,
+                totalRamBytes: 4 * 1024 ** 3,
+                safeMode: false,
+                detectedTier: 'low',
+                performanceMode: 'auto',
+                tier: 'low',
+            }),
+        );
+
+        const result = await analyzePdfConformanceFile('/tmp/low-tier.pdf');
+        expect(result.canIncrementalSave).toBe(true);
+    });
+
+    it('bounds broker admission wait with timeoutMs so conformance preflight cannot stall indefinitely', async () => {
+        const blocker = await mocks.broker.current!.acquire({
+            ownerId: 'occupant',
+            kind: 'occupant',
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 512 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        });
+        try {
+            await expect(analyzePdfConformanceFile('/tmp/blocked.pdf', {timeoutMs: 25})).rejects.toThrow(
+                'PDF conformance analysis timed out after 25ms',
+            );
+            expect(mocks.broker.current!.getSnapshot().queued).toBe(0);
+        } finally {
+            blocker.release();
+        }
     });
 });
 
@@ -727,9 +766,9 @@ describe('conformance admission through the main handler', () => {
         const {tmpdir} = await import('node:os');
         const {JobBroker} = await vi.importActual<typeof TJobBrokerModule>('@electron/resources/jobBroker');
         const resources = {
-            cpuTokens: 2,
+            cpuTokens: 1,
             estimatedResidentBytes: 512 * 1024 * 1024,
-            nativeProcesses: 2,
+            nativeProcesses: 1,
             ioWeight: 1,
         };
         const broker = new JobBroker(resources);

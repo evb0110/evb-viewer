@@ -13,6 +13,7 @@ import {
     type IJobResourceVector,
     resolveMainJobBrokerCapacity,
 } from '@electron/resources/jobBroker';
+import {decodeSystemMemoryInfo} from '@electron/resources/systemMemoryInfo';
 import type {IHostResourceProfileSnapshot, THostResourceTier} from '@contracts/hostResourceProfile';
 
 const CAPACITY = {
@@ -125,9 +126,9 @@ describe('JobBroker', () => {
             ramGiB: 4,
             tier: 'low',
             expected: {
-                cpuTokens: 2,
+                cpuTokens: 1,
                 estimatedResidentBytes: 2 * GIB,
-                nativeProcesses: 2,
+                nativeProcesses: 1,
                 ioWeight: 4,
             },
         },
@@ -800,8 +801,34 @@ describe('JobBroker', () => {
     });
 
     it('keeps nested native-process leases admissible on the low tier', async () => {
-        const broker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low')));
-        const outer = await broker.acquire({
+        const twoCoreBroker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low')));
+        const zeroOuter = await twoCoreBroker.acquire({
+            ownerId: 'djvu-job',
+            kind: 'djvu-output',
+            priority: 'user',
+            resources: {
+                cpuTokens: 0,
+                estimatedResidentBytes: 0,
+                nativeProcesses: 0,
+                ioWeight: 0,
+            },
+        });
+        const innerOnTwoCore = await twoCoreBroker.acquire({
+            ownerId: 'djvu-job',
+            kind: 'djvu-conversion',
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 1,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        });
+        innerOnTwoCore.release();
+        zeroOuter.release();
+
+        const fourCoreBroker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(4, 8 * GIB, 'low')));
+        const outer = await fourCoreBroker.acquire({
             ownerId: 'djvu-job',
             kind: 'djvu-output',
             priority: 'user',
@@ -812,7 +839,7 @@ describe('JobBroker', () => {
                 ioWeight: 1,
             },
         });
-        const inner = await broker.acquire({
+        const inner = await fourCoreBroker.acquire({
             ownerId: 'djvu-job',
             kind: 'djvu-conversion',
             priority: 'user',
@@ -1431,15 +1458,15 @@ describe('JobBroker', () => {
 
     it('reserves the whole single-job vector on an unconfigured host', () => {
         expect(MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES).toEqual({
-            cpuTokens: 2,
+            cpuTokens: 1,
             estimatedResidentBytes: 512 * 1024 * 1024,
-            nativeProcesses: 2,
+            nativeProcesses: 1,
             ioWeight: 4,
         });
         expect(resolveMainJobBrokerCapacity(createResourceProfile(1, 1, 'low'))).toMatchObject({
-            cpuTokens: 2,
+            cpuTokens: 1,
             estimatedResidentBytes: 512 * 1024 * 1024,
-            nativeProcesses: 2,
+            nativeProcesses: 1,
         });
     });
 
@@ -1839,5 +1866,1117 @@ describe('JobBroker', () => {
             active: 0,
             queued: 0,
         });
+    });
+
+    it('admits pdf-conformance and pdf-opening-geometry on a 2-core 4 GiB host while preserving headroom', async () => {
+        const capacity = resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low'));
+        expect(capacity).toEqual({
+            cpuTokens: 1,
+            estimatedResidentBytes: 2 * GIB,
+            nativeProcesses: 1,
+            ioWeight: 4,
+        });
+        const broker = new JobBroker(capacity, {
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+            readSystemMemoryInfo: () => ({
+                totalBytes: 4 * GIB,
+                availableBytes: 2 * GIB,
+                freeBytes: 512 * 1024 * 1024,
+            }),
+        });
+
+        const conformanceLease = await broker.acquire({
+            ownerId: 'pdf-conformance',
+            kind: 'pdf-conformance',
+            priority: 'background',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 512 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        });
+        expect(broker.getSnapshot().active).toBe(1);
+        conformanceLease.release();
+
+        const geometryLease = await broker.acquire({
+            ownerId: 'pdf-open:1',
+            kind: 'pdf-opening-geometry',
+            priority: 'foreground',
+            perOwnerLimit: 1,
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 256 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 2,
+            },
+        });
+        expect(broker.getSnapshot().active).toBe(1);
+        geometryLease.release();
+    });
+
+    it('uses platform-accurate reclaimable memory on macOS, Linux, and Windows instead of raw free memory', async () => {
+        // Healthy 36 GiB Mac: only ~3% raw free, ~61% available via fileBacked + purgeable.
+        const macSnapshot = decodeSystemMemoryInfo({
+            total: 36 * 1024 * 1024,
+            free: 1 * 1024 * 1024,
+            fileBacked: 20 * 1024 * 1024,
+            purgeable: 1 * 1024 * 1024,
+        });
+        expect(macSnapshot).toEqual({
+            totalBytes: 36 * GIB,
+            availableBytes: 22 * GIB,
+            freeBytes: 1 * GIB,
+        });
+
+        const linuxSnapshot = decodeSystemMemoryInfo({
+            total: 16 * 1024 * 1024,
+            free: 512 * 1024,
+            available: 10 * 1024 * 1024,
+        });
+        expect(linuxSnapshot).toEqual({
+            totalBytes: 16 * GIB,
+            availableBytes: 10 * GIB,
+            freeBytes: 512 * 1024 * 1024,
+        });
+
+        const windowsSnapshot = decodeSystemMemoryInfo({
+            total: 8 * 1024 * 1024,
+            free: 4 * 1024 * 1024,
+        });
+        expect(windowsSnapshot).toEqual({
+            totalBytes: 8 * GIB,
+            availableBytes: 4 * GIB,
+            freeBytes: 4 * GIB,
+        });
+
+        const broker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(16, 36 * GIB, 'high')), {
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+            readSystemMemoryInfo: () => macSnapshot,
+        });
+        const leases = await Promise.all(
+            Array.from({length: 8}, (_, index) =>
+                broker.acquire(
+                    createRequest({
+                        ownerId: `mac-worker-${index}`,
+                        resources: {
+                            cpuTokens: 1,
+                            estimatedResidentBytes: 512 * 1024 * 1024,
+                            nativeProcesses: 1,
+                            ioWeight: 1,
+                        },
+                    }),
+                ),
+            ),
+        );
+        expect(broker.getSnapshot().active).toBe(8);
+        leases.forEach((lease) => lease.release());
+    });
+
+    it('fires memory reclaimers and wakes queued work via timer when live pressure eases without a lease release', async () => {
+        vi.useFakeTimers();
+        try {
+            const MIB = 1024 * 1024;
+            let availableBytes = 400 * MIB;
+            const broker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low')), {
+                maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+                interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+                readSystemMemoryInfo: () => ({
+                    totalBytes: 4 * GIB,
+                    availableBytes,
+                    freeBytes: 200 * MIB,
+                }),
+                memoryPressurePollIntervalMs: 250,
+            });
+
+            let reclaimCalls = 0;
+            broker.registerMemoryReclaimer(() => {
+                reclaimCalls += 1;
+            });
+
+            let granted = false;
+            const queued = broker
+                .acquire(
+                    createRequest({
+                        ownerId: 'bulk-pressure-job',
+                        resources: {
+                            cpuTokens: 1,
+                            estimatedResidentBytes: 512 * MIB,
+                            nativeProcesses: 1,
+                            ioWeight: 1,
+                        },
+                    }),
+                )
+                .then((lease) => {
+                    granted = true;
+                    return lease;
+                });
+
+            await flushMicrotasks();
+            expect(granted).toBe(false);
+            expect(reclaimCalls).toBe(1);
+            expect(broker.getSnapshot()).toMatchObject({active: 0, queued: 1});
+
+            // External process frees RAM without any broker lease releasing.
+            availableBytes = 1_536 * MIB;
+            await vi.advanceTimersByTimeAsync(250);
+            const lease = await queued;
+            expect(granted).toBe(true);
+            lease.release();
+            expect(broker.getSnapshot()).toMatchObject({active: 0, queued: 0});
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('immediately grants queued work when a synchronous memory reclaimer frees live OS headroom', async () => {
+        const MIB = 1024 * 1024;
+        let availableBytes = 400 * MIB;
+        const broker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low')), {
+            readSystemMemoryInfo: () => ({
+                totalBytes: 4 * GIB,
+                availableBytes,
+                freeBytes: 100 * MIB,
+            }),
+            memoryPressurePollIntervalMs: 500,
+        });
+
+        let reclaimCalls = 0;
+        broker.registerMemoryReclaimer(() => {
+            reclaimCalls += 1;
+            availableBytes = 1_536 * MIB;
+        });
+
+        const lease = await broker.acquire(
+            createRequest({
+                ownerId: 'reclaimed-job',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 512 * MIB,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }),
+        );
+        expect(reclaimCalls).toBe(1);
+        lease.release();
+    });
+
+    it('guarantees forward progress for a fitting job behind an aged larger job blocked by external memory pressure', async () => {
+        const MIB = 1024 * 1024;
+        let now = 0;
+        // 4 GiB host -> idle OOM floor 128 MiB -> idle live headroom = 472 MiB (< 512 MiB, >= 256 MiB).
+        let availableBytes = 600 * MIB;
+        const broker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low')), {
+            now: () => now,
+            readSystemMemoryInfo: () => ({
+                totalBytes: 4 * GIB,
+                availableBytes,
+                freeBytes: 256 * MIB,
+            }),
+            memoryPressurePollIntervalMs: 0,
+        });
+
+        let largeGranted = false;
+        const largePromise = broker
+            .acquire(
+                createRequest({
+                    ownerId: 'large-job',
+                    priority: 'foreground',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 512 * MIB,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
+                }),
+            )
+            .then((lease) => {
+                largeGranted = true;
+                return lease;
+            });
+
+        await flushMicrotasks();
+        expect(largeGranted).toBe(false);
+
+        // Age the large job so it would normally block smaller work on CPU.
+        now += 10_000;
+
+        // A 256 MiB job fits in 388 MiB headroom and must make forward progress immediately.
+        const fittingLease = await broker.acquire(
+            createRequest({
+                ownerId: 'fitting-job',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 256 * MIB,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }),
+        );
+        expect(largeGranted).toBe(false);
+        expect(broker.getSnapshot()).toMatchObject({active: 1, queued: 1});
+
+        // Once external headroom rises enough for the aged 512 MiB job, another 256 MiB job
+        // must not starve it, and releasing the fitting job admits the large job first.
+        availableBytes = 1_536 * MIB;
+        let trailingGranted = false;
+        const trailingPromise = broker
+            .acquire(
+                createRequest({
+                    ownerId: 'trailing-job',
+                    priority: 'user',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 256 * MIB,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
+                }),
+            )
+            .then((lease) => {
+                trailingGranted = true;
+                return lease;
+            });
+
+        fittingLease.release();
+        const largeLease = await largePromise;
+        expect(largeGranted).toBe(true);
+        expect(trailingGranted).toBe(false);
+        largeLease.release();
+        const trailingLease = await trailingPromise;
+        expect(trailingGranted).toBe(true);
+        trailingLease.release();
+    });
+
+    it('keeps leaf escape bounded under live OOM pressure and wakes it when headroom returns', async () => {
+        vi.useFakeTimers();
+        try {
+            const MIB = 1024 * 1024;
+            // 4 GiB host -> live bulk reserve 512 MiB, live leaf/interactive reserve 256 MiB.
+            let availableBytes = 300 * MIB;
+            const broker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low')), {
+                maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+                interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+                readSystemMemoryInfo: () => ({
+                    totalBytes: 4 * GIB,
+                    availableBytes,
+                    freeBytes: 100 * MIB,
+                }),
+                memoryPressurePollIntervalMs: 200,
+            });
+
+            // Start an outer lease while headroom is healthy.
+            availableBytes = 2 * GIB;
+            const outer = await broker.acquire(
+                createRequest({
+                    ownerId: 'outer',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 512 * MIB,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
+                }),
+            );
+
+            // Drop available memory into OOM danger (only 44 MiB above the 256 MiB leaf floor).
+            availableBytes = 300 * MIB;
+            let reclaimCalls = 0;
+            broker.registerMemoryReclaimer(() => {
+                reclaimCalls += 1;
+            });
+            let leafGranted = false;
+            const leafPromise = broker
+                .acquire(
+                    createRequest({
+                        ownerId: 'native-command',
+                        kind: 'native-command',
+                        admissionClass: 'leaf',
+                        resources: {
+                            cpuTokens: 1,
+                            estimatedResidentBytes: 128 * MIB,
+                            nativeProcesses: 1,
+                            ioWeight: 1,
+                        },
+                    }),
+                )
+                .then((lease) => {
+                    leafGranted = true;
+                    return lease;
+                });
+
+            await flushMicrotasks();
+            expect(leafGranted).toBe(false);
+            expect(reclaimCalls).toBe(1);
+
+            // Once 128 MiB fits above the 256 MiB leaf safety floor, the leaf escapes to prevent deadlock.
+            availableBytes = 400 * MIB;
+            await vi.advanceTimersByTimeAsync(200);
+            const leafLease = await leafPromise;
+            expect(leafGranted).toBe(true);
+            leafLease.release();
+            outer.release();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('sustains high-core 16 and 32 core parallel throughput under live memory admission', async () => {
+        const MIB = 1024 * 1024;
+        for (const [cpus, ramGiB, expectedProcesses] of [
+            [16, 32, 8],
+            [32, 64, 16],
+        ] as const) {
+            const capacity = resolveMainJobBrokerCapacity(createResourceProfile(cpus, ramGiB * GIB, 'high'));
+            expect(capacity.nativeProcesses).toBe(expectedProcesses);
+            const broker = new JobBroker(capacity, {
+                maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+                interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+                readSystemMemoryInfo: () => ({
+                    totalBytes: ramGiB * GIB,
+                    availableBytes: Math.floor(ramGiB * 0.75) * GIB,
+                    freeBytes: Math.floor(ramGiB * 0.25) * GIB,
+                }),
+            });
+
+            const activeLeases = await Promise.all(
+                Array.from({length: expectedProcesses}, (_, index) =>
+                    broker.acquire(
+                        createRequest({
+                            ownerId: `worker-${index}`,
+                            kind: 'ocr-page',
+                            resources: {
+                                cpuTokens: 1,
+                                estimatedResidentBytes: 256 * MIB,
+                                nativeProcesses: 1,
+                                ioWeight: 1,
+                            },
+                        }),
+                    ),
+                ),
+            );
+            expect(broker.getSnapshot().active).toBe(expectedProcesses);
+
+            const order: string[] = [];
+            const queuedPromises = Array.from({length: expectedProcesses}, (_, index) =>
+                broker
+                    .acquire(
+                        createRequest({
+                            ownerId: `worker-${index % expectedProcesses}`,
+                            kind: 'ocr-page',
+                            priority: index % 2 === 0 ? 'foreground' : 'user',
+                            resources: {
+                                cpuTokens: 1,
+                                estimatedResidentBytes: 256 * MIB,
+                                nativeProcesses: 1,
+                                ioWeight: 1,
+                            },
+                        }),
+                    )
+                    .then((lease) => {
+                        order.push(index % 2 === 0 ? 'foreground' : 'user');
+                        return lease;
+                    }),
+            );
+
+            activeLeases.forEach((lease) => lease.release());
+            const nextLeases = await Promise.all(queuedPromises);
+            expect(broker.getSnapshot().active).toBe(expectedProcesses);
+            expect(order.slice(0, expectedProcesses / 2).every((priority) => priority === 'foreground')).toBe(true);
+            nextLeases.forEach((lease) => lease.release());
+            expect(broker.getSnapshot()).toMatchObject({active: 0, queued: 0});
+        }
+    });
+
+    it('admits a single 512 MiB job on an idle 4 GiB host at 900 MiB available so Save As preflight never stalls', async () => {
+        const MIB = 1024 * 1024;
+        const broker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low')), {
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+            readSystemMemoryInfo: () => ({
+                totalBytes: 4 * GIB,
+                availableBytes: 900 * MIB,
+                freeBytes: 256 * MIB,
+            }),
+        });
+
+        const conformance = await broker.acquire(
+            createRequest({
+                ownerId: 'pdf-conformance',
+                kind: 'pdf-conformance',
+                priority: 'background',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 512 * MIB,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }),
+        );
+        expect(broker.getSnapshot().active).toBe(1);
+        conformance.release();
+    });
+
+    it('does not stall a fitting interactive PDF open behind an aged CPU-blocked bulk job under live memory', async () => {
+        const MIB = 1024 * 1024;
+        let now = 0;
+        const availableBytes = 1_152 * MIB;
+        const broker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low')), {
+            now: () => now,
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+            readSystemMemoryInfo: () => ({
+                totalBytes: 4 * GIB,
+                availableBytes,
+                freeBytes: 512 * MIB,
+            }),
+            memoryPressurePollIntervalMs: 100,
+        });
+
+        // A retained 128 MiB native lease occupies the sole bulk CPU and process slot.
+        const retainedProof = Promise.withResolvers<boolean>();
+        await broker.run(
+            createRequest({
+                ownerId: 'retained-native',
+                kind: 'native-command',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 128 * MIB,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }),
+            async ({onTerminationProof}) => {
+                onTerminationProof(retainedProof.promise);
+            },
+        );
+
+        let conformanceGranted = false;
+        const conformancePromise = broker
+            .acquire(
+                createRequest({
+                    ownerId: 'pdf-conformance',
+                    kind: 'pdf-conformance',
+                    priority: 'background',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 512 * MIB,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
+                }),
+            )
+            .then((lease) => {
+                conformanceGranted = true;
+                return lease;
+            });
+
+        // Age conformance past the fairness threshold while still blocked on bulk CPU.
+        now += 15_000;
+
+        // Interactive PDF working copy uses 0 CPU / 0 nativeProcesses and must run immediately.
+        const workingCopy = await broker.acquire(
+            createRequest({
+                ownerId: 'pdf-open:1',
+                kind: 'pdf-working-copy',
+                priority: 'foreground',
+                admissionClass: 'interactive',
+                resources: {
+                    cpuTokens: 0,
+                    estimatedResidentBytes: 64 * MIB,
+                    nativeProcesses: 0,
+                    ioWeight: 1,
+                },
+            }),
+        );
+        expect(conformanceGranted).toBe(false);
+        workingCopy.release();
+        retainedProof.resolve(true);
+        const conformance = await conformancePromise;
+        expect(conformanceGranted).toBe(true);
+        conformance.release();
+    });
+
+    it('bounds same-turn pending allocations on leaf escape so concurrent grants cannot overcommit OS RAM', async () => {
+        vi.useFakeTimers();
+        try {
+            const MIB = 1024 * 1024;
+            let now = 0;
+            const availableBytes = 1_100 * MIB;
+            const broker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low')), {
+                now: () => now,
+                maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+                interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+                readSystemMemoryInfo: () => ({
+                    totalBytes: 4 * GIB,
+                    availableBytes,
+                    freeBytes: 512 * MIB,
+                }),
+                memoryPressurePollIntervalMs: 200,
+                pendingAllocationSettleMs: 1_000,
+            });
+
+            const conformance = await broker.acquire(
+                createRequest({
+                    ownerId: 'pdf-conformance',
+                    kind: 'pdf-conformance',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 512 * MIB,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
+                }),
+            );
+            const copy = await broker.acquire(
+                createRequest({
+                    ownerId: 'pdf-open:1',
+                    kind: 'pdf-working-copy',
+                    admissionClass: 'interactive',
+                    priority: 'foreground',
+                    resources: {
+                        cpuTokens: 0,
+                        estimatedResidentBytes: 64 * MIB,
+                        nativeProcesses: 0,
+                        ioWeight: 1,
+                    },
+                }),
+            );
+
+            // Same-turn 512 MiB leaf would push pending allocations to 1,088 MiB (> 1,100 - 256 = 844 MiB).
+            let leafGranted = false;
+            const leafPromise = broker
+                .acquire(
+                    createRequest({
+                        ownerId: 'image-combine',
+                        kind: 'native-command',
+                        admissionClass: 'leaf',
+                        resources: {
+                            cpuTokens: 1,
+                            estimatedResidentBytes: 512 * MIB,
+                            nativeProcesses: 1,
+                            ioWeight: 1,
+                        },
+                    }),
+                )
+                .then((lease) => {
+                    leafGranted = true;
+                    return lease;
+                });
+
+            await flushMicrotasks();
+            expect(leafGranted).toBe(false);
+
+            // Once the settling window elapses without OS RAM dropping further, the leaf wakes up via timer.
+            now += 1_000;
+            await vi.advanceTimersByTimeAsync(200);
+            const leaf = await leafPromise;
+            expect(leafGranted).toBe(true);
+            leaf.release();
+            copy.release();
+            conformance.release();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('does not double-count a parked warm OCR worker against OS available memory or evict it unnecessarily', async () => {
+        const MIB = 1024 * 1024;
+        let availableBytes = 1_500 * MIB;
+        const broker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low')), {
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+            readSystemMemoryInfo: () => ({
+                totalBytes: 4 * GIB,
+                availableBytes,
+                freeBytes: 512 * MIB,
+            }),
+        });
+
+        const ocrWorker = await broker.acquire(
+            createRequest({
+                ownerId: 'ocr-worker',
+                kind: 'ocr-engine-pass',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 400 * MIB,
+                    nativeProcesses: 0,
+                    ioWeight: 0,
+                },
+            }),
+        );
+        // Worker allocates 400 MiB (OS available drops to 1,100 MiB) and parks idle.
+        availableBytes = 1_100 * MIB;
+        expect(
+            ocrWorker.shrink({
+                cpuTokens: 0,
+                estimatedResidentBytes: 400 * MIB,
+                nativeProcesses: 0,
+                ioWeight: 0,
+            }),
+        ).toBe(true);
+
+        let reclaimed = 0;
+        broker.registerMemoryReclaimer(() => {
+            reclaimed += 1;
+            ocrWorker.release();
+        });
+
+        // 512 MiB fits within 1,100 MiB - 512 MiB reserve = 588 MiB without evicting the parked worker.
+        const conformance = await broker.acquire(
+            createRequest({
+                ownerId: 'pdf-conformance',
+                kind: 'pdf-conformance',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 512 * MIB,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }),
+        );
+        expect(reclaimed).toBe(0);
+        expect(broker.isActive(ocrWorker)).toBe(true);
+        conformance.release();
+        ocrWorker.release();
+    });
+
+    it('reconciles OS drop before parking OCR so a sibling pending allocation is not erased', async () => {
+        const MIB = 1024 * 1024;
+        let availableBytes = 1_424 * MIB;
+        const broker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(4, 4 * GIB, 'low')), {
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+            readSystemMemoryInfo: () => ({
+                totalBytes: 4 * GIB,
+                availableBytes,
+                freeBytes: 512 * MIB,
+            }),
+            memoryPressurePollIntervalMs: 0,
+        });
+
+        const ocrWorker = await broker.acquire(
+            createRequest({
+                ownerId: 'ocr-worker',
+                kind: 'ocr-engine-pass',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 400 * MIB,
+                    nativeProcesses: 0,
+                    ioWeight: 0,
+                },
+            }),
+        );
+        const pdfJob = await broker.acquire(
+            createRequest({
+                ownerId: 'pdf-job',
+                kind: 'pdf-conformance',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 512 * MIB,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }),
+        );
+
+        // Only OCR allocates 400 MiB and parks; PDF job has not allocated yet.
+        availableBytes = 1_024 * MIB;
+        expect(
+            ocrWorker.shrink({
+                cpuTokens: 0,
+                estimatedResidentBytes: 400 * MIB,
+                nativeProcesses: 0,
+                ioWeight: 0,
+            }),
+        ).toBe(true);
+
+        // A 512 MiB leaf must still see PDF's 512 MiB pending allocation (512 + 512 > 1,024 - 256 = 768).
+        let leafGranted = false;
+        const leafAbort = new AbortController();
+        const leafPromise = broker
+            .acquire(
+                createRequest({
+                    ownerId: 'image-combine',
+                    kind: 'native-command',
+                    admissionClass: 'leaf',
+                    signal: leafAbort.signal,
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 512 * MIB,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
+                }),
+            )
+            .then((lease) => {
+                leafGranted = true;
+                return lease;
+            });
+
+        await flushMicrotasks();
+        expect(leafGranted).toBe(false);
+        leafAbort.abort();
+        await expect(leafPromise).rejects.toThrow();
+        pdfJob.release();
+        ocrWorker.release();
+    });
+
+    it('uses the idle OOM floor when only a warm parked OCR worker is present at 900 MiB available', async () => {
+        const MIB = 1024 * 1024;
+        let availableBytes = 1_100 * MIB;
+        const broker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low')), {
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+            readSystemMemoryInfo: () => ({
+                totalBytes: 4 * GIB,
+                availableBytes,
+                freeBytes: 512 * MIB,
+            }),
+        });
+
+        const ocrWorker = await broker.acquire(
+            createRequest({
+                ownerId: 'ocr-worker',
+                kind: 'ocr-engine-pass',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 200 * MIB,
+                    nativeProcesses: 0,
+                    ioWeight: 0,
+                },
+            }),
+        );
+        availableBytes = 900 * MIB;
+        ocrWorker.shrink({
+            cpuTokens: 0,
+            estimatedResidentBytes: 200 * MIB,
+            nativeProcesses: 0,
+            ioWeight: 0,
+        });
+
+        let reclaimed = 0;
+        broker.registerMemoryReclaimer(() => {
+            reclaimed += 1;
+            ocrWorker.release();
+        });
+
+        const conformance = await broker.acquire(
+            createRequest({
+                ownerId: 'pdf-conformance',
+                kind: 'pdf-conformance',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 512 * MIB,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }),
+        );
+        expect(reclaimed).toBe(0);
+        expect(broker.isActive(ocrWorker)).toBe(true);
+        conformance.release();
+        ocrWorker.release();
+    });
+
+    it('keeps live-memory polling armed when static fairness holds a grantable open behind a protected waiter', async () => {
+        vi.useFakeTimers();
+        try {
+            const MIB = 1024 * 1024;
+            let now = 0;
+            let availableBytes = 1_400 * MIB;
+            const broker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low')), {
+                now: () => now,
+                maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+                interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+                readSystemMemoryInfo: () => ({
+                    totalBytes: 4 * GIB,
+                    availableBytes,
+                    freeBytes: 512 * MIB,
+                }),
+                memoryPressurePollIntervalMs: 200,
+            });
+
+            const activeSave = await broker.acquire(
+                createRequest({
+                    ownerId: 'save-1',
+                    kind: 'save',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 256 * MIB,
+                        nativeProcesses: 1,
+                        ioWeight: 4,
+                    },
+                }),
+            );
+            const queuedSaveAbort = new AbortController();
+            const queuedSave = broker
+                .acquire(
+                    createRequest({
+                        ownerId: 'save-2',
+                        kind: 'save',
+                        priority: 'user',
+                        signal: queuedSaveAbort.signal,
+                        resources: {
+                            cpuTokens: 1,
+                            estimatedResidentBytes: 512 * MIB,
+                            nativeProcesses: 1,
+                            ioWeight: 4,
+                        },
+                    }),
+                )
+                .catch(() => undefined);
+
+            // Age the queued save past the fairness threshold so static I/O fairness protects it.
+            now += 15_000;
+
+            let copyGranted = false;
+            const copyPromise = broker
+                .acquire(
+                    createRequest({
+                        ownerId: 'pdf-open:1',
+                        kind: 'pdf-working-copy',
+                        priority: 'foreground',
+                        admissionClass: 'interactive',
+                        resources: {
+                            cpuTokens: 0,
+                            estimatedResidentBytes: 64 * MIB,
+                            nativeProcesses: 0,
+                            ioWeight: 1,
+                        },
+                    }),
+                )
+                .then((lease) => {
+                    copyGranted = true;
+                    return lease;
+                });
+
+            await flushMicrotasks();
+            expect(copyGranted).toBe(false);
+
+            // External RAM drops to 600 MiB -> queued 512 MiB save can no longer fit even at the idle
+            // floor (600 - 128 = 472 MiB), so the wakeup timer lets the 64 MiB interactive copy run ahead.
+            availableBytes = 600 * MIB;
+            await vi.advanceTimersByTimeAsync(200);
+            const copy = await copyPromise;
+            expect(copyGranted).toBe(true);
+            copy.release();
+            queuedSaveAbort.abort();
+            await queuedSave;
+            activeSave.release();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('admits a 128 MiB native command probe on an idle 4 GiB host at 380 MiB available', async () => {
+        const MIB = 1024 * 1024;
+        const broker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low')), {
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+            readSystemMemoryInfo: () => ({
+                totalBytes: 4 * GIB,
+                availableBytes: 380 * MIB,
+                freeBytes: 128 * MIB,
+            }),
+        });
+
+        const probe = await broker.acquire(
+            createRequest({
+                ownerId: 'native-command',
+                kind: 'native-command',
+                admissionClass: 'leaf',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 128 * MIB,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }),
+        );
+        expect(broker.getSnapshot().active).toBe(1);
+        probe.release();
+    });
+
+    it.each(['shrink', 'release'] as const)(
+        'credits OS memory drop to the parking or releasing lease first even when granted after another pending job (%s)',
+        async (transition) => {
+            const MIB = 1024 * 1024;
+            let availableBytes = 1_424 * MIB;
+            const broker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(4, 4 * GIB, 'low')), {
+                maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+                interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+                readSystemMemoryInfo: () => ({
+                    totalBytes: 4 * GIB,
+                    availableBytes,
+                    freeBytes: 512 * MIB,
+                }),
+                memoryPressurePollIntervalMs: 0,
+            });
+
+            // Reversed order: PDF conformance granted BEFORE OCR worker.
+            const pdfJob = await broker.acquire(
+                createRequest({
+                    ownerId: 'pdf-job',
+                    kind: 'pdf-conformance',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 512 * MIB,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
+                }),
+            );
+            const ocrWorker = await broker.acquire(
+                createRequest({
+                    ownerId: 'ocr-worker',
+                    kind: 'ocr-engine-pass',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 400 * MIB,
+                        nativeProcesses: 0,
+                        ioWeight: 0,
+                    },
+                }),
+            );
+
+            // Only OCR allocates 400 MiB and then parks or releases; PDF's 512 MiB is still pending.
+            availableBytes = 1_024 * MIB;
+            if (transition === 'shrink') {
+                expect(
+                    ocrWorker.shrink({
+                        cpuTokens: 0,
+                        estimatedResidentBytes: 400 * MIB,
+                        nativeProcesses: 0,
+                        ioWeight: 0,
+                    }),
+                ).toBe(true);
+            } else {
+                expect(ocrWorker.release()).toBe(true);
+            }
+
+            // A 512 MiB leaf must still see PDF's full 512 MiB pending allocation (512 + 512 > 1,024 - 256 = 768).
+            let leafGranted = false;
+            const leafAbort = new AbortController();
+            const leafPromise = broker
+                .acquire(
+                    createRequest({
+                        ownerId: 'image-combine',
+                        kind: 'native-command',
+                        admissionClass: 'leaf',
+                        signal: leafAbort.signal,
+                        resources: {
+                            cpuTokens: 1,
+                            estimatedResidentBytes: 512 * MIB,
+                            nativeProcesses: 1,
+                            ioWeight: 1,
+                        },
+                    }),
+                )
+                .then((lease) => {
+                    leafGranted = true;
+                    return lease;
+                });
+
+            await flushMicrotasks();
+            expect(leafGranted).toBe(false);
+            leafAbort.abort();
+            await expect(leafPromise).rejects.toThrow();
+            pdfJob.release();
+            ocrWorker.release();
+        },
+    );
+
+    it('prevents overlapping interactive PDF opens from starving an aged bulk job that fits at the idle floor', async () => {
+        const MIB = 1024 * 1024;
+        let now = 0;
+        const availableBytes = 900 * MIB;
+        const broker = new JobBroker(resolveMainJobBrokerCapacity(createResourceProfile(2, 4 * GIB, 'low')), {
+            now: () => now,
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+            readSystemMemoryInfo: () => ({
+                totalBytes: 4 * GIB,
+                availableBytes,
+                freeBytes: 256 * MIB,
+            }),
+            memoryPressurePollIntervalMs: 0,
+        });
+
+        const firstCopy = await broker.acquire(
+            createRequest({
+                ownerId: 'pdf-open:1',
+                kind: 'pdf-working-copy',
+                priority: 'foreground',
+                admissionClass: 'interactive',
+                resources: {
+                    cpuTokens: 0,
+                    estimatedResidentBytes: 64 * MIB,
+                    nativeProcesses: 0,
+                    ioWeight: 1,
+                },
+            }),
+        );
+
+        let conformanceGranted = false;
+        const conformancePromise = broker
+            .acquire(
+                createRequest({
+                    ownerId: 'pdf-conformance',
+                    kind: 'pdf-conformance',
+                    priority: 'background',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 512 * MIB,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
+                }),
+            )
+            .then((lease) => {
+                conformanceGranted = true;
+                return lease;
+            });
+
+        // Age conformance to highest priority while firstCopy is active.
+        now += 20_000;
+
+        let secondCopyGranted = false;
+        const secondCopyPromise = broker
+            .acquire(
+                createRequest({
+                    ownerId: 'pdf-open:2',
+                    kind: 'pdf-working-copy',
+                    priority: 'foreground',
+                    admissionClass: 'interactive',
+                    resources: {
+                        cpuTokens: 0,
+                        estimatedResidentBytes: 64 * MIB,
+                        nativeProcesses: 0,
+                        ioWeight: 1,
+                    },
+                }),
+            )
+            .then((lease) => {
+                secondCopyGranted = true;
+                return lease;
+            });
+
+        await flushMicrotasks();
+        // secondCopy must NOT keep the broker non-idle and starve aged conformance.
+        expect(secondCopyGranted).toBe(false);
+        expect(conformanceGranted).toBe(false);
+
+        firstCopy.release();
+        const conformance = await conformancePromise;
+        expect(conformanceGranted).toBe(true);
+        conformance.release();
+        const secondCopy = await secondCopyPromise;
+        expect(secondCopyGranted).toBe(true);
+        secondCopy.release();
     });
 });

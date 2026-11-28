@@ -45,6 +45,13 @@ export async function analyzePdfConformanceFile(
     filePath: string,
     options: IPdfConformancePathAnalysisOptions = {},
 ): Promise<IPdfConformanceProfile> {
+    const timeoutMs = options.timeoutMs ?? QPDF_VALIDATE_MAX_TIMEOUT_MS;
+    const timeoutController = new AbortController();
+    const timeoutTimer = setTimeout(() => {
+        timeoutController.abort(new Error(`PDF conformance analysis timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    timeoutTimer.unref?.();
+    const operationSignal = options.signal ? AbortSignal.any([options.signal, timeoutController.signal]) : timeoutController.signal;
     try {
         const result = await mainJobBroker.run(
             {
@@ -52,24 +59,20 @@ export async function analyzePdfConformanceFile(
                 kind: 'pdf-conformance',
                 priority: 'background',
                 resources: {
-                    cpuTokens: 2,
+                    cpuTokens: 1,
                     estimatedResidentBytes: 512 * 1024 * 1024,
-                    nativeProcesses: 2,
+                    nativeProcesses: 1,
                     ioWeight: 1,
                 },
-                ...(options.signal === undefined ? {} : {signal: options.signal}),
+                signal: operationSignal,
             },
-            (brokerRun) => {
-                const timeoutMs = options.timeoutMs ?? QPDF_VALIDATE_MAX_TIMEOUT_MS;
-                const timeoutSignal = AbortSignal.timeout(timeoutMs);
-                const operationSignal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
-                return analyzePdfConformancePath(filePath, {
+            (brokerRun) =>
+                analyzePdfConformancePath(filePath, {
                     ...options,
                     timeoutMs,
                     signal: operationSignal,
                     brokerRun,
-                });
-            },
+                }),
         );
         logger.debug('PDF conformance analysis completed', {filePath});
         return result;
@@ -80,6 +83,8 @@ export async function analyzePdfConformanceFile(
             logger.warn(`PDF conformance analysis failed for ${filePath}: ${getErrorMessage(error)}`);
         }
         throw error;
+    } finally {
+        clearTimeout(timeoutTimer);
     }
 }
 

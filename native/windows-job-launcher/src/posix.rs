@@ -634,42 +634,85 @@ mod platform {
 #[cfg(target_os = "linux")]
 mod platform {
     use super::*;
+    use std::ffi::CStr;
     use std::fs;
     use std::mem::{size_of, zeroed};
     use std::ptr::null_mut;
 
-    fn read_status_memory_bytes(pid: libc::pid_t) -> u64 {
-        let Ok(status) = fs::read_to_string(format!("/proc/{pid}/status")) else {
-            return 0;
-        };
+    struct ProcDirGuard(*mut libc::DIR);
+
+    impl Drop for ProcDirGuard {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe {
+                    libc::closedir(self.0);
+                }
+            }
+        }
+    }
+
+    struct FdGuard(libc::c_int);
+
+    impl Drop for FdGuard {
+        fn drop(&mut self) {
+            if self.0 >= 0 {
+                unsafe {
+                    libc::close(self.0);
+                }
+            }
+        }
+    }
+
+    pub(super) fn parse_proc_pid(bytes: &[u8]) -> Option<libc::pid_t> {
+        if bytes.is_empty() {
+            return None;
+        }
+        let mut pid: libc::pid_t = 0;
+        for &byte in bytes {
+            if !byte.is_ascii_digit() {
+                return None;
+            }
+            pid = pid.checked_mul(10)?.checked_add(i32::from(byte - b'0'))?;
+        }
+        (pid > 0).then_some(pid)
+    }
+
+    fn parse_status_kb_field(rest: &[u8]) -> Option<u64> {
+        let mut index = 0;
+        while index < rest.len() && rest[index].is_ascii_whitespace() {
+            index += 1;
+        }
+        let start = index;
+        while index < rest.len() && rest[index].is_ascii_digit() {
+            index += 1;
+        }
+        if index == start {
+            return None;
+        }
+        let mut value = 0u64;
+        for &byte in &rest[start..index] {
+            value = value.checked_mul(10)?.checked_add(u64::from(byte - b'0'))?;
+        }
+        Some(value)
+    }
+
+    pub(super) fn parse_status_memory_bytes(status: &[u8]) -> u64 {
         let mut rss_anon_kb = 0u64;
         let mut vm_rss_kb = 0u64;
         let mut vm_swap_kb = 0u64;
         let mut saw_rss_anon = false;
-        for line in status.lines() {
-            if let Some(rest) = line.strip_prefix("RssAnon:") {
-                if let Some(val) = rest
-                    .split_whitespace()
-                    .next()
-                    .and_then(|s| s.parse::<u64>().ok())
-                {
+        for line in status.split(|&byte| byte == b'\n') {
+            if let Some(rest) = line.strip_prefix(b"RssAnon:") {
+                if let Some(val) = parse_status_kb_field(rest) {
                     rss_anon_kb = val;
                     saw_rss_anon = true;
                 }
-            } else if let Some(rest) = line.strip_prefix("VmRSS:") {
-                if let Some(val) = rest
-                    .split_whitespace()
-                    .next()
-                    .and_then(|s| s.parse::<u64>().ok())
-                {
+            } else if let Some(rest) = line.strip_prefix(b"VmRSS:") {
+                if let Some(val) = parse_status_kb_field(rest) {
                     vm_rss_kb = val;
                 }
-            } else if let Some(rest) = line.strip_prefix("VmSwap:") {
-                if let Some(val) = rest
-                    .split_whitespace()
-                    .next()
-                    .and_then(|s| s.parse::<u64>().ok())
-                {
+            } else if let Some(rest) = line.strip_prefix(b"VmSwap:") {
+                if let Some(val) = parse_status_kb_field(rest) {
                     vm_swap_kb = val;
                 }
             }
@@ -678,35 +721,76 @@ mod platform {
         base_kb.saturating_add(vm_swap_kb).saturating_mul(1024)
     }
 
-    fn read_stat_pgid(pid: libc::pid_t) -> Option<libc::pid_t> {
-        let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-        let close_paren = stat.rfind(')')?;
-        let mut fields = stat.get(close_paren + 2..)?.split_whitespace();
-        // Field 3 is state (index 0), field 4 is ppid (index 1), field 5 is pgrp (index 2).
-        fields.nth(2)?.parse::<libc::pid_t>().ok()
+    fn format_proc_status_path(
+        pid: libc::pid_t,
+        buf: &mut [u8; 48],
+    ) -> Option<*const libc::c_char> {
+        if pid <= 0 {
+            return None;
+        }
+        let mut cursor = io::Cursor::new(&mut buf[..]);
+        write!(cursor, "/proc/{pid}/status\0").ok()?;
+        Some(buf.as_ptr().cast())
+    }
+
+    fn read_status_memory_bytes_into(pid: libc::pid_t, status_buf: &mut Vec<u8>) -> u64 {
+        let mut path_buf = [0u8; 48];
+        let Some(path_ptr) = format_proc_status_path(pid, &mut path_buf) else {
+            return 0;
+        };
+        let fd = unsafe { libc::open(path_ptr, libc::O_RDONLY | libc::O_CLOEXEC) };
+        if fd < 0 {
+            return 0;
+        }
+        let _guard = FdGuard(fd);
+        status_buf.clear();
+        let mut chunk = [0u8; 2048];
+        loop {
+            let count = unsafe { libc::read(fd, chunk.as_mut_ptr().cast(), chunk.len()) };
+            if count < 0 {
+                if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return 0;
+            }
+            if count == 0 {
+                break;
+            }
+            status_buf.extend_from_slice(&chunk[..count as usize]);
+        }
+        parse_status_memory_bytes(status_buf)
     }
 
     pub(super) fn read_pgrp_memory_bytes(pgid: libc::pid_t) -> u64 {
         let mut total = 0u64;
         let mut saw_leader = false;
-        if let Ok(entries) = fs::read_dir("/proc") {
-            for entry in entries.flatten() {
-                let Ok(name) = entry.file_name().into_string() else {
+        let mut status_buf = Vec::new();
+        let dir = unsafe { libc::opendir(c"/proc".as_ptr()) };
+        if !dir.is_null() {
+            let _guard = ProcDirGuard(dir);
+            loop {
+                let entry = unsafe { libc::readdir(dir) };
+                if entry.is_null() {
+                    break;
+                }
+                let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
+                let Some(pid) = parse_proc_pid(name) else {
                     continue;
                 };
-                let Ok(pid) = name.parse::<libc::pid_t>() else {
-                    continue;
-                };
-                if pid == pgid || read_stat_pgid(pid) == Some(pgid) {
+                // `getpgid(pid)` is a direct kernel PID-table lookup (no /proc/<pid>/stat
+                // open/read/close or heap allocation per PID) while preserving full
+                // process-group accounting, including reparented subreaper grandchildren.
+                if pid == pgid || unsafe { libc::getpgid(pid) } == pgid {
                     if pid == pgid {
                         saw_leader = true;
                     }
-                    total = total.saturating_add(read_status_memory_bytes(pid));
+                    total =
+                        total.saturating_add(read_status_memory_bytes_into(pid, &mut status_buf));
                 }
             }
         }
         if !saw_leader {
-            total = total.saturating_add(read_status_memory_bytes(pgid));
+            total = total.saturating_add(read_status_memory_bytes_into(pgid, &mut status_buf));
         }
         total
     }
@@ -1071,5 +1155,67 @@ mod tests {
     fn rejects_pid_zero_queries() {
         assert_eq!(platform::read_start_time(0), StartTimeResult::Gone);
         assert!(read_process_identity(0).is_none());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parses_proc_pid_and_status_memory_fields() {
+        assert_eq!(platform::parse_proc_pid(b"12345"), Some(12345));
+        assert_eq!(platform::parse_proc_pid(b"0"), None);
+        assert_eq!(platform::parse_proc_pid(b""), None);
+        assert_eq!(platform::parse_proc_pid(b"self"), None);
+        assert_eq!(platform::parse_proc_pid(b"12a"), None);
+
+        let with_rss_anon = b"Name:\ttest\nVmRSS:\t 2048 kB\nRssAnon:\t 512 kB\nVmSwap:\t 128 kB\n";
+        assert_eq!(
+            platform::parse_status_memory_bytes(with_rss_anon),
+            (512 + 128) * 1024
+        );
+
+        let fallback_vm_rss = b"Name:\ttest\nVmRSS:\t 1024 kB\nVmSwap:\t 64 kB\n";
+        assert_eq!(
+            platform::parse_status_memory_bytes(fallback_vm_rss),
+            (1024 + 64) * 1024
+        );
+
+        assert_eq!(
+            platform::parse_status_memory_bytes(b"RssAnon:\tinvalid\n"),
+            0
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn accounts_for_reparented_grandchild_in_same_process_group() {
+        // Spawn a short-lived group leader that forks a sleeping grandchild in the
+        // same process group and exits immediately, leaving only the grandchild in
+        // `pgid`. `read_pgrp_memory_bytes(pgid)` must still find and account for it.
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "sleep 5 </dev/null >/dev/null 2>&1 & echo $!"])
+            .stdout(Stdio::piped())
+            .stdin(Stdio::null())
+            .stderr(Stdio::null());
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setpgid(0, 0);
+                Ok(())
+            });
+        }
+        let leader = cmd.spawn().expect("spawn process-group leader");
+        let pgid = leader.id() as libc::pid_t;
+        let output = leader.wait_with_output().expect("wait leader");
+        let grandchild_pid: libc::pid_t = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse()
+            .expect("grandchild pid");
+
+        let usage = platform::read_pgrp_memory_bytes(pgid);
+        unsafe {
+            libc::kill(grandchild_pid, libc::SIGKILL);
+        }
+        assert!(
+            usage > 0,
+            "expected positive memory usage for reparented grandchild pid={grandchild_pid} in pgid={pgid}"
+        );
     }
 }
