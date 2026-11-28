@@ -66,6 +66,20 @@ describe('app temp directory namespace', () => {
         expect(getRetiredAppTempDirPath()).toBe(join('/tmp', `evb-viewer-${namespace}`));
     });
 
+    it('does not eagerly query process start time during initializeAppTempNamespace', async () => {
+        vi.resetModules();
+        const getOwnStartTimeSpy = vi.fn(async () => 'stub-start-time');
+        vi.doMock('@electron/utils/processIdentity', () => ({getOwnStartTime: getOwnStartTimeSpy}));
+        try {
+            const {initializeAppTempNamespace: initFresh} = await import('@electron/utils/appTempDir');
+            initFresh('/profiles/lazy-start-time');
+            expect(getOwnStartTimeSpy).not.toHaveBeenCalled();
+        } finally {
+            vi.doUnmock('@electron/utils/processIdentity');
+            vi.resetModules();
+        }
+    });
+
     it('keeps app state in a per-user folder that survives a reboot and does not roam', () => {
         const env = {
             LOCALAPPDATA: 'C:\\Users\\a\\AppData\\Local',

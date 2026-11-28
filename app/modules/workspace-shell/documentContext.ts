@@ -39,7 +39,7 @@ import {
     flushScanCleanupDocumentPreferencesStore,
     flushScanCleanupPreferencesStore,
 } from '@app/modules/scan-cleanup/public/runtime';
-import {useScanCleanupSourceSha256} from '@app/modules/scan-cleanup/public/workspace';
+import {useScanCleanupSourceSha256} from '@app/modules/scan-cleanup/public/sourceIdentity';
 import {captureFailureForPresentation} from '@app/utils/failureReporter';
 import {useFailureToast} from '@app/composables/useFailureToast';
 import {createDocumentViews} from '@app/modules/workspace-shell/document-sessions/createDocumentViews';

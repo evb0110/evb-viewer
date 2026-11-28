@@ -4,5 +4,6 @@ export {
     getMainDiagnosticsPreference,
     installStartupCrashMarker,
     setMainDiagnosticsPreference,
+    waitForMainDiagnosticsReady,
 } from '@electron/features/diagnostics/sentry';
-export {readDiagnosticsPreferenceSync} from '@electron/features/diagnostics/readDiagnosticsPreferenceSync';
+export {readCompleteSettingsSync, readDiagnosticsPreferenceSync} from '@electron/features/diagnostics/readDiagnosticsPreferenceSync';

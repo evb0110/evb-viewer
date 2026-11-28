@@ -751,8 +751,10 @@ describe('main process termination signals', () => {
             captureMainFailure: vi.fn(),
             consumeStartupCrashMarker: vi.fn(),
             installStartupCrashMarker: () => vi.fn(),
+            readCompleteSettingsSync: vi.fn(() => null),
             readDiagnosticsPreferenceSync: vi.fn(),
             setMainDiagnosticsPreference: vi.fn(),
+            waitForMainDiagnosticsReady: vi.fn(() => Promise.resolve()),
         }));
         vi.doMock('@electron/utils/appTempDir', () => ({
             getAppTempDir: vi.fn(),

@@ -333,6 +333,7 @@ describe('browser document lifecycle UI', () => {
                 name: 'Author Name',
                 exact: true,
             });
+            await author.waitFor({state: 'visible'});
             async function reportInputFailure(phase: string) {
                 const previousIds = await second.locator('.app-toast-error-id').allTextContents();
                 // Fault a real input handler, then reach it through trusted keyboard

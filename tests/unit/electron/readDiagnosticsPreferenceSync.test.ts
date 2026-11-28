@@ -85,4 +85,40 @@ describe('synchronous diagnostics preference reader', () => {
         expect(readDiagnosticsPreferenceSync()).toBe('granted');
         expect(mocks.loadSettings).not.toHaveBeenCalled();
     });
+
+    it('returns the validated schema-v2 settings payload from readCompleteSettingsSync and null otherwise', async () => {
+        const {readCompleteSettingsSync} = await import('@electron/features/diagnostics/readDiagnosticsPreferenceSync');
+
+        expect(readCompleteSettingsSync()).toEqual({
+            ...DEFAULT_SETTINGS,
+            clientDiagnosticsPreference: 'granted',
+        });
+
+        mocks.readFileSync.mockReturnValueOnce('{');
+        expect(readCompleteSettingsSync()).toBeNull();
+
+        mocks.readFileSync.mockImplementationOnce(() => {
+            throw Object.assign(new Error('missing'), {code: 'ENOENT'});
+        });
+        expect(readCompleteSettingsSync()).toBeNull();
+        expect(mocks.loadSettings).not.toHaveBeenCalled();
+    });
+
+    it('normalizes optional keys while preserving valid extension keys in readCompleteSettingsSync', async () => {
+        mocks.readFileSync.mockReturnValueOnce(
+            JSON.stringify({
+                ...DEFAULT_SETTINGS,
+                suppressDefaultViewerPrompt: 'false',
+                skippedUpdateVersion: '1.2.3',
+                futureExtensionKey: 'kept',
+            }),
+        );
+        const {readCompleteSettingsSync} = await import('@electron/features/diagnostics/readDiagnosticsPreferenceSync');
+
+        const parsed = readCompleteSettingsSync() as Record<string, unknown> | null;
+        expect(parsed).not.toBeNull();
+        expect(parsed?.suppressDefaultViewerPrompt).toBeUndefined();
+        expect(parsed?.skippedUpdateVersion).toBe('1.2.3');
+        expect(parsed?.futureExtensionKey).toBe('kept');
+    });
 });

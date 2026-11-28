@@ -392,4 +392,48 @@ describe('settings single-flight loading', () => {
         });
         expect(reporter).not.toHaveBeenCalledWith('granted');
     });
+
+    it('reuses a seeded startup settings snapshot without re-reading settings.json from disk', async () => {
+        const {DEFAULT_SETTINGS} = await import('@contracts/settings');
+        const settingsModule = await import('@electron/settings');
+
+        settingsModule.seedSettingsCache({
+            ...DEFAULT_SETTINGS,
+            authorName: '',
+            theme: 'dark',
+            uiScale: 'large',
+            clientDiagnosticsPreference: 'granted',
+        });
+
+        const loaded = await settingsModule.loadSettings();
+        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(loaded).toMatchObject({
+            authorName: 'electron-user',
+            theme: 'dark',
+            uiScale: 'large',
+            clientDiagnosticsPreference: 'granted',
+        });
+        expect(settingsModule.encodeUiScalePreferenceArgument()).toHaveLength(1);
+
+        // Seeding after cache is populated is a no-op.
+        settingsModule.seedSettingsCache({
+            ...DEFAULT_SETTINGS,
+            theme: 'light',
+        });
+        expect((await settingsModule.loadSettings()).theme).toBe('dark');
+    });
+
+    it('normalizes optional keys when seeding the startup settings cache', async () => {
+        const {DEFAULT_SETTINGS} = await import('@contracts/settings');
+        const settingsModule = await import('@electron/settings');
+
+        settingsModule.seedSettingsCache({
+            ...DEFAULT_SETTINGS,
+            suppressDefaultViewerPrompt: 'false' as unknown as boolean,
+        });
+
+        const loaded = await settingsModule.loadSettings();
+        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(loaded.suppressDefaultViewerPrompt).toBeUndefined();
+    });
 });

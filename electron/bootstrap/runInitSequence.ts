@@ -27,6 +27,7 @@ interface IExternalOpenManager {
     scheduleFlushPendingFiles(): void;
     claimPendingOpenPaths(): Promise<string[]>;
     acknowledgeClaimedOpenPaths(failedPaths: string[]): void;
+    markAppReady(): void;
     markBootstrapReady(): void;
 }
 
@@ -222,6 +223,7 @@ export function bootSingleInstance(
 async function bootProtocol(options: IRunInitSequenceOptions) {
     options.logStartupPhase('Bootstrap init started');
     await options.app.whenReady();
+    options.externalOpenManager.markAppReady();
     options.logStartupPhase('app.whenReady resolved');
     options.setupAppProtocolHandler();
 }

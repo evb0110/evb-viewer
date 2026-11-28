@@ -2,7 +2,7 @@ import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {app} from 'electron';
 import {parseClientDiagnosticsPreference} from '@contracts/diagnostics/diagnosticsPreference';
-import {DEFAULT_SETTINGS, sanitizeSettings} from '@contracts/settings';
+import {DEFAULT_SETTINGS, migrateSettings, sanitizeSettings} from '@contracts/settings';
 import type {ISettingsData} from '@contracts/shared';
 import {isRecord} from '@contracts/runtimeGuards';
 
@@ -17,15 +17,20 @@ function isCompleteSettingsSchemaV2(value: unknown): value is ISettingsData {
     );
 }
 
-export function readDiagnosticsPreferenceSync() {
+export function readCompleteSettingsSync(): ISettingsData | null {
     try {
         const settingsPath = join(app.getPath('userData'), 'settings.json');
         const payload: unknown = JSON.parse(readFileSync(settingsPath, 'utf-8'));
         if (!isCompleteSettingsSchemaV2(payload)) {
-            return 'unknown' as const;
+            return null;
         }
-        return parseClientDiagnosticsPreference(payload.clientDiagnosticsPreference);
+        return migrateSettings(payload);
     } catch {
-        return 'unknown' as const;
+        return null;
     }
+}
+
+export function readDiagnosticsPreferenceSync() {
+    const settings = readCompleteSettingsSync();
+    return settings ? parseClientDiagnosticsPreference(settings.clientDiagnosticsPreference) : ('unknown' as const);
 }

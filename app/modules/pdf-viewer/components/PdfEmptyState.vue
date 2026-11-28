@@ -134,30 +134,208 @@
                     :open-result="openCombineResult"
                     @close="activeSection = 'recent'"
                 />
-                <SettingsPage
-                    v-else
+                <component
+                    :is="settingsComponent"
+                    v-else-if="settingsLoadState === 'loaded' && settingsComponent"
                     class="start-tool-page"
                     :show-back="false"
                     :show-eyebrow="false"
                     :show-header="false"
                     @close="activeSection = 'recent'"
                 />
+                <div
+                    v-else-if="settingsLoadState === 'error'"
+                    class="start-settings-status"
+                    data-testid="settings-load-error"
+                >
+                    <UIcon
+                        name="i-ph-warning-circle"
+                        class="start-settings-status-icon"
+                    />
+                    <p>{{ t('errors.settings.load') }}</p>
+                    <div class="start-settings-status-actions">
+                        <UButton
+                            color="neutral"
+                            variant="outline"
+                            size="sm"
+                            :label="settingsNeedsReload ? t('errors.runtime.reload') : t('common.retry')"
+                            @click="recoverSettingsLoad"
+                        />
+                        <UButton
+                            color="neutral"
+                            variant="ghost"
+                            size="sm"
+                            :label="t('emptyState.recentFiles')"
+                            @click="activeSection = 'recent'"
+                        />
+                    </div>
+                </div>
+                <div
+                    v-else
+                    class="start-settings-status"
+                    role="status"
+                    aria-busy="true"
+                    data-testid="settings-loading"
+                >
+                    <p>{{ t('common.loading') }}</p>
+                </div>
             </main>
         </div>
     </div>
 </template>
 
+<script lang="ts">
+import {ref, shallowRef} from 'vue';
+
+type TSettingsPageComponent = typeof import('@app/components/settings/SettingsPage.vue').default;
+
+// Vite's preload cache and document stylesheet links are window-scoped, so every
+// Start tab shares one Settings loader and recovery state.
+const settingsComponent = shallowRef<TSettingsPageComponent | null>(null);
+const settingsLoadState = ref<'idle' | 'loading' | 'loaded' | 'error'>('idle');
+const settingsNeedsReload = ref(false);
+let loadedSettingsComponent: TSettingsPageComponent | null = null;
+let settingsLoadPromise: Promise<void> | null = null;
+const failedSettingsStylesheets = new Set<string>();
+
+function readStylesheetPreloadErrorUrl(event: Event): string | null {
+    const payload = (event as Event & {payload?: unknown}).payload;
+    if (!(payload instanceof Error)) {
+        return null;
+    }
+    const match = /^Unable to preload CSS for (\S+)$/u.exec(payload.message);
+    return match?.[1] ?? null;
+}
+
+function reloadFailedStylesheet(href: string): Promise<void> {
+    if (typeof document === 'undefined') {
+        return Promise.resolve();
+    }
+    for (const existing of document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')) {
+        if (existing.href === href) {
+            existing.remove();
+        }
+    }
+    const cspMeta = document.querySelector<HTMLMetaElement>('meta[property="csp-nonce"]');
+    const nonce = cspMeta?.nonce || cspMeta?.getAttribute('nonce') || '';
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.crossOrigin = '';
+    if (nonce) {
+        link.setAttribute('nonce', nonce);
+    }
+    return new Promise<void>((resolve, reject) => {
+        link.addEventListener('load', () => resolve(), {once: true});
+        link.addEventListener(
+            'error',
+            () => {
+                link.remove();
+                reject(new Error(`Unable to reload CSS for ${href}`));
+            },
+            {once: true},
+        );
+        link.href = href;
+        document.head.appendChild(link);
+    });
+}
+
+async function retryFailedSettingsStylesheets() {
+    const pendingHrefs = [...failedSettingsStylesheets];
+    if (pendingHrefs.length === 0) {
+        return;
+    }
+    await Promise.all(
+        pendingHrefs.map(async (href) => {
+            await reloadFailedStylesheet(href);
+            failedSettingsStylesheets.delete(href);
+        }),
+    );
+}
+
+async function importSettingsPageTrackingStylesheets() {
+    const onDocumentError = (event: Event) => {
+        const target = event.target;
+        if (target instanceof HTMLLinkElement && target.rel === 'stylesheet' && target.href) {
+            failedSettingsStylesheets.add(target.href);
+        }
+    };
+    const onPreloadError = (event: Event) => {
+        const url = readStylesheetPreloadErrorUrl(event);
+        if (url) {
+            failedSettingsStylesheets.add(url);
+        }
+    };
+    if (typeof document !== 'undefined') {
+        document.addEventListener('error', onDocumentError, true);
+    }
+    if (typeof window !== 'undefined') {
+        window.addEventListener('vite:preloadError', onPreloadError);
+    }
+    try {
+        return await import('@app/components/settings/SettingsPage.vue');
+    } finally {
+        if (typeof document !== 'undefined') {
+            document.removeEventListener('error', onDocumentError, true);
+        }
+        if (typeof window !== 'undefined') {
+            window.removeEventListener('vite:preloadError', onPreloadError);
+        }
+    }
+}
+
+function loadSettingsPage() {
+    const existing = settingsComponent.value;
+    if (existing !== null && failedSettingsStylesheets.size === 0) {
+        settingsLoadState.value = 'loaded';
+        return Promise.resolve();
+    }
+    if (settingsLoadPromise !== null) {
+        return settingsLoadPromise;
+    }
+    settingsLoadState.value = 'loading';
+    const pending = (async () => {
+        await retryFailedSettingsStylesheets();
+        if (loadedSettingsComponent === null) {
+            try {
+                const module = await importSettingsPageTrackingStylesheets();
+                loadedSettingsComponent = module.default;
+                settingsNeedsReload.value = false;
+            } catch (error) {
+                // Browsers cache failed ES module fetches in the document module map,
+                // so a failed JS chunk needs a page reload for a fresh asset fetch.
+                settingsNeedsReload.value = true;
+                throw error;
+            }
+        }
+        if (failedSettingsStylesheets.size > 0) {
+            throw new Error('Settings stylesheet preload failed');
+        }
+        settingsComponent.value = loadedSettingsComponent;
+        settingsLoadState.value = 'loaded';
+    })()
+        .catch(() => {
+            settingsLoadState.value = 'error';
+        })
+        .finally(() => {
+            if (settingsLoadPromise === pending) {
+                settingsLoadPromise = null;
+            }
+        });
+    settingsLoadPromise = pending;
+    return pending;
+}
+</script>
+
 <script setup lang="ts">
 import type {TOpenFileResult} from '@contracts/electronApiDocuments';
 import type {IRecentFile} from '@contracts/shared';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
-import SettingsPage from '@app/components/settings/SettingsPage.vue';
 import type {TStartSection} from '@app/types/startSection';
 import PdfOpenBatchProgress from '@app/modules/pdf-viewer/components/PdfOpenBatchProgress.vue';
 import StartRecentFiles from '@app/modules/pdf-viewer/components/StartRecentFiles.vue';
 import type {IPdfOpenBatchProgress} from '@app/modules/pdf-viewer/runtime/contracts/pdfOpenBatchProgress.types';
 
-// User-initiated surface: stays out of the startup chunk and loads on first open,
+// User-initiated surfaces: stay out of the startup chunk and load on first open,
 // matching the split policy documented in warmupDesktopViewerChunks.ts.
 const CombinePdfPage = defineAsyncComponent(() => import('@app/modules/combine/public').then((module) => module.CombinePdfPage));
 
@@ -203,6 +381,26 @@ const activeSection = computed({
     set: (section: TStartSection) => emit('update:start-section', section),
 });
 const recentSearch = ref('');
+
+function recoverSettingsLoad() {
+    if (settingsNeedsReload.value) {
+        if (typeof window !== 'undefined') {
+            window.location.reload();
+        }
+        return;
+    }
+    void loadSettingsPage();
+}
+
+watch(
+    activeSection,
+    (section) => {
+        if (section === 'settings' && !settingsNeedsReload.value && settingsComponent.value === null) {
+            void loadSettingsPage();
+        }
+    },
+    {immediate: true},
+);
 
 function openFile() {
     emit('open-file');
@@ -359,6 +557,35 @@ function openFile() {
 
     height: 100%;
     min-height: 0;
+}
+
+.start-settings-status {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--app-space-3xl);
+    height: 100%;
+    padding: var(--app-start-panel-padding);
+    border: 1px solid var(--app-start-card-border);
+    border-radius: var(--app-start-panel-radius);
+    background: var(--app-start-card-bg);
+    color: var(--ui-text-muted);
+    text-align: center;
+}
+
+.start-settings-status-icon {
+    width: var(--app-control-height-sm);
+    height: var(--app-control-height-sm);
+    color: var(--ui-text-dimmed);
+}
+
+.start-settings-status-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: var(--app-start-recent-controls-gap);
 }
 
 .start-open-panel {

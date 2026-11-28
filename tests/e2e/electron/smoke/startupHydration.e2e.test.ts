@@ -425,4 +425,16 @@ describe('Electron E2E - Startup Hydration', () => {
         expect(result.sample!.appReadyAt!).toBeGreaterThanOrEqual(result.sample!.navigationStartedAt);
         expect(result.sample!.appReadyAt!).toBeLessThanOrEqual(result.sample!.appReadyObservedAt!);
     });
+
+    it('loads the async Settings surface on demand from the Start rail', async () => {
+        const session = sessionFixture.getSession();
+
+        await waitForAppReady(session);
+        await clickAsUser(session.page, '.start-rail .rail-section:last-of-type .rail-item');
+        await session.page.waitForSelector('.settings-page-content', {
+            visible: true,
+            timeout: 10_000,
+        });
+        expect(await session.page.evaluate(() => Boolean(document.querySelector('.settings-page-content')))).toBe(true);
+    });
 });
